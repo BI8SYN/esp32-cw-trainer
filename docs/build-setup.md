@@ -127,7 +127,7 @@ tools/idf.sh fullclean    # 清理
 
 | 项 | 上游 `app_config.h` | 设备 NVS 实际值 |
 |---|---|---|
-| 默认呼号 | `BI8SIG`（作者呼号） | `BI4TKL` |
+| 默认呼号 | `BI8SIG`（上游作者呼号） | NVS 里存的是 `BI8SYN` |
 | Audio WS | `ws://192.168.3.165/audio` | `ws://fmo.local/audio` |
 | Event WS | `ws://192.168.3.165/events` | `ws://fmo.local/events` |
 | Station WS | `ws://192.168.3.165/ws` | `ws://fmo.local/ws` |
