@@ -79,19 +79,30 @@ ERROR: Activation script failed
 
 ## 项目结构
 
-上游作为 submodule 挂在 `firmware/fmo-companion`：
+固件源码直接放在 `firmware/fmo-companion`，**不是 submodule**——克隆仓库即可得到全部内容，无需额外拉取，也不依赖任何外部仓库。
+
+源码及其完整历史（上游 8 个提交 + 我们的改动）是用 `git subtree` 并入的，
+所以 `git log` / `git blame` 能一路追溯到上游的 `03323b7 Initial commit`。
+
+版本号由主仓库的 `git describe` 生成（如 `V1.31-16-gfd26c79`），
+一个仓库一条版本线。
+
+### 多固件开发
+
+`tools/idf.sh` 通过 `PROJECT` 环境变量选择工程，默认 `firmware/fmo-companion`：
 
 ```bash
-git submodule add https://github.com/Johnson-LYS/esp32-fmo-companion.git firmware/fmo-companion
+PROJECT=firmware/<其它固件> tools/idf.sh build
 ```
 
-指向 **fork**（`Johnson-LYS/esp32-fmo-companion`）而不是上游原仓库，这样自己的改动可以直接推。当前锁定在 `8d372f9`（= 设备上固件对应的 commit，也是上游 `main` 的 HEAD，标签 V1.31）。
+`esp.sh` / `backup_flash.sh` / `restore_flash.sh` / `analyze_dump.py` 与固件无关，各工程共享。
 
-克隆后拉取：
+三个需要注意的约束：
 
-```bash
-git submodule update --init --recursive
-```
+- **设备一次只能刷一个固件**（只有一个 app 分区），切换需重刷约 4 分钟
+- **NVS 是共享的**，不同固件若使用相同命名空间会互相污染，切换时可能需要
+  `tools/esp.sh erase_region 0x9000 0x6000`
+- 新固件如果不打算单独开源，直接放普通目录即可，不必再引入 submodule
 
 ## 使用
 
