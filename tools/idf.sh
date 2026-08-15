@@ -10,7 +10,7 @@
 # 环境变量：
 #   IDF_DIR    ESP-IDF 安装位置，默认 ~/esp/esp-idf
 #   ESP_PORT   串口，默认 /dev/cu.usbserial-310
-#   ESP_BAUD   波特率，默认 115200（这块板子的 CH340 在高波特率下不可靠）
+#   ESP_BAUD   波特率，默认 460800（实测见下方说明）
 #   PROJECT    工程目录，默认 firmware/fmo-companion
 set -euo pipefail
 
@@ -19,7 +19,17 @@ REPO_ROOT="$PWD"
 
 IDF_DIR="${IDF_DIR:-$HOME/esp/esp-idf}"
 PORT="${ESP_PORT:-/dev/cu.usbserial-310}"
-BAUD="${ESP_BAUD:-115200}"
+# 写入用 460800：实测 app 分区烧录 117.5s -> 30.9s，三处 MD5 校验全部通过。
+#
+# 与 tools/esp.sh 的 115200 不同是有原因的：
+#   - 读取（read_flash）在 460800 下实测会出现 Corrupt data，且**没有校验**
+#     能发现，会静默读出错误内容，所以备份必须坚持 115200
+#   - 写入（write_flash）每段结束都做 MD5 校验（日志里的 Hash of data
+#     verified），传输出错会当场失败并可重试，不会静默写坏
+#
+# 921600 实测在握手阶段就失败（Unable to verify flash chip connection），
+# 属于安全失败——一个字节都不会写入。
+BAUD="${ESP_BAUD:-460800}"
 PROJECT="${PROJECT:-firmware/fmo-companion}"
 
 [[ -f "$IDF_DIR/export.sh" ]] || {
@@ -42,4 +52,14 @@ source "$IDF_DIR/export.sh" > /dev/null
 set -u
 
 cd "$REPO_ROOT/$PROJECT"
+
+# idf.py 的 -b 会同时作用于 monitor，而设备控制台固定 115200，
+# 用 460800 打开会是乱码。因此 monitor 单独降回 115200。
+for arg in "$@"; do
+    if [[ "$arg" == "monitor" ]]; then
+        BAUD=115200
+        break
+    fi
+done
+
 exec idf.py -p "$PORT" -b "$BAUD" "$@"
