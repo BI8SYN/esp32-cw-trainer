@@ -13,6 +13,7 @@
 - 屏幕 320×240 横屏（`sdkconfig.defaults` 已是 `CONFIG_LV_DISPLAY_ORIENTATION_LANDSCAPE=y`，`LV_HOR_RES_MAX=320`），不改方向。
 - 阶段 1 只允许黑、白、灰：不设置任何非灰色 `lv_color`，不加圆角/阴影/动画（`CONFIG_LV_THEME_DEFAULT_TRANSITION_TIME` 保持，但不额外写动画）。
 - 字体只用现有 `font20`（含中文，line_height 26）、`font28`（line_height 37）、`EN_BIG`（大号英数，line_height 82）。
+- **字形限制（已实测）**：`font28` / `EN_BIG` 只含可打印 ASCII（无中文）；`font20` 含全部 ASCII + 3791 个汉字。三者都**没有** `…` `≥` `♪` `·` `−` 等符号，也没有 `LV_SYMBOL_*` 图标字形。界面文字只能用 ASCII + 汉字：省略号写 `...`，"大于等于"写"以上"，点划用 ASCII 的 `.` 和 `-`。中文只能用 `font20`（`UI_FONT_CN`）；`UI_FONT_MID`/`UI_FONT_BIG` 只能放 ASCII。
 - 完全离线：不编译 WiFi / BT / WebSocket；`idf_component.yml` 不含 `esp_websocket_client`。
 - 侧音延迟目标 <15ms：I2S DMA 缓冲总深度 ≤ 12ms。
 - NVS 命名空间 `cwtrn`，与 fmo-companion 的 `appcfg` 隔离。
@@ -108,6 +109,7 @@ idf_component_register(
     INCLUDE_DIRS "." "fonts" "core" "ui"
     REQUIRES
         driver
+        esp_driver_i2s
         esp_timer
         nvs_flash
         esp_adc
@@ -3391,7 +3393,7 @@ static lv_obj_t *build(void)
     if (koch) {
         lv_obj_t *pl = lv_label_create(s);
         if (pass) lv_label_set_text_fmt(pl, "达标，可进第 %u 课", (unsigned)(s_t->lesson + 1));
-        else lv_label_set_text(pl, "再练练，≥90% 解锁下一课");
+        else lv_label_set_text(pl, "再练练，90% 以上解锁下一课");
         lv_obj_set_width(pl, 160);
         lv_label_set_long_mode(pl, LV_LABEL_LONG_WRAP);
         lv_obj_align(pl, LV_ALIGN_TOP_LEFT, 150, 110);
@@ -3609,7 +3611,7 @@ static void player_cb(cw_player_event_t ev, char c, void *user)
 static void play(void)
 {
     s_phase = PH_PLAYING;
-    set_hint("♪ 正在播放…");
+    set_hint("正在播放中");
     set_keys_enabled(false);
     cw_player_play(s_tr.play_text, player_cb, NULL);
 }
