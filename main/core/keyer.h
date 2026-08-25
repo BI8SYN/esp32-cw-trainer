@@ -24,8 +24,6 @@ typedef struct {
 } keyer_t;
 
 void keyer_init(keyer_t *k, keyer_mode_t mode, uint16_t dit_ms);
-void keyer_set_mode(keyer_t *k, keyer_mode_t mode);
-void keyer_set_dit_ms(keyer_t *k, uint16_t dit_ms);
 void keyer_set_input(keyer_t *k, bool dit, bool dah);
 /** 每 1~10ms 调用一次。返回当前输出电平。 */
 bool keyer_tick(keyer_t *k, uint32_t now_ms);

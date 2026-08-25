@@ -12,9 +12,6 @@ void keyer_init(keyer_t *k, keyer_mode_t mode, uint16_t dit_ms)
     k->el_end_ms = 0;
 }
 
-void keyer_set_mode(keyer_t *k, keyer_mode_t mode) { keyer_init(k, mode, k->dit_ms); }
-void keyer_set_dit_ms(keyer_t *k, uint16_t dit_ms) { if (dit_ms) k->dit_ms = dit_ms; }
-
 void keyer_set_input(keyer_t *k, bool dit, bool dah)
 {
     k->dit_in = dit;
