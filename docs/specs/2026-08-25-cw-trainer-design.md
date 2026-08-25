@@ -132,7 +132,7 @@ keyer         电键状态机：输入 dit/dah/straight 电平 → 输出 tone_o
 key_input     把触摸桨（LVGL 事件）或外接口 GPIO（IO22/IO27，内部上拉、去抖 10ms）
               统一为 keyer 的输入电平。外接口 MVP 只留接口与设置项，驱动实现在硬件接上后补。
 cw_decoder    根据元素时长流实时解码为字符：自适应点划阈值，字符间/词间判定。纯逻辑可单测。
-koch_engine   课程表（40 字符标准 Koch 顺序）、生成 5 字符组、评分、达标判定、进度读写。
+koch_engine   课程表（40 字符标准 Koch 顺序，39 课）、生成 5 字符组、评分、达标判定、进度读写。
 callsign_gen  按字符集生成合法格式呼号，生成 3 个易混干扰项（S/H、U/V、E/I、N/M、5/S、0/O 等替换）。
 trainer       练习会话状态机（播放中 → 输入 → 判分 → 下一组 → 结算），三模式共用，
               驱动 cw_player 与 UI。
@@ -154,8 +154,8 @@ typedef struct {
     uint8_t  keyer_mode;      // 0 直键 1 Iambic A 2 Iambic B
     uint8_t  paddle_swap;
     char     callsign[12];    // 默认 BI8SYN
-    uint8_t  koch_lesson;     // 1..40
-    uint8_t  koch_last_pct[40]; // 每课最近一次正确率
+    uint8_t  koch_lesson;     // 1..39（40 字符 Koch 序列，第 1 课 K M，之后每课加 1 字符，共 39 课）
+    uint8_t  koch_last_pct[41]; // 下标 = 课次，每课最近一次正确率，0xFF 表示未练
     uint8_t  brightness;
 } cw_settings_t;
 ```
