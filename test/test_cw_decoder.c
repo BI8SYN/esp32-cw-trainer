@@ -82,6 +82,61 @@ TEST(unknown_pattern_gives_question_mark)
     ASSERT_EQ_STR(buf, "? ");
 }
 
+TEST(upward_runaway_blocked)
+{
+    cw_decoder_t d; cw_decoder_init(&d, 60);
+    uint32_t t = 0;
+    /* 两个临界过长样本：119ms（119<120，按点判定）随后 147ms。
+     * 若没有护栏，第一个样本会把 ref 从 60 拉到 74，随后 147<148 又被判成点，
+     * ref 冲到 92，从此真正的划（180ms）也会被误判成点，一路失控。
+     * 护栏应让这两个样本都不进入平均。 */
+    cw_decoder_key(&d, true, t); t += 119; cw_decoder_key(&d, false, t); t += 60;
+    cw_decoder_key(&d, true, t); t += 147; cw_decoder_key(&d, false, t); t += 60;
+    char scratch[8];
+    t += 1000;  /* 冲刷掉上面产生的（无论内容如何）字符/词间隔，不关心其内容 */
+    collect(&d, t - 1000, t, scratch, sizeof scratch);
+    /* 干净的 60ms 时序发送 K；若 ref 已失控上冲，180ms 的划会被误判成点 */
+    t = send_pattern(&d, "-.-", t, 60);
+    char buf[8]; collect(&d, t, t + 1000, buf, sizeof buf);
+    ASSERT_EQ_STR(buf, "K ");
+}
+
+TEST(downward_crash_blocked)
+{
+    cw_decoder_t d; cw_decoder_init(&d, 60);
+    uint32_t t = 0;
+    /* 四个零长度样本（接触弹跳/单个 tick 的误触）都远低于合理点长。
+     * 若没有护栏，逐次 adapt 会把 ref 一路拽到下限 20（60->45->33->24->20），
+     * 此后真正的 60ms 点也会被误判成划。护栏应让这些样本都不进入平均，
+     * ref 全程停在 60。 */
+    for (int i = 0; i < 4; i++) {
+        cw_decoder_key(&d, true, t); cw_decoder_key(&d, false, t); t += 60;
+    }
+    char scratch[8];
+    t += 1000;
+    collect(&d, t - 1000, t, scratch, sizeof scratch);
+    /* 干净的 60ms 时序发送 S；若 ref 已失控下探，60ms 的点会被误判成划 */
+    t = send_pattern(&d, "...", t, 60);
+    char buf[8]; collect(&d, t, t + 1000, buf, sizeof buf);
+    ASSERT_EQ_STR(buf, "S ");
+}
+
+TEST(genuine_speed_change_still_tracked)
+{
+    cw_decoder_t d; cw_decoder_init(&d, 60);
+    uint32_t t = 0;
+    char buf[16]; int n = 0;
+    /* S I H：全部由点组成，40ms 真实点长下应逐步收敛（60->55->51->48->46->44->...->40），
+     * 证明护栏只挡失控样本，不会冻结对真实变速的跟踪。 */
+    const char *pats[] = { "...", "..", "...." };
+    for (int i = 0; i < 3; i++) {
+        t = send_pattern(&d, pats[i], t, 40);
+        t += 500;  /* 远大于任意阶段的 5x ref（最大 300ms），保证冲刷字符与词间隔 */
+        n += collect(&d, t - 500, t, buf + n, (int)sizeof buf - n);
+    }
+    ASSERT_EQ_STR(buf, "S I H ");
+}
+
 int main(void)
 {
     RUN(decodes_single_char_after_gap);
@@ -89,5 +144,8 @@ int main(void)
     RUN(decodes_word_with_char_gaps);
     RUN(tolerates_20_percent_jitter);
     RUN(unknown_pattern_gives_question_mark);
+    RUN(upward_runaway_blocked);
+    RUN(downward_crash_blocked);
+    RUN(genuine_speed_change_still_tracked);
     TEST_MAIN_END();
 }
