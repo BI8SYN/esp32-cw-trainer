@@ -18,6 +18,12 @@ idf_component_register(
         "ui_async.c"
         "backlight.c"
         "battery.c"
+        "ui/ui_common.c"
+        "ui/ui_home.c"
+        "ui/ui_preview.c"
+        "ui/ui_practice.c"
+        "ui/ui_keyer.c"
+        "ui/ui_settings.c"
     INCLUDE_DIRS "." "fonts" "core" "ui"
     REQUIRES
         driver

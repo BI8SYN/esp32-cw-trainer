@@ -1,0 +1,142 @@
+#include "ui_home.h"
+#include <stdio.h>
+#include <time.h>
+#include "ui_common.h"
+#include "ui_preview.h"
+#include "ui_practice.h"
+#include "ui_keyer.h"
+#include "ui_settings.h"
+#include "cw_settings.h"
+#include "koch_engine.h"
+#include "backlight.h"
+#include "battery.h"
+
+#define IDLE_OFF_MS 120000
+
+static lv_obj_t *s_scr, *s_clock, *s_bat;
+static lv_timer_t *s_timer;
+static bool s_dimmed;
+static bool s_reset_notice_shown;
+
+static void tick(lv_timer_t *t)
+{
+    (void)t;
+    time_t now = time(NULL);
+    struct tm tm;
+    localtime_r(&now, &tm);
+    if (tm.tm_year > 100) lv_label_set_text_fmt(s_clock, "%02d:%02d", tm.tm_hour, tm.tm_min);
+    else lv_label_set_text(s_clock, "--:--");
+
+    uint32_t idle = lv_disp_get_inactive_time(NULL);
+    if (!s_dimmed && idle > IDLE_OFF_MS) { backlight_set(0); s_dimmed = true; }
+    else if (s_dimmed && idle < 1000) { backlight_set(cw_settings_get()->brightness); s_dimmed = false; }
+}
+
+static void on_delete(lv_event_t *e)
+{
+    (void)e;
+    lv_timer_del(s_timer);
+    s_timer = NULL; s_scr = NULL;
+    if (s_dimmed) { backlight_set(cw_settings_get()->brightness); s_dimmed = false; }
+}
+
+static void go_koch(lv_event_t *e)     { (void)e; ui_preview_open(cw_settings_get()->koch_lesson, false); }
+static void go_call(lv_event_t *e)     { (void)e; ui_practice_open(TRAINER_MODE_CALLSIGN); }
+static void go_qso(lv_event_t *e)      { (void)e; ui_practice_open(TRAINER_MODE_QSO); }
+static void go_keyer(lv_event_t *e)    { (void)e; ui_nav_show(ui_keyer_create); }
+static void go_settings(lv_event_t *e) { (void)e; ui_nav_show(ui_settings_create); }
+
+lv_obj_t *ui_home_create(void)
+{
+    const cw_settings_t *cfg = cw_settings_get();
+    s_scr = ui_screen_create();
+    lv_obj_add_event_cb(s_scr, on_delete, LV_EVENT_DELETE, NULL);
+
+    lv_obj_t *bar = ui_topbar(s_scr, "", NULL);
+    s_clock = lv_label_create(bar);
+    lv_label_set_text(s_clock, "--:--");
+    lv_obj_align(s_clock, LV_ALIGN_LEFT_MID, 6, 0);
+
+    lv_obj_t *gear = lv_label_create(bar);
+    lv_label_set_text(gear, "设置");
+    lv_obj_align(gear, LV_ALIGN_RIGHT_MID, -8, 0);
+    lv_obj_add_flag(gear, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_ext_click_area(gear, 10);
+    lv_obj_add_event_cb(gear, go_settings, LV_EVENT_CLICKED, NULL);
+
+    s_bat = lv_label_create(bar);
+    lv_obj_align(s_bat, LV_ALIGN_RIGHT_MID, -60, 0);
+    ui_home_set_battery(battery_percent());
+
+    int top = UI_TOPBAR_H;
+    if (cw_settings_was_reset() && !s_reset_notice_shown) {
+        ui_notice(s_scr, "进度已重置（数据损坏或版本不符）");
+        s_reset_notice_shown = true;
+        top += 22;
+    }
+
+    /* 左：Koch 卡片 */
+    lv_obj_t *card = lv_btn_create(s_scr);
+    lv_obj_set_style_radius(card, 0, 0);
+    lv_obj_set_style_shadow_width(card, 0, 0);
+    lv_obj_set_style_bg_color(card, UI_WHITE, 0);
+    lv_obj_set_style_bg_color(card, UI_GRAY_BG, LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(card, 1, 0);
+    lv_obj_set_style_border_side(card, LV_BORDER_SIDE_RIGHT, 0);
+    lv_obj_set_style_border_color(card, UI_BLACK, 0);
+    lv_obj_set_style_pad_all(card, 8, 0);
+    lv_obj_set_pos(card, 0, top);
+    lv_obj_set_size(card, 200, 240 - top);
+    lv_obj_add_event_cb(card, go_koch, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *l1 = lv_label_create(card);
+    lv_obj_set_style_text_font(l1, UI_FONT_MID, 0);
+    lv_obj_set_style_text_color(l1, UI_BLACK, 0);
+    lv_label_set_text_fmt(l1, "KOCH 第 %u 课", cfg->koch_lesson);
+    lv_obj_align(l1, LV_ALIGN_TOP_LEFT, 0, 0);
+
+    char cs[48]; koch_charset(cfg->koch_lesson, cs);
+    lv_obj_t *l2 = lv_label_create(card);
+    lv_obj_set_style_text_color(l2, UI_BLACK, 0);
+    lv_obj_set_width(l2, 184);
+    lv_label_set_long_mode(l2, LV_LABEL_LONG_WRAP);
+    if (cfg->koch_lesson == 1 && cfg->koch_last_pct[1] == 0xFF) lv_label_set_text_fmt(l2, "%s", cs);
+    else lv_label_set_text_fmt(l2, "已解锁 %s", cs);
+    lv_obj_align(l2, LV_ALIGN_TOP_LEFT, 0, 40);
+
+    lv_obj_t *l3 = lv_label_create(card);
+    lv_obj_set_style_text_color(l3, UI_BLACK, 0);
+    uint8_t last = cfg->koch_last_pct[cfg->koch_lesson];
+    if (last == 0xFF) lv_label_set_text(l3, "未开始");
+    else lv_label_set_text_fmt(l3, "上次 %u%%", last);
+    lv_obj_align(l3, LV_ALIGN_TOP_LEFT, 0, 96);
+
+    lv_obj_t *l4 = lv_label_create(card);
+    lv_obj_set_style_text_font(l4, UI_FONT_MID, 0);
+    lv_obj_set_style_text_color(l4, UI_BLACK, 0);
+    lv_label_set_text(l4, last == 0xFF ? "开始练习 >" : "继续练习 >");
+    lv_obj_align(l4, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+
+    /* 右：三个入口 */
+    const char *names[3] = { "呼号抄收 >", "模拟 QSO >", "电键 >" };
+    lv_event_cb_t cbs[3] = { go_call, go_qso, go_keyer };
+    int h = (240 - top) / 3;
+    for (int i = 0; i < 3; i++) {
+        lv_obj_t *c = ui_cell(s_scr, names[i], UI_FONT_CN, cbs[i], NULL);
+        lv_obj_set_pos(c, 200, top + i * h);
+        lv_obj_set_size(c, 120, h);
+        lv_obj_set_style_border_side(c, i < 2 ? LV_BORDER_SIDE_BOTTOM : LV_BORDER_SIDE_NONE, 0);
+    }
+
+    s_dimmed = false;
+    s_timer = lv_timer_create(tick, 1000, NULL);
+    tick(s_timer);
+    return s_scr;
+}
+
+void ui_home_set_battery(uint8_t percent)
+{
+    if (!s_scr || !s_bat) return;
+    if (percent < 15) lv_label_set_text_fmt(s_bat, "电 %u%% !", percent);
+    else lv_label_set_text_fmt(s_bat, "电 %u%%", percent);
+}
