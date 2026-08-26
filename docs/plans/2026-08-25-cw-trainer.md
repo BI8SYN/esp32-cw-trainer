@@ -15,7 +15,9 @@
 - 字体只用现有 `font20`（含中文，line_height 26）、`font28`（line_height 37）、`EN_BIG`（大号英数，line_height 82）。
 - **字形限制（已实测）**：`font28` / `EN_BIG` 只含可打印 ASCII（无中文）；`font20` 含全部 ASCII + 3791 个汉字。三者都**没有** `…` `≥` `♪` `·` `−` 等符号，也没有 `LV_SYMBOL_*` 图标字形。界面文字只能用 ASCII + 汉字：省略号写 `...`，"大于等于"写"以上"，点划用 ASCII 的 `.` 和 `-`。中文只能用 `font20`（`UI_FONT_CN`）；`UI_FONT_MID`/`UI_FONT_BIG` 只能放 ASCII。
 - 完全离线：不编译 WiFi / BT / WebSocket；`idf_component.yml` 不含 `esp_websocket_client`。
-- 侧音延迟目标 <15ms：I2S DMA 缓冲总深度 ≤ 12ms。
+- 侧音延迟目标 <15ms：I2S DMA 缓冲总深度 3×64 样本 @32kHz = 6ms。
+- **内置 DAC 采样率下限**：legacy I2S 的 `i2s_calculate_adc_dac_clock` 要求 `mclk_div = 160e6/(rate*32) < 256`，即 rate > 19531Hz。
+  16kHz 会失败，而 `i2s_set_clock_legacy` **不检查该函数的返回值**，错误被吞掉、driver_install 仍返回 ESP_OK。故采样率固定 32kHz（与 fmo-companion 相同，mclk_div=156）。
 - NVS 命名空间 `cwtrn`，与 fmo-companion 的 `appcfg` 隔离。
 - 所有 `main/core/*.c` 文件**不得** include 任何 `esp_*`、`freertos/*`、`driver/*`、`lvgl` 头。
 - 构建命令：`PROJECT=firmware/cw-trainer tools/idf.sh build`；主机测试：`make -C firmware/cw-trainer/test`。
@@ -2092,11 +2094,11 @@ void      tone_gen_set_volume(uint8_t percent);
 
 static const char *TAG = "tone_gen";
 
-#define SAMPLE_RATE     16000
-#define BLOCK_SAMPLES   64          /* 4ms */
+#define SAMPLE_RATE     32000       /* 内置 DAC 路径最低约 19531Hz：mclk_div = 160e6/(rate*32) 必须 < 256 */
+#define BLOCK_SAMPLES   64          /* 2ms @32kHz */
 #define DMA_BUF_COUNT   3
-#define RAMP_SAMPLES    80          /* 5ms */
-#define AMP_OFF_DELAY_BLOCKS 50     /* 200ms */
+#define RAMP_SAMPLES    160         /* 5ms @32kHz */
+#define AMP_OFF_DELAY_BLOCKS 100    /* 200ms @32kHz（每块 2ms） */
 #define SINE_N          256
 
 static int16_t s_sine[SINE_N];
