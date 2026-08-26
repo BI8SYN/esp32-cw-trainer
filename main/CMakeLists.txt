@@ -12,9 +12,6 @@ idf_component_register(
         "core/koch_engine.c"
         "core/callsign_gen.c"
         "core/trainer.c"
-        "fonts/font20.c"
-        "fonts/font28.c"
-        "fonts/EN_BIG.c"
         "ui_async.c"
         "backlight.c"
         "battery.c"
@@ -25,7 +22,7 @@ idf_component_register(
         "ui/ui_result.c"
         "ui/ui_keyer.c"
         "ui/ui_settings.c"
-    INCLUDE_DIRS "." "fonts" "core" "ui"
+    INCLUDE_DIRS "." "core" "ui"
     REQUIRES
         esp_app_format
         driver
@@ -36,4 +33,5 @@ idf_component_register(
         lvgl
         lv_porting
         lvgl_esp32_drivers
+        fonts
 )

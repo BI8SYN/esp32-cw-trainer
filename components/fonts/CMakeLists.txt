@@ -1,0 +1,10 @@
+idf_component_register(
+    SRCS
+        "font20.c"
+        "font28.c"
+        "EN_BIG.c"
+        "clock_font.c"
+        "status_font.c"
+    REQUIRES
+        lvgl
+)
