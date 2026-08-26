@@ -3,6 +3,7 @@
 #include "freertos/task.h"
 #include "driver/gpio.h"
 #include "esp_timer.h"
+#include "esp_log.h"
 #include "board_config.h"
 #include "cw_settings.h"
 #include "keyer.h"
@@ -10,6 +11,8 @@
 #include "tone_gen.h"
 
 #define TICK_MS 5
+
+static const char *TAG = "key_input";
 
 static TaskHandle_t s_task;
 static volatile bool s_running;
@@ -121,6 +124,22 @@ void key_input_start(key_input_char_cb_t cb, void *user)
     s_last_out = false;
     s_cb = cb;
     s_user = user;
+    if (c->key_input == CW_KEY_INPUT_EXT) {
+        /* 启动自检，只在选中外接口模式时做：引脚已经在 key_input_init() 里配置
+         * 成输入+内部上拉，这里立即采样一次原始电平——不经过去抖（去抖要两个
+         * tick 才能给出稳定值，这里要的是"这一刻马上能看到"的诊断信息，不是
+         * 拿去驱动 keyer）。如果操作者还没碰任何东西，某根线就已经读成"按下"，
+         * 说明这根线的空闲电平不是预期的高电平（例如 GPIO27，见 board_config.h
+         * 里针对它的说明），键控从一开始就会是错的、且看起来毫无缘由。这里只打
+         * 警告日志、不阻止外接口模式启用——换一块接线方式不同的板子上这两根线
+         * 完全可能是正常的高电平，不能靠猜就拒绝启用。 */
+        if (gpio_get_level(BOARD_KEY_DIT_GPIO) == 0) {
+            ESP_LOGW(TAG, "external dit line (GPIO%d) reads ACTIVE before any key press - idle level is not the expected high, this pin will behave as a stuck key", (int)BOARD_KEY_DIT_GPIO);
+        }
+        if (gpio_get_level(BOARD_KEY_DAH_GPIO) == 0) {
+            ESP_LOGW(TAG, "external dah line (GPIO%d) reads ACTIVE before any key press - idle level is not the expected high, this pin will behave as a stuck key", (int)BOARD_KEY_DAH_GPIO);
+        }
+    }
     s_running = true;
     xTaskNotifyGive(s_task);
 }
