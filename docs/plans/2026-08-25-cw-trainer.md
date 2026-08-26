@@ -1535,14 +1535,14 @@ git commit -m "CW：新增呼号生成与易混干扰项"
       char rst[4];                     /* QSO 正确 RST */
       char options[4][CALLSIGN_MAX];   /* 呼号/QSO 呼号选项（含正确项，顺序已打乱） */
       char rst_options[4][4];          /* QSO RST 选项（已打乱） */
-      char play_text[48];              /* 本轮应播放的文本 */
+      char my_callsign[12];            /* 本机呼号副本，QSO 播放文本用 */
+      char play_text[64];              /* 本轮应播放的文本（定向 QSO 整句最坏 49 字节） */
       trainer_error_t errors[TRAINER_MAX_ERRORS];
       uint8_t error_count;
       bool finished;
   } trainer_t;
 
-  /* my_callsign 只在 QSO 模式播放文本中用到 */
-  void trainer_start(trainer_t *t, trainer_mode_t mode, uint8_t lesson, uint32_t seed);
+  void trainer_start(trainer_t *t, trainer_mode_t mode, uint8_t lesson, const char *my_callsign, uint32_t seed);
   /* 提交答案。Koch：5 字符串；呼号：所选呼号；QSO："呼号 RST"（空格分隔）。返回本轮是否全对，并把逐字错误累加到 errors。 */
   bool trainer_submit(trainer_t *t, const char *answer);
   /* 进入下一组；若已满 TRAINER_ROUNDS 组则置 finished 并返回 false。 */
@@ -1550,7 +1550,7 @@ git commit -m "CW：新增呼号生成与易混干扰项"
   uint8_t trainer_percent(const trainer_t *t);   /* correct_rounds*100/TRAINER_ROUNDS */
   /* 生成本轮的 target / options / play_text（trainer_start 与 trainer_next 内部调用） */
   ```
-  播放文本：Koch = target；呼号 = target；QSO = `"CQ CQ DE <target> K"`（RST 在第二段：`" UR RST <rst> <rst> BK"`，合并为一个字符串，`play_text` 里两段之间用空格）。
+  播放文本：Koch = target；呼号 = target；QSO = `"<my_callsign> DE <target> <target> K UR RST <rst> <rst> BK"`（对方回应本机的定向呼叫，对方呼号播两遍）。
 
 - [ ] **Step 1: 写失败测试**
 
@@ -1562,7 +1562,7 @@ git commit -m "CW：新增呼号生成与易混干扰项"
 
 TEST(koch_ten_rounds_and_percent)
 {
-    trainer_t t; trainer_start(&t, TRAINER_MODE_KOCH, 7, 42);
+    trainer_t t; trainer_start(&t, TRAINER_MODE_KOCH, 7, "BI8SYN", 42);
     ASSERT_EQ_INT((int)strlen(t.target), 5);
     ASSERT_EQ_STR(t.play_text, t.target);
     int rounds = 0;
@@ -1579,7 +1579,7 @@ TEST(koch_ten_rounds_and_percent)
 
 TEST(koch_records_errors)
 {
-    trainer_t t; trainer_start(&t, TRAINER_MODE_KOCH, 7, 42);
+    trainer_t t; trainer_start(&t, TRAINER_MODE_KOCH, 7, "BI8SYN", 42);
     char wrong[8]; strcpy(wrong, t.target);
     wrong[4] = (wrong[4] == 'K') ? 'M' : 'K';
     ASSERT_TRUE(!trainer_submit(&t, wrong));
@@ -1591,7 +1591,7 @@ TEST(koch_records_errors)
 
 TEST(callsign_mode_options_contain_target)
 {
-    trainer_t t; trainer_start(&t, TRAINER_MODE_CALLSIGN, 39, 1);
+    trainer_t t; trainer_start(&t, TRAINER_MODE_CALLSIGN, 39, "BI8SYN", 1);
     ASSERT_TRUE(!t.charset_fallback);
     int found = 0;
     for (int i = 0; i < 4; i++) if (strcmp(t.options[i], t.target) == 0) found++;
@@ -1605,14 +1605,14 @@ TEST(callsign_mode_options_contain_target)
 
 TEST(callsign_mode_falls_back_when_charset_small)
 {
-    trainer_t t; trainer_start(&t, TRAINER_MODE_CALLSIGN, 1, 1);   /* 第 1 课只有 K M */
+    trainer_t t; trainer_start(&t, TRAINER_MODE_CALLSIGN, 1, "BI8SYN", 1);   /* 第 1 课只有 K M */
     ASSERT_TRUE(t.charset_fallback);
     ASSERT_TRUE(strlen(t.target) >= 3);
 }
 
 TEST(qso_mode_play_text_and_answer)
 {
-    trainer_t t; trainer_start(&t, TRAINER_MODE_QSO, 39, 8);
+    trainer_t t; trainer_start(&t, TRAINER_MODE_QSO, 39, "BI8SYN", 8);
     ASSERT_TRUE(strstr(t.play_text, "CQ CQ DE ") == t.play_text);
     ASSERT_TRUE(strstr(t.play_text, t.target) != NULL);
     ASSERT_TRUE(strstr(t.play_text, t.rst) != NULL);
@@ -1669,13 +1669,14 @@ typedef struct {
     char rst[4];
     char options[4][CALLSIGN_MAX];
     char rst_options[4][4];
-    char play_text[48];
+    char my_callsign[12];
+    char play_text[64];
     trainer_error_t errors[TRAINER_MAX_ERRORS];
     uint8_t error_count;
     bool finished;
 } trainer_t;
 
-void    trainer_start(trainer_t *t, trainer_mode_t mode, uint8_t lesson, uint32_t seed);
+void    trainer_start(trainer_t *t, trainer_mode_t mode, uint8_t lesson, const char *my_callsign, uint32_t seed);
 bool    trainer_submit(trainer_t *t, const char *answer);
 bool    trainer_next(trainer_t *t);
 uint8_t trainer_percent(const trainer_t *t);
@@ -1754,13 +1755,13 @@ static void gen_round(trainer_t *t)
             strcpy(t->rst_options[i], t->rst_options[j]);
             strcpy(t->rst_options[j], tmp);
         }
-        snprintf(t->play_text, sizeof t->play_text, "CQ CQ DE %s K UR RST %s %s BK", t->target, t->rst, t->rst);
+        snprintf(t->play_text, sizeof t->play_text, "%s DE %s %s K UR RST %s %s BK", t->my_callsign, t->target, t->target, t->rst, t->rst);
         break;
     }
     }
 }
 
-void trainer_start(trainer_t *t, trainer_mode_t mode, uint8_t lesson, uint32_t seed)
+void trainer_start(trainer_t *t, trainer_mode_t mode, uint8_t lesson, const char *my_callsign, uint32_t seed)
 {
     memset(t, 0, sizeof *t);
     t->mode = mode;
@@ -3826,7 +3827,7 @@ static lv_obj_t *build(void)
 
 static void open_with(trainer_mode_t mode, uint8_t lesson)
 {
-    trainer_start(&s_tr, mode, lesson, (uint32_t)esp_timer_get_time());
+    trainer_start(&s_tr, mode, lesson, cw_settings_get()->callsign, (uint32_t)esp_timer_get_time());
     ui_nav_show(build);
 }
 
