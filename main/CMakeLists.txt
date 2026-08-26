@@ -1,6 +1,14 @@
 idf_component_register(
     SRCS
         "main.c"
+        "cw_settings.c"
+        "core/morse_table.c"
+        "core/morse_timing.c"
+        "core/keyer.c"
+        "core/cw_decoder.c"
+        "core/koch_engine.c"
+        "core/callsign_gen.c"
+        "core/trainer.c"
         "fonts/font20.c"
         "fonts/font28.c"
         "fonts/EN_BIG.c"

@@ -3,6 +3,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
+#include "cw_settings.h"
 #include "lvgl.h"
 #include "lv_port_disp.h"
 #include "lv_port_indev.h"
@@ -27,6 +28,11 @@ void app_main(void)
 {
     esp_log_level_set("XPT2046", ESP_LOG_WARN);
     nvs_init();
+    ESP_ERROR_CHECK(cw_settings_init());
+    ESP_LOGI(TAG, "cfg: wpm=%u/%u tone=%u lesson=%u reset=%d",
+             cw_settings_get()->char_wpm, cw_settings_get()->eff_wpm,
+             cw_settings_get()->tone_hz, cw_settings_get()->koch_lesson,
+             cw_settings_was_reset());
     lv_init();
     lv_port_disp_init();
     lv_port_indev_init();
