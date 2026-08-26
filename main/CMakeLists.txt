@@ -14,6 +14,9 @@ idf_component_register(
         "fonts/font20.c"
         "fonts/font28.c"
         "fonts/EN_BIG.c"
+        "ui_async.c"
+        "backlight.c"
+        "battery.c"
     INCLUDE_DIRS "." "fonts" "core" "ui"
     REQUIRES
         driver
