@@ -104,6 +104,8 @@ PROJECT=firmware/<其它固件> tools/idf.sh build
   `tools/esp.sh erase_region 0x9000 0x6000`
 - 新固件如果不打算单独开源，直接放普通目录即可，不必再引入 submodule
 
+现有工程：`firmware/fmo-companion`（默认）、`firmware/cw-trainer`、`firmware/sdfont-bench`。
+
 ## 使用
 
 ```bash
