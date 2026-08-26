@@ -10,11 +10,11 @@
 
 static const char *TAG = "tone_gen";
 
-#define SAMPLE_RATE     16000
-#define BLOCK_SAMPLES   64          /* 4ms */
+#define SAMPLE_RATE     32000
+#define BLOCK_SAMPLES   64          /* 2ms */
 #define DMA_BUF_COUNT   3
-#define RAMP_SAMPLES    80          /* 5ms */
-#define AMP_OFF_DELAY_BLOCKS 50     /* 200ms */
+#define RAMP_SAMPLES    160         /* 5ms */
+#define AMP_OFF_DELAY_BLOCKS 100    /* 200ms */
 #define SINE_N          256
 
 static int16_t s_sine[SINE_N];
