@@ -16,6 +16,9 @@
 - **字形限制（已实测）**：`font28` / `EN_BIG` 只含可打印 ASCII（无中文）；`font20` 含全部 ASCII + 3791 个汉字。三者都**没有** `…` `≥` `♪` `·` `−` 等符号，也没有 `LV_SYMBOL_*` 图标字形。界面文字只能用 ASCII + 汉字：省略号写 `...`，"大于等于"写"以上"，点划用 ASCII 的 `.` 和 `-`。中文只能用 `font20`（`UI_FONT_CN`）；`UI_FONT_MID`/`UI_FONT_BIG` 只能放 ASCII。
 - 完全离线：不编译 WiFi / BT / WebSocket；`idf_component.yml` 不含 `esp_websocket_client`。
 - 侧音延迟目标 <15ms：I2S DMA 缓冲总深度 3×64 样本 @32kHz = 6ms。
+- **GPIO27 不适合做外接电键的"划"输入（实测）**：厂商手册把 GPIO27 记为"扩展 SPI 片选预留"、方向为**输出**，实测在开启内部上拉的情况下空闲仍读为低。
+  选外接电键模式时它会从第一个 tick 起就被当成"划一直按住"。当前保留引脚定义不变，但 `board_config.h` 有说明，且外接模式启动时会打警告。
+  备选：CN4 的 IO35（仅输入脚，ESP32 的 34-39 **没有内部上拉**，需外接电阻）；CN3 的 IO19（SD MISO，占用会与将来的 SD 支持冲突）。需实测决定。
 - **内置 DAC 采样率下限**：legacy I2S 的 `i2s_calculate_adc_dac_clock` 要求 `mclk_div = 160e6/(rate*32) < 256`，即 rate > 19531Hz。
   16kHz 会失败，而 `i2s_set_clock_legacy` **不检查该函数的返回值**，错误被吞掉、driver_install 仍返回 ESP_OK。故采样率固定 32kHz（与 fmo-companion 相同，mclk_div=156）。
 - NVS 命名空间 `cwtrn`，与 fmo-companion 的 `appcfg` 隔离。
