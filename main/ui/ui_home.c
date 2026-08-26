@@ -61,7 +61,9 @@ lv_obj_t *ui_home_create(void)
     lv_label_set_text(gear, "设置");
     lv_obj_align(gear, LV_ALIGN_RIGHT_MID, -8, 0);
     lv_obj_add_flag(gear, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_ext_click_area(gear, 10);
+    /* 电阻屏漏点比电容屏更常见；扩大到短边 >=48px（视觉文字大小不变，只是可点区域向外扩）。
+       "设置" 只在主页出现，主页没有返回箭头，两者不会在同一页重叠 */
+    lv_obj_set_ext_click_area(gear, 14);
     lv_obj_add_event_cb(gear, go_settings, LV_EVENT_CLICKED, NULL);
 
     s_bat = lv_label_create(bar);
@@ -85,6 +87,10 @@ lv_obj_t *ui_home_create(void)
     lv_obj_set_style_border_side(card, LV_BORDER_SIDE_RIGHT, 0);
     lv_obj_set_style_border_color(card, UI_BLACK, 0);
     lv_obj_set_style_pad_all(card, 8, 0);
+    /* 默认主题给按下状态加了 transform_width/height 放大 + 80ms 缓动动画；
+       phase 1 禁止任何动画，这里显式清零覆盖 */
+    lv_obj_set_style_transform_width(card, 0, LV_STATE_PRESSED);
+    lv_obj_set_style_transform_height(card, 0, LV_STATE_PRESSED);
     lv_obj_set_pos(card, 0, top);
     lv_obj_set_size(card, 200, 240 - top);
     lv_obj_add_event_cb(card, go_koch, LV_EVENT_CLICKED, NULL);

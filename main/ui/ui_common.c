@@ -49,7 +49,9 @@ lv_obj_t *ui_topbar(lv_obj_t *parent, const char *title, lv_event_cb_t back_cb)
         lv_obj_set_style_pad_left(back, 6, 0);
         lv_obj_align(back, LV_ALIGN_LEFT_MID, 0, 0);
         lv_obj_add_flag(back, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_set_ext_click_area(back, 8);
+        /* 电阻屏漏点比电容屏更常见，返回箭头在每一页都存在；扩大到短边 >=48px
+           （视觉上的 36x28 不变，只是可点区域向外扩） */
+        lv_obj_set_ext_click_area(back, 14);
         lv_obj_add_event_cb(back, back_cb, LV_EVENT_CLICKED, NULL);
         x = 40;
     }
@@ -63,6 +65,11 @@ static lv_obj_t *make_btn(lv_obj_t *parent, const char *text, const lv_font_t *f
 {
     lv_obj_t *b = lv_btn_create(parent);
     plain(b);
+    /* 默认主题（CONFIG_LV_THEME_DEFAULT_GROW）给按下状态加了 transform_width/height
+       放大 + 80ms 缓动动画；phase 1 禁止任何动画，这里在本地样式里显式清零覆盖，
+       不依赖 Kconfig（谁都可能把那个选项改回去） */
+    lv_obj_set_style_transform_width(b, 0, LV_STATE_PRESSED);
+    lv_obj_set_style_transform_height(b, 0, LV_STATE_PRESSED);
     lv_obj_set_style_bg_color(b, UI_WHITE, 0);
     lv_obj_set_style_bg_color(b, UI_GRAY_DOWN, LV_STATE_PRESSED);
     lv_obj_set_style_bg_color(b, UI_WHITE, LV_STATE_DISABLED);
