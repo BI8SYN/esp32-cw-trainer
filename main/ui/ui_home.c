@@ -90,7 +90,7 @@ lv_obj_t *ui_home_create(void)
     lv_obj_add_event_cb(card, go_koch, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *l1 = lv_label_create(card);
-    lv_obj_set_style_text_font(l1, UI_FONT_MID, 0);
+    /* 含中文（"第...课"），必须留在屏幕默认的 UI_FONT_CN，不能设成 UI_FONT_MID/UI_FONT_BIG（无中文字形） */
     lv_obj_set_style_text_color(l1, UI_BLACK, 0);
     lv_label_set_text_fmt(l1, "KOCH 第 %u 课", cfg->koch_lesson);
     lv_obj_align(l1, LV_ALIGN_TOP_LEFT, 0, 0);
@@ -112,7 +112,7 @@ lv_obj_t *ui_home_create(void)
     lv_obj_align(l3, LV_ALIGN_TOP_LEFT, 0, 96);
 
     lv_obj_t *l4 = lv_label_create(card);
-    lv_obj_set_style_text_font(l4, UI_FONT_MID, 0);
+    /* 含中文（"开始/继续练习"），必须留在屏幕默认的 UI_FONT_CN，不能设成 UI_FONT_MID/UI_FONT_BIG（无中文字形） */
     lv_obj_set_style_text_color(l4, UI_BLACK, 0);
     lv_label_set_text(l4, last == 0xFF ? "开始练习 >" : "继续练习 >");
     lv_obj_align(l4, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
