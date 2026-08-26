@@ -15,7 +15,7 @@ static void set_defaults(cw_settings_t *c)
     memset(c, 0, sizeof *c);
     c->version = CW_SETTINGS_VERSION;
     c->char_wpm = 20;
-    c->eff_wpm = 8;
+    c->eff_wpm = 15;
     c->tone_hz = 600;
     c->volume = 70;
     c->key_input = CW_KEY_INPUT_TOUCH;

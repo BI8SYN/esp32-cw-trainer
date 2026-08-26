@@ -18,6 +18,8 @@ typedef struct {
     int min, max, step; const char *unit;
     const char *const *choices; int nchoices;
     bool listen;   /* 数值页显示"试听" */
+    const char *info; /* 仅 IT_INFO 用：这一行要显示的固定文本（原来写死 APP_VERSION，
+                          现在两个 IT_INFO 行——作者/版本——各自带自己的值） */
 } item_t;
 
 static const char *const KEY_INPUTS[] = { "触摸屏", "外接口" };
@@ -28,25 +30,26 @@ static const char *const KEYER_MODES[] = { "直键", "Iambic A", "Iambic B" };
  * 不一致时不会有编译错误，只会静默地读到 0 或者什么都不写。ID 化分派的
  * 重构已记录为最终评审的待办项，这里先加注释把这条隐性耦合钉死。 */
 static const item_t AUDIO[] = {
-    { "字符速度", IT_NUM, 5, 40, 1, " WPM", NULL, 0, true },
-    { "有效速度", IT_NUM, 5, 40, 1, " WPM", NULL, 0, true },
-    { "音调",     IT_NUM, 400, 1000, 50, " Hz", NULL, 0, true },
-    { "音量",     IT_NUM, 0, 100, 10, "%", NULL, 0, true },
+    { "字符速度", IT_NUM, 5, 40, 1, " WPM", NULL, 0, true, NULL },
+    { "有效速度", IT_NUM, 5, 40, 1, " WPM", NULL, 0, true, NULL },
+    { "音调",     IT_NUM, 400, 1000, 50, " Hz", NULL, 0, true, NULL },
+    { "音量",     IT_NUM, 0, 100, 10, "%", NULL, 0, true, NULL },
 };
 static const item_t KEY[] = {
-    { "电键输入", IT_CHOICE, 0, 0, 0, "", KEY_INPUTS, 2, false },
-    { "电键类型", IT_CHOICE, 0, 0, 0, "", KEYER_MODES, 3, false },
-    { "桨键左右对调", IT_TOGGLE, 0, 0, 0, "", NULL, 0, false },
+    { "电键输入", IT_CHOICE, 0, 0, 0, "", KEY_INPUTS, 2, false, NULL },
+    { "电键类型", IT_CHOICE, 0, 0, 0, "", KEYER_MODES, 3, false, NULL },
+    { "桨键左右对调", IT_TOGGLE, 0, 0, 0, "", NULL, 0, false, NULL },
 };
 static const item_t GEN[] = {
-    { "我的呼号", IT_CALLSIGN, 0, 0, 0, "", NULL, 0, false },
-    { "Koch 课次", IT_NUM, 1, 39, 1, "", NULL, 0, false },
-    { "屏幕亮度", IT_NUM, 10, 100, 10, "%", NULL, 0, false },
-    { "恢复出厂设置", IT_RESET, 0, 0, 0, "", NULL, 0, false },
-    { "版本", IT_INFO, 0, 0, 0, "", NULL, 0, false },
+    { "我的呼号", IT_CALLSIGN, 0, 0, 0, "", NULL, 0, false, NULL },
+    { "Koch 课次", IT_NUM, 1, 39, 1, "", NULL, 0, false, NULL },
+    { "屏幕亮度", IT_NUM, 10, 100, 10, "%", NULL, 0, false, NULL },
+    { "恢复出厂设置", IT_RESET, 0, 0, 0, "", NULL, 0, false, NULL },
+    { "作者", IT_INFO, 0, 0, 0, "", NULL, 0, false, "BI8SYN" },
+    { "版本", IT_INFO, 0, 0, 0, "", NULL, 0, false, APP_VERSION },
 };
 static const item_t *const GROUPS[3] = { AUDIO, KEY, GEN };
-static const int GROUP_N[3] = { 4, 3, 5 };
+static const int GROUP_N[3] = { 4, 3, 6 };
 static const char *const GROUP_NAMES[3] = { "音频", "电键", "常规" };
 
 static int s_group = 0;
@@ -108,7 +111,7 @@ static void fmt_val(const item_t *it, char *out, size_t n)
     case IT_CHOICE: snprintf(out, n, "%s", it->choices[get_val(it)]); break;
     case IT_TOGGLE: snprintf(out, n, "%s", get_val(it) ? "开" : "关"); break;
     case IT_CALLSIGN: snprintf(out, n, "%s", c->callsign); break;
-    case IT_INFO: snprintf(out, n, "%s", APP_VERSION); break;
+    case IT_INFO: snprintf(out, n, "%s", it->info); break;
     default: out[0] = 0;
     }
 }

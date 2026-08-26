@@ -149,7 +149,7 @@ ui_*          LVGL 页面：ui_home / ui_preview / ui_practice / ui_result / ui_
 typedef struct {
     uint32_t version;
     uint8_t  char_wpm;        // 5..40，默认 20
-    uint8_t  eff_wpm;         // 5..char_wpm，默认 8
+    uint8_t  eff_wpm;         // 5..char_wpm，默认 15
     uint16_t tone_hz;         // 400..1000，默认 600
     uint8_t  volume;          // 0..100，默认 70
     uint8_t  key_input;       // 0 触摸屏 1 外接口
