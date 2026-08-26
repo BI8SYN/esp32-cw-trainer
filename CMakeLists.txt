@@ -4,5 +4,12 @@ cmake_minimum_required(VERSION 3.16)
 # 固定在这里既保证发布版名副其实，也不会连累另一个固件的版本字符串。
 set(PROJECT_VER "v1.0.0")
 
+# 共享的 vendored LVGL 组件栈与字体源码存放在仓库根目录，供
+# fmo-companion 与 cw-trainer 两个工程共用，避免各自再存一份。
+set(EXTRA_COMPONENT_DIRS
+    ${CMAKE_CURRENT_LIST_DIR}/../../components
+    ${CMAKE_CURRENT_LIST_DIR}/../../fonts
+)
+
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(cw-trainer)
