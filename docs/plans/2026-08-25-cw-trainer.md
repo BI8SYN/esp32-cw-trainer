@@ -1703,6 +1703,7 @@ static void shuffle_options(trainer_t *t, char (*opts)[CALLSIGN_MAX], int n)
 {
     for (int i = n - 1; i > 0; i--) {
         int j = (int)rng_below(&t->rng, (uint32_t)i + 1);
+        if (i == j) continue;   /* 同址 memcpy 同样是 restrict 违规 */
         char tmp[CALLSIGN_MAX];
         memcpy(tmp, opts[i], CALLSIGN_MAX);
         memcpy(opts[i], opts[j], CALLSIGN_MAX);
@@ -1743,9 +1744,12 @@ static void gen_round(trainer_t *t)
         callsign_gen_rst(&t->rng, rsts);
         strcpy(t->rst, rsts[0]);
         for (int i = 0; i < 4; i++) strcpy(t->rst_options[i], rsts[i]);
-        /* 打乱 RST 选项（rsts[0] 是正确项） */
+        /* 打乱 RST 选项（rsts[0] 是正确项）。
+         * i == j 时必须跳过：strcpy 的两个参数是 restrict 限定的，
+         * 源和目的同址属于未定义行为，在部分 libc（如 macOS 的加固版）上会直接 trap。 */
         for (int i = 3; i > 0; i--) {
             int j = (int)rng_below(&t->rng, (uint32_t)i + 1);
+            if (i == j) continue;
             char tmp[4]; strcpy(tmp, t->rst_options[i]);
             strcpy(t->rst_options[i], t->rst_options[j]);
             strcpy(t->rst_options[j], tmp);
