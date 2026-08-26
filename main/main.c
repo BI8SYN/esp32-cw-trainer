@@ -38,6 +38,10 @@ static void battery_cb(uint8_t percent, uint16_t mv) { (void)mv; ui_async_post(b
 void app_main(void)
 {
     esp_log_level_set("XPT2046", ESP_LOG_WARN);
+    /* 必须在任何可能调用 ui_async_post() 的任务启动之前就绪——key_input_init()
+     * 马上就会在 core 1 上拉起电键任务，battery_start()/cw_player 的 esp_timer
+     * 回调也都会走这条路径。见 ui_async.h/ui_async.c 里的说明。 */
+    ui_async_init();
     nvs_init();
     ESP_ERROR_CHECK(cw_settings_init());
     const cw_settings_t *cfg = cw_settings_get();
@@ -72,6 +76,14 @@ void app_main(void)
 
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(5));
+        /* 只锁 lv_timer_handler() 本身：它是本文件里除 lv_init 系初始化和
+         * lv_tick_inc（LVGL 文档明确说明可从中断安全调用的计数器自增，不碰
+         * 共享结构）之外唯一的 LVGL 调用点，且是与 ui_async_post() 里
+         * lv_async_call() 并发的那一侧——两边合起来才是完整的互斥范围，
+         * 详见 ui_async.c 的注释。不能把锁的范围扩大到包住上面的 vTaskDelay，
+         * 否则整个睡眠期间都会挡住 core 1 电键任务等所有生产者的 ui_async_post()。 */
+        ui_lock();
         lv_timer_handler();
+        ui_unlock();
     }
 }
