@@ -23,6 +23,10 @@ typedef struct {
 static const char *const KEY_INPUTS[] = { "触摸屏", "外接口" };
 static const char *const KEYER_MODES[] = { "直键", "Iambic A", "Iambic B" };
 
+/* 下面三张表里的 name 字符串同时也是 get_val()/set_val() 的分派键（按
+ * strcmp 匹配）。改这里的 name 必须同步改那两个函数里对应的字符串——两边
+ * 不一致时不会有编译错误，只会静默地读到 0 或者什么都不写。ID 化分派的
+ * 重构已记录为最终评审的待办项，这里先加注释把这条隐性耦合钉死。 */
 static const item_t AUDIO[] = {
     { "字符速度", IT_NUM, 5, 40, 1, " WPM", NULL, 0, true },
     { "有效速度", IT_NUM, 5, 40, 1, " WPM", NULL, 0, true },
@@ -47,11 +51,14 @@ static const char *const GROUP_NAMES[3] = { "音频", "电键", "常规" };
 
 static int s_group = 0;
 static const item_t *s_item;
-static lv_obj_t *s_scr, *s_list, *s_tabs[3];
+static lv_obj_t *s_list, *s_tabs[3];
 static lv_obj_t *s_val_label;
 static char s_call_buf[12];
+static lv_obj_t *s_call_hint;
 
-/* ---- 读写设置字段 ---- */
+/* ---- 读写设置字段 ----
+ * it->name 在这里被当成字段名做 strcmp 分派：新增/改名条目时必须同步这里
+ * 和上面三张表，否则不会报编译错误，只会静默返回 0 / 什么都不写。 */
 static int get_val(const item_t *it)
 {
     cw_settings_t *c = cw_settings_get();
@@ -76,6 +83,7 @@ static void apply_audio(void)
     tone_gen_set_volume(c->volume);
 }
 
+/* 同 get_val()：it->name 是分派键，改名字必须两边一起改。 */
 static void set_val(const item_t *it, int v)
 {
     cw_settings_t *c = cw_settings_get();
@@ -118,11 +126,23 @@ static void adj_cb(lv_event_t *e)
     char b[16]; fmt_val(s_item, b, sizeof b);
     lv_label_set_text(s_val_label, b);
 }
-static void listen_cb(lv_event_t *e) { (void)e; cw_player_play("PARIS", NULL, NULL); }
+
+/* 数值调整页里的"试听"用 cw_player 全局单例播放 PARIS。&s_adj_scr 取本
+ * 模块静态变量的地址当会话归属令牌——地址稳定、这一类页面共用同一个令牌，
+ * 足够区分"是不是这个调整页自己发起的播放"。页面删除时用
+ * cw_player_stop_if() 而不是无条件 cw_player_stop()：ui_nav_show 先建好
+ * 新页面（可能已经开始播放）再异步删除旧页面，无条件停止会掐掉新页面刚
+ * 起播的音频，而不是本页自己那一段——ui_preview/ui_practice 已经踩过这个
+ * 坑，这里沿用同一套令牌机制。 */
+static lv_obj_t *s_adj_scr;
+static void adj_on_delete(lv_event_t *e) { (void)e; cw_player_stop_if(&s_adj_scr); s_adj_scr = NULL; }
+static void listen_cb(lv_event_t *e) { (void)e; cw_player_play("PARIS", NULL, &s_adj_scr); }
 
 static lv_obj_t *build_adjust(void)
 {
     lv_obj_t *s = ui_screen_create();
+    s_adj_scr = s;
+    lv_obj_add_event_cb(s, adj_on_delete, LV_EVENT_DELETE, NULL);
     ui_topbar(s, s_item->name, back_to_settings);
     lv_obj_t *minus = ui_cell(s, "-", UI_FONT_BIG, adj_cb, (void *)(intptr_t)-1);
     lv_obj_set_size(minus, 64, 64); lv_obj_set_pos(minus, 24, 70);
@@ -179,11 +199,21 @@ static void call_key_cb(lv_event_t *e)
 {
     const char *k = lv_label_get_text(lv_obj_get_child(lv_event_get_target(e), 0));
     size_t l = strlen(s_call_buf);
-    if (!strcmp(k, "退格")) { if (l) s_call_buf[l - 1] = 0; }
-    else if (!strcmp(k, "确定")) {
-        if (l >= 3) { strcpy(cw_settings_get()->callsign, s_call_buf); cw_settings_save(); }
-        ui_nav_show(ui_settings_create); return;
-    } else if (l < 10) { s_call_buf[l] = k[0]; s_call_buf[l + 1] = 0; }
+    if (!strcmp(k, "退格")) {
+        if (l) s_call_buf[l - 1] = 0;
+        lv_label_set_text(s_call_hint, "");
+    } else if (!strcmp(k, "确定")) {
+        /* 长度不足时不能悄悄放弃：停在编辑页、给出提示，不导航离开——
+         * 否则操作者看到页面正常返回，会以为已经保存成功。 */
+        if (l < 3) { lv_label_set_text(s_call_hint, "呼号至少 3 个字符，未保存"); return; }
+        strcpy(cw_settings_get()->callsign, s_call_buf);
+        cw_settings_save();
+        ui_nav_show(ui_settings_create);
+        return;
+    } else if (l < 10) {
+        s_call_buf[l] = k[0]; s_call_buf[l + 1] = 0;
+        lv_label_set_text(s_call_hint, "");
+    }
     lv_label_set_text(s_call_label, s_call_buf);
 }
 static lv_obj_t *build_callsign(void)
@@ -195,6 +225,10 @@ static lv_obj_t *build_callsign(void)
     lv_obj_set_style_text_font(s_call_label, UI_FONT_MID, 0);
     lv_label_set_text(s_call_label, s_call_buf);
     lv_obj_align(s_call_label, LV_ALIGN_TOP_MID, 0, UI_TOPBAR_H + 2);
+    s_call_hint = lv_label_create(s);
+    lv_obj_set_style_text_font(s_call_hint, UI_FONT_CN, 0);
+    lv_label_set_text(s_call_hint, "");
+    lv_obj_align(s_call_hint, LV_ALIGN_TOP_MID, 0, UI_TOPBAR_H + 22);
     const char *keys = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     int cols = 10, cw = 32, ch = 42, y0 = UI_TOPBAR_H + 40;
     for (int i = 0; i < 36; i++) {
@@ -236,7 +270,8 @@ static void fill_list(void)
         lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
         lv_obj_align(lv_obj_get_child(row, 0), LV_ALIGN_LEFT_MID, 8, 0);
         lv_obj_t *vl = lv_label_create(row);
-        lv_label_set_text_fmt(vl, "%s %s", v, it->type == IT_INFO ? "" : ">");
+        if (it->type == IT_INFO) lv_label_set_text(vl, v);
+        else lv_label_set_text_fmt(vl, "%s >", v);
         lv_obj_align(vl, LV_ALIGN_RIGHT_MID, -8, 0);
     }
     for (int g = 0; g < 3; g++) lv_obj_set_style_bg_color(s_tabs[g], g == s_group ? UI_GRAY_DOWN : UI_WHITE, 0);
@@ -247,19 +282,19 @@ static void back_home(lv_event_t *e) { (void)e; ui_nav_show(ui_home_create); }
 
 lv_obj_t *ui_settings_create(void)
 {
-    s_scr = ui_screen_create();
-    ui_topbar(s_scr, "设置", back_home);
+    lv_obj_t *scr = ui_screen_create();
+    ui_topbar(scr, "设置", back_home);
     int h = (240 - UI_TOPBAR_H) / 3;
     for (int g = 0; g < 3; g++) {
-        s_tabs[g] = ui_cell(s_scr, GROUP_NAMES[g], UI_FONT_CN, tab_cb, (void *)(intptr_t)g);
+        s_tabs[g] = ui_cell(scr, GROUP_NAMES[g], UI_FONT_CN, tab_cb, (void *)(intptr_t)g);
         lv_obj_set_pos(s_tabs[g], 0, UI_TOPBAR_H + g * h); lv_obj_set_size(s_tabs[g], 60, h);
     }
-    s_list = lv_obj_create(s_scr);
+    s_list = lv_obj_create(scr);
     lv_obj_set_pos(s_list, 60, UI_TOPBAR_H); lv_obj_set_size(s_list, 260, 240 - UI_TOPBAR_H);
     lv_obj_set_style_pad_all(s_list, 0, 0); lv_obj_set_style_radius(s_list, 0, 0);
     lv_obj_set_style_border_width(s_list, 1, 0); lv_obj_set_style_border_side(s_list, LV_BORDER_SIDE_LEFT, 0);
     lv_obj_set_style_border_color(s_list, UI_BLACK, 0);
     lv_obj_set_scroll_dir(s_list, LV_DIR_VER);
     fill_list();
-    return s_scr;
+    return scr;
 }
