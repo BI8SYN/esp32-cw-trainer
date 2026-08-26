@@ -5,6 +5,8 @@
 #include "nvs_flash.h"
 #include "cw_settings.h"
 #include "tone_gen.h"
+#include "cw_player.h"
+#include "morse_timing.h"
 #include "lvgl.h"
 #include "lv_port_disp.h"
 #include "lv_port_indev.h"
@@ -13,6 +15,15 @@ static const char *TAG = "main";
 LV_FONT_DECLARE(font20);
 
 static void lv_tick_task(void *arg) { (void)arg; lv_tick_inc(1); }
+
+/* 开机自检回调：仅用于验证发报计时链是否按预期速率运行（esp_timer 任务上下文）。 */
+static void boot_test_cb(cw_player_event_t ev, char c, void *user)
+{
+    (void)c; (void)user;
+    if (ev == CW_PLAYER_EV_DONE) {
+        ESP_LOGI(TAG, "boot self-test cw done");
+    }
+}
 
 static void nvs_init(void)
 {
@@ -38,8 +49,11 @@ void app_main(void)
     if (tone_gen_init() == ESP_OK) {
         tone_gen_set_freq(cw_settings_get()->tone_hz);
         tone_gen_set_volume(cw_settings_get()->volume);
-        tone_gen_set(true);  vTaskDelay(pdMS_TO_TICKS(100));
-        tone_gen_set(false);
+        morse_timing_t tm;
+        morse_timing_compute(cw_settings_get()->char_wpm, cw_settings_get()->eff_wpm, &tm);
+        ESP_ERROR_CHECK(cw_player_init());
+        cw_player_set_timing(&tm);
+        cw_player_play("PARIS", boot_test_cb, NULL);
     }
 
     lv_init();
