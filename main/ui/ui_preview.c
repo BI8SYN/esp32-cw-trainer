@@ -28,6 +28,11 @@ static void on_ui_done(void *arg)
 static void player_cb(cw_player_event_t ev, char c, void *user)
 {
     (void)c; (void)user;
+    /* 不处理 CW_PLAYER_EV_STOPPED（对比 ui_practice.c 里对称地处理它）：本页
+     * 没有"播放中禁用交互"的状态机，"再听一遍"/"开始练习"全程可点，被中途
+     * 打断的播放最多只是让 s_played 计数和状态文字不再往前走，不存在
+     * ui_practice.c 那种 PH_PLAYING 卡住键盘、需要专门恢复的问题，所以这里
+     * 的不对称是安全的。 */
     if (ev == CW_PLAYER_EV_DONE) ui_async_post(on_ui_done, NULL);
 }
 

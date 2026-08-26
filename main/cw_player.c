@@ -21,7 +21,9 @@ static int s_pat_idx;
 static bool s_key_on;
 static volatile bool s_playing;
 static cw_player_cb_t s_cb;
-static void *s_user;
+/* volatile：cw_player_stop_if() 会在取锁之前先无锁读一次它做快速路径判断，
+ * 见该函数的注释；只在持锁时被写入（cw_player_play()）。 */
+static void *volatile s_user;
 
 /* 待触发的一次用户回调：状态转换在锁内完成并把要上报的内容写进这里，
  * 真正调用 s_cb() 则推迟到调用方释放 s_mutex 之后。这样用户回调里同步调用
@@ -113,10 +115,16 @@ static void timer_cb(void *arg)
     pending_cb_t pending = { .fire = false };
 
     /* 用 0 超时非阻塞地抢锁：esp_timer 任务绝不能阻塞，阻塞会拖慢系统里
-     * 所有其他定时器。抢不到说明 stop() 或 play() 正在运行——不管是哪一个，
-     * "正确的下一步" 已经在持锁的那一方里发生了：
+     * 所有其他定时器。抢不到说明 stop()、play()，或 cw_player_stop_if() 令牌
+     * 匹配的那一次调用正在运行——不管是哪一个，"正确的下一步" 已经在持锁的
+     * 那一方里发生了：
      *   - 如果是 stop() 持锁：这条链本来就该终止，什么都不用做。
      *   - 如果是 play() 持锁：它会自己装一个全新的调度（含 500ms 静音前导）。
+     *   - 如果是 cw_player_stop_if() 持锁：它已经在锁内确认过 s_user == user
+     *     （见该函数实现），说明这条链同样该终止，等价于 stop() 的情形。
+     * 令牌不匹配的 cw_player_stop_if() 调用现在根本不会走到这里抢锁——它在
+     * 取锁之前就已经用一次锁外的令牌比较提前退出了，见该函数的注释，因此
+     * 不再是本函数需要考虑的第三种、"什么都没做也没重新 arm" 的持锁者。
      * 这里唯一要做的是把音关掉退出，绝不能碰状态或重新 arm，否则就会和
      * 持锁的一方打架，重新制造上一轮修复过的"卡音"问题。 */
     if (xSemaphoreTake(s_mutex, 0) != pdTRUE) {
@@ -167,7 +175,16 @@ esp_err_t cw_player_init(void)
     return esp_timer_create(&a, &s_timer);
 }
 
-void cw_player_set_timing(const morse_timing_t *t) { s_t = *t; }
+void cw_player_set_timing(const morse_timing_t *t)
+{
+    /* timer_cb()（esp_timer 服务任务）全程读取 s_t 来计算下一段的时长；这里可能
+     * 从 LVGL 任务被调用（设置页数值调整 +/- 试听时实时改时序），与 timer_cb()
+     * 并发写/读同一个结构体，不加锁会读到撕裂的中间状态。复用模块已有的 s_mutex，
+     * 不需要另开一把锁。 */
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    s_t = *t;
+    xSemaphoreGive(s_mutex);
+}
 
 esp_err_t cw_player_play(const char *text, cw_player_cb_t cb, void *user)
 {
@@ -190,6 +207,12 @@ esp_err_t cw_player_play(const char *text, cw_player_cb_t cb, void *user)
     return ESP_OK;
 }
 
+/* 目前没有调用方：UI 侧全部改用 cw_player_stop_if()，理由见该函数与各页面
+ * on_delete 的注释（无条件停止会掐掉别的页面刚起播的音频）。保留这个无条件
+ * 停止原语作为公开 API：它是 cw_player_stop_if() 注释里明确提到的对照，
+ * 且是未来如果需要"不管归属、硬停止全局播放"（例如全局静音/紧急停止）这类
+ * 场景的天然入口——删掉它反而要在三处已经写好的注释里凭空引用一个不存在的
+ * 函数。 */
 void cw_player_stop(void)
 {
     pending_cb_t pending = { .fire = false };
@@ -203,9 +226,27 @@ void cw_player_stop(void)
  * "正在播放的会话确实是 user 这一个"，不是就什么都不做——不停音，不摸状态，
  * 也不触发任何回调。锁内比较、锁内收尾、锁外触发回调，三步顺序与
  * cw_player_stop()/cw_player_play() 完全一致，理由同样是 fire_cb() 必须在
- * s_mutex 释放之后才能调用，否则会在 esp_timer 任务上自锁死。 */
+ * s_mutex 释放之后才能调用，否则会在 esp_timer 任务上自锁死。
+ *
+ * 在取锁之前先做一次锁外的令牌比较（快速路径）：timer_cb() 在 esp_timer 服务
+ * 任务上用 0 超时非阻塞抢锁，抢不到就直接放弃这一轮重新 arm（见 timer_cb() 的
+ * 注释）。如果每一次令牌不匹配的 cw_player_stop_if() 调用都照样去和 timer_cb()
+ * 抢那把锁，恰好撞上的那一次就会让 timer_cb() 静默放弃重新 arm、播放链就此
+ * 断掉——而调用方其实什么都不需要发生。提前在锁外 return 就让不匹配的调用
+ * 彻底不参与抢锁。
+ * s_user 是指针大小的量，且只在持锁的 cw_player_play() 里被写入；ESP32 上对齐的
+ * 指针读写本身是原子的，不会读到"半个指针"的撕裂值，这里锁外读到的要么是修改前
+ * 的值，要么是修改后的值，两者都是某个时刻真实存在过的值。如果这里读到不等于
+ * user，那么无论是"改之前"还是"改之后"的值，都不是这一路调用方的会话——往后
+ * s_user 只会被 play() 改成别的新值（每个页面用自己状态的地址当令牌，不会被
+ * 其它页面复用），不会变回这次比较的这个 user，所以此刻的"不匹配"结论不会因为
+ * 稍后才真正拿到锁而失效，可以放心地在锁外直接返回 false。真正会被停止的分支
+ * （令牌匹配）仍然按原来的方式在锁内重新确认一次 s_playing && s_user == user，
+ * 不依赖这次锁外读的结果。 */
 bool cw_player_stop_if(void *user)
 {
+    if (s_user != user) return false;
+
     pending_cb_t pending = { .fire = false };
     bool stopped = false;
     xSemaphoreTake(s_mutex, portMAX_DELAY);
@@ -217,5 +258,3 @@ bool cw_player_stop_if(void *user)
     fire_cb(&pending);
     return stopped;
 }
-
-bool cw_player_is_playing(void) { return s_playing; }

@@ -265,7 +265,7 @@ static void on_delete(lv_event_t *e)
      * 会话状态的地址当令牌——天然唯一、天然与本页生命周期绑定。 */
     cw_player_stop_if(&s_tr);
     if (s_fb_timer) { lv_timer_del(s_fb_timer); s_fb_timer = NULL; }
-    s_scr = NULL; s_hint = s_input = s_fb = s_replay = s_submit = NULL;
+    s_scr = NULL; s_prog = NULL; s_hint = s_input = s_fb = s_replay = s_submit = NULL;
     memset(s_opts, 0, sizeof s_opts); memset(s_rst_opts, 0, sizeof s_rst_opts); s_nkeys = 0;
 }
 

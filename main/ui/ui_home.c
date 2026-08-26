@@ -44,7 +44,24 @@ static const lv_style_transition_dsc_t *no_fade_transition(void)
 static lv_obj_t *s_scr, *s_clock, *s_bat;
 static lv_timer_t *s_timer;
 static bool s_dimmed;
+static uint32_t s_last_idle;
 static bool s_reset_notice_shown;
+
+/* 灭屏期间显示和触摸层其实一直是活的：只是背光被设成 0，控件树、点击事件都
+ * 照常工作。这意味着"把屏幕点亮的那一下"本身就会被当成一次普通点击送到
+ * 底下的控件——Koch 卡片占了主页大半个屏幕，几乎每次唤醒都会因此顺手点开一课、
+ * 出声。各入口的点击回调开头都先调用这个函数：如果当前确实是灭屏状态，就地
+ * 点亮背光、清 s_dimmed，并返回 true 让调用方直接 return、不再执行正常的跳转/
+ * 播放动作——这一下点击视为"仅用于唤醒"，被吃掉。s_dimmed 在函数内部就地清零，
+ * 下一次点击进来时已经是正常状态，不会出现"点第一下没反应，之后怎么点都没
+ * 反应"的卡死。 */
+static bool wake_swallow(void)
+{
+    if (!s_dimmed) return false;
+    backlight_set(cw_settings_get()->brightness);
+    s_dimmed = false;
+    return true;
+}
 
 static void tick(lv_timer_t *t)
 {
@@ -56,8 +73,24 @@ static void tick(lv_timer_t *t)
     else lv_label_set_text(s_clock, "--:--");
 
     uint32_t idle = lv_disp_get_inactive_time(NULL);
-    if (!s_dimmed && idle > IDLE_OFF_MS) { backlight_set(0); s_dimmed = true; }
-    else if (s_dimmed && idle < 1000) { backlight_set(cw_settings_get()->brightness); s_dimmed = false; }
+    if (!s_dimmed && idle > IDLE_OFF_MS) {
+        backlight_set(0);
+        s_dimmed = true;
+    } else if (s_dimmed && idle < s_last_idle) {
+        /* 原来是 "idle < 1000" 与这个每 1000ms 才跑一次的定时器比对：这个窗口
+         * 假设了"上次检查到现在必然发生在 1000ms 之内"，但定时器本身就是每
+         * 1000ms 才跑一次，一次点击如果落在两次检查之间比较靠后的位置，等到
+         * 下一次 tick() 真正跑到时，idle 完全可能已经涨到 1000ms 上下甚至
+         * 略微超过（主循环调度抖动、lv_timer_handler 处理耗时都会往上加），
+         * 这一次点击就会被判定为"太旧"而不点亮屏幕，用户得再点一下才能碰到
+         * 下一次窗口。这里改成"这一次读到的 idle 比上一次检查时还要小"——
+         * 只要在两次 tick() 之间发生过任意一次输入，inactive_time 就会被
+         * LVGL 重置变小，与两次检查之间实际间隔了多久、有没有抖动都无关，
+         * 是比固定阈值更宽、更不依赖检查周期的判定。 */
+        backlight_set(cw_settings_get()->brightness);
+        s_dimmed = false;
+    }
+    s_last_idle = idle;
 }
 
 static void on_delete(lv_event_t *e)
@@ -68,11 +101,11 @@ static void on_delete(lv_event_t *e)
     if (s_dimmed) { backlight_set(cw_settings_get()->brightness); s_dimmed = false; }
 }
 
-static void go_koch(lv_event_t *e)     { (void)e; ui_preview_open(cw_settings_get()->koch_lesson, false); }
-static void go_call(lv_event_t *e)     { (void)e; ui_practice_open(TRAINER_MODE_CALLSIGN); }
-static void go_qso(lv_event_t *e)      { (void)e; ui_practice_open(TRAINER_MODE_QSO); }
-static void go_keyer(lv_event_t *e)    { (void)e; ui_nav_show(ui_keyer_create); }
-static void go_settings(lv_event_t *e) { (void)e; ui_nav_show(ui_settings_create); }
+static void go_koch(lv_event_t *e)     { (void)e; if (wake_swallow()) return; ui_preview_open(cw_settings_get()->koch_lesson, false); }
+static void go_call(lv_event_t *e)     { (void)e; if (wake_swallow()) return; ui_practice_open(TRAINER_MODE_CALLSIGN); }
+static void go_qso(lv_event_t *e)      { (void)e; if (wake_swallow()) return; ui_practice_open(TRAINER_MODE_QSO); }
+static void go_keyer(lv_event_t *e)    { (void)e; if (wake_swallow()) return; ui_nav_show(ui_keyer_create); }
+static void go_settings(lv_event_t *e) { (void)e; if (wake_swallow()) return; ui_nav_show(ui_settings_create); }
 
 lv_obj_t *ui_home_create(void)
 {

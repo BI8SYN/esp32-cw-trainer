@@ -15,11 +15,6 @@ void cw_decoder_init(cw_decoder_t *d, uint16_t dit_ref_ms)
     d->word_gap_emitted = true;   /* 开机不先输出空格 */
 }
 
-void cw_decoder_set_dit_ref(cw_decoder_t *d, uint16_t dit_ref_ms)
-{
-    if (dit_ref_ms) d->dit_ref_ms = dit_ref_ms;
-}
-
 static void adapt(cw_decoder_t *d, uint32_t dit_sample)
 {
     uint32_t ref = ((uint32_t)d->dit_ref_ms * 3 + dit_sample) / 4;

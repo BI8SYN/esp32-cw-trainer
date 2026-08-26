@@ -43,7 +43,18 @@ void app_main(void)
      * 回调也都会走这条路径。见 ui_async.h/ui_async.c 里的说明。 */
     ui_async_init();
     nvs_init();
-    ESP_ERROR_CHECK(cw_settings_init());
+    /* 不能用 ESP_ERROR_CHECK：NVS 分区与 fmo-companion 共享（见 docs/build-setup.md
+     * 与本项目 README），对方写满时这里的读/写会失败。set_defaults() 已经在
+     * cw_settings_init() 的每条失败分支里把整个结构体填成默认值，固件仍能正常
+     * 运行，只是这一次没能把配置落盘持久化——降级为打印错误日志继续跑，而不是
+     * abort。abort 会让设备在完全没有 UI 的情况下卡进"写失败 -> abort -> 重启 ->
+     * 再次写失败"的无限重启循环，文档里写的 erase_region 恢复方法根本没有机会
+     * 被用户看到、发现。 */
+    esp_err_t settings_err = cw_settings_init();
+    if (settings_err != ESP_OK) {
+        ESP_LOGE(TAG, "cw_settings_init failed: %s - running with in-memory defaults, "
+                 "settings will NOT persist across reboot", esp_err_to_name(settings_err));
+    }
     const cw_settings_t *cfg = cw_settings_get();
     ESP_LOGI(TAG, "cfg: wpm=%u/%u tone=%u lesson=%u reset=%d",
              cfg->char_wpm, cfg->eff_wpm, cfg->tone_hz, cfg->koch_lesson, cw_settings_was_reset());

@@ -77,3 +77,7 @@ ESP32 的内置 DAC 走的是 legacy I2S 驱动（`driver/i2s.h`），它在设�
 - [ ] **所有触摸交互**——尤其是电键页的触摸桨处理逻辑：这段代码把 LVGL 触摸事件转换成点/划按键，目前没有任何形式的自动化覆盖，也从未真正被触发执行过（此前"点划正确变声"的联调测试走的是更底层的接口，绕过了触摸事件这一层）
 - [ ] **外接电键**——尤其是上面提到的 IO27 划键问题，需要实测确认现象是否如描述
 - [ ] **电量百分比准确性**——需要一块已知电量的电池，配合万用表实测电压比对
+
+以下这条不是"没人验证过"，是明确**没有实现**，跟上面清单性质不同，单独记一笔：
+
+- **低电量自动关机（spec 里的 <5% 关机）没有实现。** 设计文档（`docs/superpowers/specs/2026-08-25-cw-trainer-design.md` 第 5 节状态清单）写的是"沿用现有关机"，但 `main/battery.c` 目前只做采样和百分比计算，`ui_home.c` 只在 <15% 时给电量文字加 ⚠，跌破 5%（`battery.c` 里的 `CRITICAL_PERCENT`，与 `fmo-companion/main/battery_monitor.c` 的 `BATTERY_PROTECT_PERCENT` 一致）目前也只打一条 `ESP_LOGW` 告警，没有任何自动关机或降级动作。之所以搁置：这台开发机没有真电池，自动关机这条路径完全没法在真实条件下测过；一个没测过的自动关机、一旦在不该触发的时候误关机，比"完全没有这个功能"更糟；而且这块电路很可能本身已经有硬件级的欠压保护兜底，不依赖软件关机。如果以后要补上，`fmo-companion/main/battery_monitor.c` 里的 `battery_apply_power_state()`/`BATTERY_CRITICAL_PERCENT`/`BATTERY_PROTECT_PERCENT` 一整套状态机可以直接照搬，但补之前请务必先想清楚用什么手段在没有真电池的情况下把关机路径实测一遍（例如临时调低 `EMPTY_MV`/`FULL_MV` 或者改 `to_percent()` 注入假电压），不要写完就当它是好的。

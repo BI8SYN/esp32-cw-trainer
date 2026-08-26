@@ -20,7 +20,9 @@ static keyer_t s_keyer;
 static cw_decoder_t s_dec;
 static volatile bool s_touch[2];
 static bool s_ext_last[2], s_ext_stable[2];
-static key_input_char_cb_t s_cb;
+/* volatile：task() 里读它、key_input_stop() 从另一个任务清它，见 task() 里
+ * 拷贝到局部变量再用的注释。 */
+static key_input_char_cb_t volatile s_cb;
 static void *s_user;
 static bool s_last_out;
 
@@ -94,7 +96,15 @@ static void task(void *arg)
             s_last_out = out;
         }
         char c;
-        if (cw_decoder_poll(&s_dec, t, &c) && s_cb) s_cb(c, s_user);
+        /* 先把 s_cb 拷到局部变量再判断、再调用：key_input_stop() 会从另一个任务
+         * 把 s_cb 清成 NULL。如果这里像原来那样分别对 s_cb 求值两次
+         * （一次判空、一次调用），中间这一小段窗口里 key_input_stop() 完全可能
+         * 插进来把它清空——判空时读到的还是非空的旧值，真正调用时却重新读到了
+         * NULL，会经一个空函数指针跳转直接崩掉。拷到局部变量后，只要判空那一次
+         * 读到非空，调用时用的就是同一个已经确认非空的值，不会再被并发的
+         * key_input_stop() 影响。 */
+        key_input_char_cb_t cb = s_cb;
+        if (cw_decoder_poll(&s_dec, t, &c) && cb) cb(c, s_user);
         vTaskDelay(pdMS_TO_TICKS(TICK_MS));
     }
 }
