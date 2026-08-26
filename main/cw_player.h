@@ -14,6 +14,10 @@ typedef enum { CW_PLAYER_EV_CHAR_START, CW_PLAYER_EV_DONE, CW_PLAYER_EV_STOPPED 
  *     esp_timer 任务，也可能是 UI 任务，也可能是别的任何任务，取决于谁调用了 stop()。
  * 三种事件都不能假定与 LVGL 所在任务相同，必须统一走同一条线程安全路径（消息队列/
  * 锁）转发给 UI，不能只处理来自 esp_timer 任务的那两种而遗漏 STOPPED。
+ *
+ * 三种事件触发时都不持有本模块内部的互斥锁，因此可以在回调里同步调用
+ * cw_player_play() / cw_player_stop()（不会自锁死）；但上面所说的任务上下文
+ * 差异依然存在，UI 代码仍需通过统一的线程安全路径转发，不能直接操作 LVGL。
  */
 typedef void (*cw_player_cb_t)(cw_player_event_t ev, char c, void *user);
 

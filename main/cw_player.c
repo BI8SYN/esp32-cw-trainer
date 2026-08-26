@@ -23,6 +23,23 @@ static volatile bool s_playing;
 static cw_player_cb_t s_cb;
 static void *s_user;
 
+/* 待触发的一次用户回调：状态转换在锁内完成并把要上报的内容写进这里，
+ * 真正调用 s_cb() 则推迟到调用方释放 s_mutex 之后。这样用户回调里同步调用
+ * cw_player_play()/cw_player_stop() 就不会对同一把非递归锁自锁死——DONE 是
+ * 在 esp_timer 服务任务上触发的，那里的死锁会拖住系统里所有其他定时器。 */
+typedef struct {
+    cw_player_cb_t cb;
+    void           *user;
+    cw_player_event_t ev;
+    char            ch;
+    bool            fire;
+} pending_cb_t;
+
+static void fire_cb(const pending_cb_t *p)
+{
+    if (p->fire) p->cb(p->ev, p->ch, p->user);
+}
+
 /* 先停后启：确保对一个已装表的定时器重新 arm 不会因为
  * esp_timer_start_once() 在定时器已激活时返回 ESP_ERR_INVALID_STATE
  * 而被静默忽略——旧计划一次残留的调度。加上警告日志，把潜在的静默失败
@@ -36,15 +53,23 @@ static void arm(uint32_t ms)
     }
 }
 
-static void finish(cw_player_event_t ev)
+/* 状态收尾（关音、标记不在播放），并把待触发的回调快照进 *out——调用方必须
+ * 已经持有 s_mutex，且必须在释放锁之后才能调用 fire_cb(out)。 */
+static void finish_locked(cw_player_event_t ev, pending_cb_t *out)
 {
     tone_gen_set(false);
     s_playing = false;
-    if (s_cb) s_cb(ev, 0, s_user);
+    out->fire = (s_cb != NULL);
+    out->cb   = s_cb;
+    out->user = s_user;
+    out->ev   = ev;
+    out->ch   = 0;
 }
 
-/* 前进到下一个可发字符；返回 false 表示文本结束 */
-static bool next_char(void)
+/* 前进到下一个可发字符；返回 false 表示文本结束。调用方必须持有锁；如果
+ * 遇到需要上报 CHAR_START 的字符，把待触发的回调写进 *out（不在这里调用，
+ * 同样必须留到调用方释放锁之后再触发）。 */
+static bool next_char(pending_cb_t *out)
 {
     while (s_text[s_idx]) {
         char c = s_text[s_idx];
@@ -56,7 +81,11 @@ static bool next_char(void)
         s_pat = morse_table_lookup(c);
         if (s_pat) {
             s_pat_idx = 0;
-            if (s_cb) s_cb(CW_PLAYER_EV_CHAR_START, c, s_user);
+            out->fire = (s_cb != NULL);
+            out->cb   = s_cb;
+            out->user = s_user;
+            out->ev   = CW_PLAYER_EV_CHAR_START;
+            out->ch   = c;
             s_key_on = true;
             tone_gen_set(true);
             arm(s_pat[0] == '.' ? s_t.dit_ms : s_t.dah_ms);
@@ -68,17 +97,20 @@ static bool next_char(void)
     return false;
 }
 
-/* cw_player_stop() 的无锁实现：调用方必须已经持有 s_mutex。 */
-static void stop_locked(void)
+/* cw_player_stop() 的无锁实现：调用方必须已经持有 s_mutex。只做状态收尾，
+ * 不调用回调——回调交给调用方在释放锁之后触发（见 finish_locked 的注释）。 */
+static void stop_locked(pending_cb_t *out)
 {
+    out->fire = false;
     if (!s_playing) return;
     esp_timer_stop(s_timer);
-    finish(CW_PLAYER_EV_STOPPED);
+    finish_locked(CW_PLAYER_EV_STOPPED, out);
 }
 
 static void timer_cb(void *arg)
 {
     (void)arg;
+    pending_cb_t pending = { .fire = false };
 
     /* 用 0 超时非阻塞地抢锁：esp_timer 任务绝不能阻塞，阻塞会拖慢系统里
      * 所有其他定时器。抢不到说明 stop() 或 play() 正在运行——不管是哪一个，
@@ -119,8 +151,10 @@ static void timer_cb(void *arg)
         xSemaphoreGive(s_mutex);
         return;
     }
-    if (!next_char()) finish(CW_PLAYER_EV_DONE);
+    if (!next_char(&pending)) finish_locked(CW_PLAYER_EV_DONE, &pending);
     xSemaphoreGive(s_mutex);
+    /* 回调必须在锁外触发：见文件顶部 pending_cb_t 的注释。 */
+    fire_cb(&pending);
 }
 
 esp_err_t cw_player_init(void)
@@ -140,8 +174,9 @@ esp_err_t cw_player_play(const char *text, cw_player_cb_t cb, void *user)
     /* 注意：不能调用 cw_player_stop()——那样会在同一个任务里对同一把非递归
      * 互斥量取两次锁，自己把自己锁死。这里直接调用无锁的 stop_locked()，
      * 全程只取一次锁。 */
+    pending_cb_t pending = { .fire = false };
     xSemaphoreTake(s_mutex, portMAX_DELAY);
-    stop_locked();
+    stop_locked(&pending);   /* 快照上一段播放（如果有）待触发的 STOPPED */
     strncpy(s_text, text, TEXT_MAX - 1);
     s_text[TEXT_MAX - 1] = '\0';
     s_idx = 0; s_pat = NULL; s_pat_idx = 0; s_key_on = false;
@@ -150,14 +185,18 @@ esp_err_t cw_player_play(const char *text, cw_player_cb_t cb, void *user)
     ESP_LOGD(TAG, "play \"%s\"", s_text);
     arm(LEAD_IN_MS);
     xSemaphoreGive(s_mutex);
+    /* 锁外触发：若上面确实打断了正在进行的播放，这里补发它的 STOPPED。 */
+    fire_cb(&pending);
     return ESP_OK;
 }
 
 void cw_player_stop(void)
 {
+    pending_cb_t pending = { .fire = false };
     xSemaphoreTake(s_mutex, portMAX_DELAY);
-    stop_locked();
+    stop_locked(&pending);
     xSemaphoreGive(s_mutex);
+    fire_cb(&pending);   /* 锁外触发 STOPPED */
 }
 
 bool cw_player_is_playing(void) { return s_playing; }
