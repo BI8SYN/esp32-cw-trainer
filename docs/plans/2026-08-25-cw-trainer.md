@@ -963,6 +963,16 @@ void cw_decoder_set_dit_ref(cw_decoder_t *d, uint16_t dit_ref_ms)
     if (dit_ref_ms) d->dit_ref_ms = dit_ref_ms;
 }
 
+/* 只有"像点"的样本才更新基准。
+ * 过长的样本（把划误判成点的边缘样本）会把基准自我强化地推高，
+ * 过短的样本（接触弹跳、单个 tick 的误触）会把它拽到下限，
+ * 两者最终都会让所有元素被判成同一种。窗口取 0.5x..1.5x 当前基准。 */
+static bool sample_is_plausible_dit(const cw_decoder_t *d, uint32_t len)
+{
+    uint32_t ref = d->dit_ref_ms;
+    return len * 2 >= ref && len * 2 <= ref * 3;
+}
+
 static void adapt(cw_decoder_t *d, uint32_t dit_sample)
 {
     uint32_t ref = ((uint32_t)d->dit_ref_ms * 3 + dit_sample) / 4;
@@ -977,8 +987,12 @@ void cw_decoder_key(cw_decoder_t *d, bool down, uint32_t now)
     if (!down) {
         uint32_t len = now - d->last_edge_ms;
         char el;
-        if (len < (uint32_t)d->dit_ref_ms * 2) { el = '.'; adapt(d, len); }
-        else el = '-';
+        if (len < (uint32_t)d->dit_ref_ms * 2) {
+            el = '.';
+            if (sample_is_plausible_dit(d, len)) adapt(d, len);
+        } else {
+            el = '-';
+        }
         if (d->pattern_len < sizeof(d->pattern) - 1) {
             d->pattern[d->pattern_len++] = el;
             d->pattern[d->pattern_len] = '\0';
