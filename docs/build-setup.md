@@ -99,10 +99,12 @@ PROJECT=firmware/<其它固件> tools/idf.sh build
 
 三个需要注意的约束：
 
-- **设备一次只能刷一个固件**（只有一个 app 分区），切换需重刷约 4 分钟
+- **设备一次只能刷一个固件**（只有一个 app 分区），切换需重刷约 40 秒（460800 波特率下的实测值，见下方"实测收益"）
 - **NVS 是共享的**，不同固件若使用相同命名空间会互相污染，切换时可能需要
   `tools/esp.sh erase_region 0x9000 0x6000`
 - 新固件如果不打算单独开源，直接放普通目录即可，不必再引入 submodule
+
+现有工程：`firmware/fmo-companion`（默认）、`firmware/cw-trainer`、`firmware/sdfont-bench`。
 
 ## 使用
 

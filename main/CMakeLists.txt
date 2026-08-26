@@ -1,0 +1,39 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "cw_settings.c"
+        "tone_gen.c"
+        "cw_player.c"
+        "key_input.c"
+        "core/morse_table.c"
+        "core/morse_timing.c"
+        "core/keyer.c"
+        "core/cw_decoder.c"
+        "core/koch_engine.c"
+        "core/callsign_gen.c"
+        "core/trainer.c"
+        "fonts/font20.c"
+        "fonts/font28.c"
+        "fonts/EN_BIG.c"
+        "ui_async.c"
+        "backlight.c"
+        "battery.c"
+        "ui/ui_common.c"
+        "ui/ui_home.c"
+        "ui/ui_preview.c"
+        "ui/ui_practice.c"
+        "ui/ui_result.c"
+        "ui/ui_keyer.c"
+        "ui/ui_settings.c"
+    INCLUDE_DIRS "." "fonts" "core" "ui"
+    REQUIRES
+        esp_app_format
+        driver
+        esp_driver_i2s
+        esp_timer
+        nvs_flash
+        esp_adc
+        lvgl
+        lv_porting
+        lvgl_esp32_drivers
+)

@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CW Trainer 灰阶原型</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #ddd; font-family: sans-serif; color: #000; padding: 16px; }
+  h1 { font-size: 16px; margin-bottom: 8px; }
+  .wrap { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+  .device { width: 320px; height: 240px; background: #fff; border: 2px solid #000; position: relative; overflow: hidden; flex: none; }
+  .page { display: none; width: 320px; height: 240px; position: absolute; inset: 0; }
+  .page.on { display: block; }
+  .bar { height: 28px; border-bottom: 1px solid #000; display: flex; align-items: center; padding: 0 6px; gap: 8px; font-size: 13px; }
+  .bar .sp { flex: 1; }
+  .btn { border: 1px solid #000; padding: 6px 8px; cursor: pointer; text-align: center; font-size: 13px; user-select: none; background: #fff; }
+  .btn:active, .btn.dn { background: #999; }
+  .btn.dis { color: #999; border-color: #999; cursor: default; }
+  .back { cursor: pointer; padding: 0 4px; }
+  .row { display: flex; }
+  .col { display: flex; flex-direction: column; }
+  .f1 { flex: 1; }
+  .c { text-align: center; }
+  .big { font-size: 40px; }
+  .mid { font-size: 20px; }
+  .sm { font-size: 12px; color: #444; }
+  .cell { border: 1px solid #000; display: flex; align-items: center; justify-content: center; cursor: pointer; user-select: none; }
+  .cell:active, .cell.dn { background: #999; }
+  .notice { background: #eee; border-bottom: 1px solid #000; font-size: 12px; padding: 3px 6px; }
+  .overlay { position: absolute; inset: 0; background: rgba(255,255,255,.85); display: flex; align-items: center; justify-content: center; }
+  .dlg { background: #fff; border: 2px solid #000; padding: 12px; width: 240px; }
+  .panel { font-size: 12px; width: 260px; }
+  .panel h2 { font-size: 13px; margin: 10px 0 4px; }
+  .panel a { display: inline-block; margin: 2px 4px 2px 0; padding: 2px 6px; border: 1px solid #666; background: #fff; cursor: pointer; text-decoration: none; color: #000; }
+  .panel a:hover { background: #ccc; }
+  ul { padding-left: 16px; }
+</style>
+</head>
+<body>
+<h1>CW Trainer · 灰阶原型（320×240 横屏）</h1>
+<div class="wrap">
+<div class="device" id="dev">
+
+<!-- 1 主页 -->
+<div class="page" id="home">
+  <div class="bar"><span>12:34</span><span class="sp"></span><span id="bat">电 78%</span><span class="back" onclick="go('settings')">⚙</span></div>
+  <div class="notice" id="home-notice" style="display:none">进度已重置（数据损坏或版本不符）</div>
+  <div class="row" style="height:212px">
+    <div class="col f1" style="border-right:1px solid #000;padding:8px;cursor:pointer" onclick="startKoch()">
+      <div class="mid" id="home-lesson">KOCH 第 7 课</div>
+      <div class="sm" id="home-letters">已解锁 K M R S U A P T</div>
+      <div class="sm" id="home-last" style="margin-top:6px">上次 92%</div>
+      <div class="sp f1"></div>
+      <div style="text-align:right" class="mid" id="home-cta">继续练习 ></div>
+    </div>
+    <div class="col" style="width:120px">
+      <div class="cell f1" style="border:0;border-bottom:1px solid #000" onclick="startCall()">呼号抄收 ></div>
+      <div class="cell f1" style="border:0;border-bottom:1px solid #000" onclick="startQso()">模拟 QSO ></div>
+      <div class="cell f1" style="border:0" onclick="go('keyer')">电键 ></div>
+    </div>
+  </div>
+</div>
+
+<!-- 2 课前预告 -->
+<div class="page" id="preview">
+  <div class="bar"><span class="back" onclick="go('home')">&lt;</span><span>第 7 课</span></div>
+  <div class="row" style="height:130px;align-items:center;justify-content:center;gap:24px">
+    <div class="sm">新字母</div>
+    <div class="c"><div class="big">P</div><div class="mid">· − − ·</div></div>
+  </div>
+  <div class="c sm" id="pv-play">正在播放 2 / 3</div>
+  <div class="row" style="gap:12px;padding:8px 24px">
+    <div class="btn f1" onclick="document.getElementById('pv-play').textContent='正在播放 1 / 3'">再听一遍</div>
+    <div class="btn f1" onclick="go('practice');setPractice('playing')">开始练习</div>
+  </div>
+</div>
+
+<!-- 3a 听写练习（Koch） -->
+<div class="page" id="practice">
+  <div class="bar"><span class="back" onclick="askExit()">&lt;</span><span>第 7 课</span><span class="sp"></span><span id="pr-prog">3/10</span></div>
+  <div class="notice" id="pr-audio-err" style="display:none">音频异常，无法播放，请退出重试</div>
+  <div class="row" id="pr-top" style="display:none;height:36px;align-items:center;padding:0 8px;gap:8px;border-bottom:1px solid #000"><span class="sm" id="pr-hint2">请输入</span><span class="mid f1 c" id="pr-input2" style="letter-spacing:6px">_ _ _ _ _</span><div class="btn" style="padding:2px 8px" onclick="setPractice('playing')">重播</div></div>
+  <div class="row" style="height:212px">
+    <div class="col f1" id="pr-left" style="padding:8px;border-right:1px solid #000">
+      <div class="sm" id="pr-hint">♪ 正在播放…</div>
+      <div class="mid" id="pr-input" style="letter-spacing:6px;margin:10px 0">_ _ _ _ _</div>
+      <div id="pr-fb" style="display:none;font-family:monospace;font-size:14px;white-space:pre"></div>
+      <div class="sp f1"></div>
+      <div class="btn" id="pr-replay" onclick="setPractice('playing')">重播</div>
+    </div>
+    <div id="pr-kbd" style="width:150px;display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:1fr">
+    </div>
+  </div>
+  <div class="overlay" id="pr-exit" style="display:none">
+    <div class="dlg"><div style="margin-bottom:10px">退出后本轮不计入进度</div>
+      <div class="row" style="gap:8px"><div class="btn f1" onclick="hide('pr-exit')">继续练</div><div class="btn f1" onclick="hide('pr-exit');go('home')">退出</div></div></div>
+  </div>
+</div>
+
+<!-- 3b 呼号抄收（4 选 1） -->
+<div class="page" id="call">
+  <div class="bar"><span class="back" onclick="go('home')">&lt;</span><span>呼号抄收</span><span class="sp"></span><span>3/10</span></div>
+  <div class="notice" id="call-notice" style="display:none">建议先练 Koch，当前使用全部字母</div>
+  <div class="row" style="height:40px;align-items:center;padding:0 8px;gap:8px">
+    <span class="sm f1" id="call-hint">♪ 正在播放…</span><div class="btn" id="call-replay" onclick="callPlay()">重播</div>
+  </div>
+  <div id="call-opts" style="display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;height:170px;border-top:1px solid #000">
+    <div class="cell mid" onclick="callPick(this,true)">BG5ESN</div>
+    <div class="cell mid" onclick="callPick(this,false)">BG5EHN</div>
+    <div class="cell mid" onclick="callPick(this,false)">BG5ESM</div>
+    <div class="cell mid" onclick="callPick(this,false)">BG5E5N</div>
+  </div>
+</div>
+
+<!-- 3c 模拟 QSO -->
+<div class="page" id="qso">
+  <div class="bar"><span class="back" onclick="go('home')">&lt;</span><span>模拟 QSO</span><span class="sp"></span><span>3/10</span></div>
+  <div class="row" style="padding:6px 8px;align-items:center;gap:8px"><span class="sm f1">♪ "CQ CQ DE ???? K  ... UR RST ???"</span><div class="btn">重播</div></div>
+  <div style="padding:0 8px" class="sm">对方呼号</div>
+  <div class="row" style="padding:2px 8px;gap:4px;height:44px">
+    <div class="cell f1 q" onclick="pick(this)">BG5ESN</div><div class="cell f1 q" onclick="pick(this)">BG5EHN</div><div class="cell f1 q" onclick="pick(this)">BG5ESM</div><div class="cell f1 q" onclick="pick(this)">BG5E5N</div>
+  </div>
+  <div style="padding:0 8px" class="sm">RST</div>
+  <div class="row" style="padding:2px 8px;gap:4px;height:44px">
+    <div class="cell f1 r" onclick="pick(this)">599</div><div class="cell f1 r" onclick="pick(this)">579</div><div class="cell f1 r" onclick="pick(this)">559</div><div class="cell f1 r" onclick="pick(this)">339</div>
+  </div>
+  <div class="row" style="padding:6px 8px;justify-content:flex-end"><div class="btn" style="width:100px" onclick="go('result');setResult('call')">提交</div></div>
+</div>
+
+<!-- 4 结算 -->
+<div class="page" id="result">
+  <div class="bar"><span>本轮结果</span></div>
+  <div class="row" style="height:150px;padding:8px 16px;gap:16px;align-items:center">
+    <div class="c" style="width:110px"><div class="big" id="rs-pct">92%</div><div class="sm" id="rs-cnt">9 / 10 正确</div></div>
+    <div class="col f1" style="gap:8px">
+      <div id="rs-err">错字: A→U  S→H</div>
+      <div id="rs-pass">✓ 达标，可进第 8 课</div>
+    </div>
+  </div>
+  <div class="row" style="gap:8px;padding:0 12px">
+    <div class="btn f1" id="rs-next" onclick="go('preview')">进入第 8 课</div>
+    <div class="btn f1" onclick="go('practice');setPractice('playing')">再来一轮</div>
+    <div class="btn f1" onclick="go('home')">返回主页</div>
+  </div>
+</div>
+
+<!-- 5 电键 -->
+<div class="page" id="keyer">
+  <div class="bar"><span class="back" onclick="go('home')">&lt;</span><span>20 WPM</span><span class="sp"></span><div class="btn" style="padding:2px 8px" onclick="document.getElementById('ky-text').textContent=''">清屏</div></div>
+  <div class="notice" id="ky-audio-err" style="display:none">音频异常，侧音不可用</div>
+  <div style="height:64px;padding:4px 8px;font-family:monospace;font-size:15px;overflow:hidden">
+    <div id="ky-text" style="height:40px;line-height:20px">CQ CQ DE BI8SYN K CQ CQ DE BI8S</div>
+    <div class="c" id="ky-seq">· − · ·</div>
+  </div>
+  <div class="row" id="ky-paddle" style="height:120px;border-top:1px solid #000">
+    <div class="cell f1 mid" style="border:0;border-right:1px solid #000" onmousedown="kd(this,'·')" onmouseup="ku(this)">点</div>
+    <div class="cell f1 mid" style="border:0" onmousedown="kd(this,'−')" onmouseup="ku(this)">划</div>
+  </div>
+  <div class="row" id="ky-straight" style="height:120px;border-top:1px solid #000;display:none">
+    <div class="cell f1 mid" style="border:0" onmousedown="this.classList.add('dn')" onmouseup="this.classList.remove('dn')">直键（按住）</div>
+  </div>
+  <div class="col c" id="ky-ext" style="height:120px;border-top:1px solid #000;display:none;justify-content:center;gap:8px">
+    <div class="sm">外接电键已就绪</div>
+    <div class="row" style="justify-content:center;gap:16px"><div class="cell" style="width:80px;height:50px">点</div><div class="cell" style="width:80px;height:50px">划</div></div>
+  </div>
+</div>
+
+<!-- 6 设置 -->
+<div class="page" id="settings">
+  <div class="bar"><span class="back" onclick="go('home')">&lt;</span><span>设置</span></div>
+  <div class="row" style="height:212px">
+    <div class="col" style="width:60px;border-right:1px solid #000">
+      <div class="cell f1 tab dn" style="border:0;border-bottom:1px solid #000" onclick="tab(this,'audio')">音频</div>
+      <div class="cell f1 tab" style="border:0;border-bottom:1px solid #000" onclick="tab(this,'key')">电键</div>
+      <div class="cell f1 tab" style="border:0" onclick="tab(this,'gen')">常规</div>
+    </div>
+    <div class="col f1" id="st-list"></div>
+  </div>
+</div>
+
+<!-- 6b 数值调整 -->
+<div class="page" id="adjust">
+  <div class="bar"><span class="back" onclick="go('settings')">&lt;</span><span id="adj-title">字符速度</span></div>
+  <div class="row" style="height:120px;align-items:center;justify-content:space-between;padding:0 24px">
+    <div class="cell" style="width:64px;height:64px" onclick="adj(-1)">−</div>
+    <div class="big" id="adj-val">20 WPM</div>
+    <div class="cell" style="width:64px;height:64px" onclick="adj(1)">+</div>
+  </div>
+  <div class="row" style="justify-content:center"><div class="btn" id="adj-try" style="width:120px">试听</div></div>
+</div>
+
+<!-- 6c 选项选择（电键输入/类型） -->
+<div class="page" id="choose">
+  <div class="bar"><span class="back" onclick="go('settings')">&lt;</span><span id="ch-title">电键输入</span></div>
+  <div class="col" id="ch-list" style="height:212px"></div>
+</div>
+
+<!-- 6d 恢复出厂 -->
+<div class="page" id="reset">
+  <div class="bar"><span class="back" onclick="go('settings')">&lt;</span><span>恢复出厂设置</span></div>
+  <div class="c" style="padding:30px 20px 20px">将清除 Koch 进度和全部设置，不可恢复</div>
+  <div class="row" style="gap:12px;padding:0 40px"><div class="btn f1" onclick="go('settings')">取消</div><div class="btn f1" onclick="firstRun();go('home')">确认清除</div></div>
+</div>
+
+</div><!-- device -->
+
+<div class="panel">
+  <h2>页面</h2>
+  <a onclick="go('home')">主页</a><a onclick="go('preview')">课前预告</a><a onclick="go('practice');setPractice('playing')">Koch 练习</a><a onclick="startCall()">呼号</a><a onclick="startQso()">QSO</a><a onclick="go('result');setResult('pass')">结算</a><a onclick="go('keyer')">电键</a><a onclick="go('settings')">设置</a>
+  <h2>主页状态</h2>
+  <a onclick="firstRun();go('home')">首次启动</a><a onclick="normal();go('home')">正常</a><a onclick="normal();show('home-notice');go('home')">进度已重置</a><a onclick="document.getElementById('bat').textContent='电 12% ⚠';go('home')">低电量</a>
+  <h2>练习键盘规模</h2>
+  <a onclick="lesson(7);go('practice');setPractice('input')">第 7 课（8 字）</a><a onclick="lesson(19);go('practice');setPractice('input')">第 19 课（20 字）</a><a onclick="lesson(39);go('practice');setPractice('input')">第 39 课（40 字）</a>
+  <h2>练习状态</h2>
+  <a onclick="go('practice');setPractice('playing')">播放中（键盘禁用）</a><a onclick="go('practice');setPractice('input')">等待输入</a><a onclick="go('practice');setPractice('ok')">判分-正确</a><a onclick="go('practice');setPractice('wrong')">判分-错误</a><a onclick="go('practice');setPractice('input');show('pr-exit')">退出确认</a><a onclick="go('practice');setPractice('input');show('pr-audio-err')">音频异常</a>
+  <a onclick="startCall();show('call-notice')">呼号-未练Koch提示</a>
+  <h2>结算状态</h2>
+  <a onclick="go('result');setResult('pass')">达标</a><a onclick="go('result');setResult('fail')">未达标</a><a onclick="go('result');setResult('perfect')">全对</a><a onclick="go('result');setResult('call')">呼号/QSO 模式</a>
+  <h2>电键状态</h2>
+  <a onclick="keyerMode('paddle')">桨键</a><a onclick="keyerMode('straight')">直键</a><a onclick="keyerMode('ext')">外接</a><a onclick="go('keyer');show('ky-audio-err')">音频异常</a>
+  <h2>主场景走一遍</h2>
+  <ul><li>主页 → 继续练习 → 预告 → 开始 → 敲 5 字 ✓ → 反馈 → …→ 结算 → 进下一课</li><li>主页 → 呼号 → 点选 → 结算</li><li>主页 → ⚙ → 音频 → 字符速度 → ± → 返回</li></ul>
+</div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+function go(p){ document.querySelectorAll('.page').forEach(e=>e.classList.remove('on')); $(p).classList.add('on'); }
+function show(id){ $(id).style.display=''; } function hide(id){ $(id).style.display='none'; }
+
+// 主页状态
+function firstRun(){ $('home-lesson').textContent='KOCH 第 1 课'; $('home-letters').textContent='K M'; $('home-last').textContent='未开始'; $('home-cta').textContent='开始练习 >'; hide('home-notice'); }
+function normal(){ $('home-lesson').textContent='KOCH 第 7 课'; $('home-letters').textContent='已解锁 K M R S U A P T'; $('home-last').textContent='上次 92%'; $('home-cta').textContent='继续练习 >'; hide('home-notice'); }
+function startKoch(){ go('preview'); }
+function startCall(){ go('call'); hide('call-notice'); callPlay(); }
+function startQso(){ go('qso'); }
+
+// Koch 练习
+let KEYS = ['K','M','R','S','U','A','P','T','⌫','✓'];
+const KOCH40='KMRSUAPTLOWI.NJEF0Y,VG5/Q9ZH38B?427C1D6X';
+function lesson(n){ KEYS=[...KOCH40.slice(0,n+1),'⌫','✓']; }
+let buf='';
+function buildKbd(){ const k=$('pr-kbd'); k.innerHTML=''; const n=KEYS.length; const cols = n<=12?4:(n<=24?6:8); k.style.gridTemplateColumns=`repeat(${cols},1fr)`; const full = n>12; k.style.width = full?'320px':'150px'; $('pr-left').style.display = full?'none':''; $('pr-top').style.display = full?'':'none'; KEYS.forEach(c=>{ const d=document.createElement('div'); d.className='cell mid'; d.textContent=c; d.onclick=()=>key(c); k.appendChild(d); }); }
+function setPractice(s){
+  buildKbd(); hide('pr-fb'); hide('pr-exit'); hide('pr-audio-err'); $('pr-input').style.display=''; buf='';
+  const kb=$('pr-kbd').children, rp=$('pr-replay');
+  if(s==='playing'){ $('pr-hint').textContent='♪ 正在播放…'; [...kb].forEach(e=>e.classList.add('dis')); rp.classList.add('dis'); $('pr-input').textContent='_ _ _ _ _'; setTimeout(()=>{ if($('pr-hint').textContent==='♪ 正在播放…') setPractice('input'); },1200); }
+  if(s==='input'){ $('pr-hint').textContent='请输入听到的 5 个字符'; $('pr-input2').textContent='_ _ _ _ _'; [...kb].forEach(e=>e.classList.remove('dis')); rp.classList.remove('dis'); $('pr-input').textContent='_ _ _ _ _'; }
+  if(s==='ok'){ fb('正确  K M R S U'); }
+  if(s==='wrong'){ fb('错误  K M R S A\n      - - - - ^\n正确  K M R S U'); }
+}
+function fb(t){ $('pr-input2').textContent=t.split('\n')[0]; $('pr-hint').textContent=''; $('pr-input').style.display='none'; $('pr-fb').textContent=t; show('pr-fb'); [...$('pr-kbd').children].forEach(e=>e.classList.add('dis')); }
+function key(c){
+  if($('pr-kbd').children[0].classList.contains('dis')) return;
+  if(c==='⌫'){ buf=buf.slice(0,-1); }
+  else if(c==='✓'){ if(buf.length<5) return; const ok = buf==='KMRSU'; fb(ok?'正确  K M R S U':('错误  '+buf.split('').join(' ')+'\n      '+[...buf].map((ch,i)=>ch==='KMRSU'[i]?'-':'^').join(' ')+'\n正确  K M R S U'));
+       setTimeout(()=>{ const n=parseInt($('pr-prog').textContent)+1; if(n>10){ $('pr-prog').textContent='3/10'; go('result'); setResult(ok?'pass':'fail'); } else { $('pr-prog').textContent=n+'/10'; setPractice('playing'); } },1200); return; }
+  else if(buf.length<5) buf+=c;
+  $('pr-input').textContent = (buf+'_____').slice(0,5).split('').join(' '); $('pr-input2').textContent=$('pr-input').textContent;
+}
+function askExit(){ show('pr-exit'); }
+
+// 呼号
+function callPlay(){ $('call-hint').textContent='♪ 正在播放…'; $('call-replay').classList.add('dis'); [...$('call-opts').children].forEach(e=>e.classList.add('dis')); setTimeout(()=>{ $('call-hint').textContent='请选择听到的呼号'; $('call-replay').classList.remove('dis'); [...$('call-opts').children].forEach(e=>e.classList.remove('dis')); },1200); }
+function callPick(el,ok){ if(el.classList.contains('dis')) return; $('call-hint').textContent = ok?'正确':'错误，正确是 BG5ESN'; el.classList.add('dn'); setTimeout(()=>{ el.classList.remove('dn'); go('result'); setResult('call'); },1000); }
+function pick(el){ [...el.parentNode.children].forEach(e=>e.classList.remove('dn')); el.classList.add('dn'); }
+
+// 结算
+function setResult(s){
+  $('rs-next').style.display=''; $('rs-pass').style.display='';
+  if(s==='pass'){ $('rs-pct').textContent='92%'; $('rs-cnt').textContent='9 / 10 正确'; $('rs-err').textContent='错字: A→U  S→H'; $('rs-pass').textContent='✓ 达标，可进第 8 课'; }
+  if(s==='fail'){ $('rs-pct').textContent='70%'; $('rs-cnt').textContent='7 / 10 正确'; $('rs-err').textContent='错字: A→U  S→H  R→K'; $('rs-pass').textContent='再练练，≥90% 解锁下一课'; $('rs-next').style.display='none'; }
+  if(s==='perfect'){ $('rs-pct').textContent='100%'; $('rs-cnt').textContent='10 / 10 正确'; $('rs-err').textContent='全对'; $('rs-pass').textContent='✓ 达标，可进第 8 课'; }
+  if(s==='call'){ $('rs-pct').textContent='80%'; $('rs-cnt').textContent='8 / 10 正确'; $('rs-err').textContent='错字: S→H  N→M'; $('rs-pass').style.display='none'; $('rs-next').style.display='none'; }
+}
+
+// 电键
+function kd(el,s){ el.classList.add('dn'); $('ky-seq').textContent += ' '+s; }
+function ku(el){ el.classList.remove('dn'); }
+function keyerMode(m){ go('keyer'); hide('ky-audio-err'); ['paddle','straight','ext'].forEach(x=>$('ky-'+x).style.display = x===m?'':'none'); }
+
+// 设置
+const ST = {
+  audio:[['字符速度','20 WPM','adjust'],['有效速度','8 WPM','adjust'],['音调','600 Hz','adjust'],['音量','70%','adjust']],
+  key:[['电键输入','触摸屏','choose'],['电键类型','Iambic B','choose'],['桨键左右对调','关','toggle']],
+  gen:[['我的呼号','BI8SYN','adjust'],['Koch 课次','7','adjust'],['屏幕亮度','80%','adjust'],['恢复出厂设置','','reset'],['版本','0.1.0','']]
+};
+const CH = {'电键输入':['触摸屏','外接口'],'电键类型':['直键','Iambic A','Iambic B']};
+function tab(el,g){ document.querySelectorAll('.tab').forEach(e=>e.classList.remove('dn')); el.classList.add('dn'); const l=$('st-list'); l.innerHTML='';
+  ST[g].forEach(([n,v,t])=>{ const d=document.createElement('div'); d.className='row'; d.style.cssText='height:42px;align-items:center;padding:0 8px;border-bottom:1px solid #000;gap:8px;cursor:pointer'; d.innerHTML=`<span class="f1">${n}</span><span class="sm">${v}</span><span>${t?'>':''}</span>`;
+    d.onclick=()=>{ if(t==='adjust'){ $('adj-title').textContent=n; $('adj-val').textContent=v; $('adj-try').style.visibility = g==='audio'?'visible':'hidden'; go('adjust'); }
+      else if(t==='choose'){ $('ch-title').textContent=n; const c=$('ch-list'); c.innerHTML=''; CH[n].forEach(o=>{ const x=document.createElement('div'); x.className='cell'; x.style.cssText='height:52px;border:0;border-bottom:1px solid #000'; x.textContent=(o===v?'● ':'○ ')+o; x.onclick=()=>go('settings'); c.appendChild(x); }); go('choose'); }
+      else if(t==='toggle'){ d.children[1].textContent = d.children[1].textContent==='关'?'开':'关'; }
+      else if(t==='reset'){ go('reset'); } };
+    l.appendChild(d); }); }
+function adj(d){ const m=$('adj-val').textContent.match(/(-?\d+)(.*)/); if(m) $('adj-val').textContent=(parseInt(m[1])+d)+m[2]; }
+
+tab(document.querySelector('.tab'),'audio'); keyerMode('paddle'); normal(); go('home');
+</script>
+</body>
+</html>
