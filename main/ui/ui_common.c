@@ -80,8 +80,13 @@ lv_obj_t *ui_topbar(lv_obj_t *parent, const char *title, lv_event_cb_t back_cb)
     if (back_cb) {
         lv_obj_t *back = lv_label_create(bar);
         lv_label_set_text(back, "<");
-        lv_obj_set_style_text_font(back, UI_FONT_MID, 0);
+        /* 必须用 UI_FONT_CN（行高 26），不能用 UI_FONT_MID（行高 37）：
+           对象只有 UI_TOPBAR_H=28 高，比 37 矮，LVGL 会把内容当成溢出——
+           既会把文字往下偏移，又会给这个 label 打开滚动，箭头因此显得偏低、
+           还能被垂直拖动。26 < 28，装得下，两个症状都消失。 */
+        lv_obj_set_style_text_font(back, UI_FONT_CN, 0);
         lv_obj_set_size(back, 36, UI_TOPBAR_H);
+        lv_obj_clear_flag(back, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_style_pad_left(back, 6, 0);
         lv_obj_align(back, LV_ALIGN_LEFT_MID, 0, 0);
         lv_obj_add_flag(back, LV_OBJ_FLAG_CLICKABLE);

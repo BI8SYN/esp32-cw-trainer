@@ -12,7 +12,8 @@
 #include "tone_gen.h"
 
 #define FEEDBACK_MS 800
-#define SMALL_KBD_MAX 12   /* 键数 ≤ 12 用左右分栏，否则全宽键盘 */
+#define SMALL_KBD_MAX 6    /* 键数 ≤ 6 用左右分栏（窄的 150px 右栏只适合很少的键），否则全宽键盘 */
+#define SPLIT_KEY_H_MAX 56 /* 分栏模式下单键最大高度，防止行数少时键被拉成竖条 */
 
 typedef enum { PH_PLAYING, PH_INPUT, PH_FEEDBACK } phase_t;
 
@@ -122,6 +123,11 @@ static void submit(const char *answer)
     set_keys_enabled(false);
     lv_obj_clear_flag(s_fb, LV_OBJ_FLAG_HIDDEN);
     if (s_input) lv_obj_add_flag(s_input, LV_OBJ_FLAG_HIDDEN);
+    /* s_hint 和 s_fb 在呼号/QSO 两种选择模式下（build_choice）画在同一个位置，
+       s_input 只在 Koch 模式下存在——上面那行盖不到它们。必须显式把 s_hint
+       藏起来，否则反馈文字和提示文字会叠在一起。start_round() 负责下一轮把它
+       重新显示出来。 */
+    if (s_hint) lv_obj_add_flag(s_hint, LV_OBJ_FLAG_HIDDEN);
     if (s_tr.mode == TRAINER_MODE_KOCH) {
         if (ok) lv_label_set_text_fmt(s_fb, "正确  %s", s_tr.target);
         else {
@@ -157,11 +163,18 @@ static void build_koch(lv_obj_t *s)
     char cs[48]; int n = koch_charset(s_tr.lesson, cs);
     int total = n + 2;
     bool split = total <= SMALL_KBD_MAX;
-    int cols = split ? 4 : (total <= 24 ? 6 : 8);
+    /* 列数按键数选，不再固定 4 列——否则键少时列宽被拆得很细。 */
+    int cols = split ? (total <= 4 ? 2 : 3) : (total <= 12 ? 4 : (total <= 24 ? 6 : 8));
     int rows = (total + cols - 1) / cols;
     int kx = split ? 170 : 0, ky = split ? UI_TOPBAR_H : UI_TOPBAR_H + 36;
     int kw = split ? 150 : 320, kh = 240 - ky;
     int cw = kw / cols, ch = kh / rows;
+    /* 分栏模式下行数少时（如 1~2 行）单键会被拉伸成竖条；封顶后把整块键盘
+       在剩余高度里居中，而不是贴顶留一大块空白在下方。 */
+    if (split && ch > SPLIT_KEY_H_MAX) {
+        ch = SPLIT_KEY_H_MAX;
+        ky += (kh - rows * ch) / 2;
+    }
 
     if (split) {
         s_hint = lv_label_create(s); lv_obj_set_pos(s_hint, 8, UI_TOPBAR_H + 8); lv_obj_set_width(s_hint, 156);
@@ -246,8 +259,13 @@ static void build_choice(lv_obj_t *s)
         s_rst_opts[i] = ui_cell(s, s_tr.rst_options[i], UI_FONT_CN, rst_cb, (void *)(intptr_t)i);
         lv_obj_set_pos(s_rst_opts[i], 8 + i * 77, y + 94); lv_obj_set_size(s_rst_opts[i], 74, 40);
     }
+    /* 提交按钮挪到"RST"文字这一行、右对齐：这一行从 x≈60 往右是空的。
+       呼号选项行下沿在 y+24+40 = y+64（此处 y=68 时为 132），RST 选项行
+       上沿在 y+94（y=68 时为 162）——之间只有 30px 高的空当，"RST" 标签
+       本身画在 y+70（138）。把按钮放在这 30px 空当里、留 2px 余量：
+       高度 26（= y+64+2 到 y+94-2 之间），两侧都不会撞到相邻的选项行。 */
     s_submit = ui_button(s, "提交", submit_qso_cb, NULL);
-    lv_obj_set_width(s_submit, 100); lv_obj_set_pos(s_submit, 212, 200);
+    lv_obj_set_size(s_submit, 100, 26); lv_obj_set_pos(s_submit, 212, y + 66);
 }
 
 /* ---- 页面 ---- */
@@ -274,6 +292,7 @@ static void start_round(void)
     s_buf[0] = 0; s_sel_call = s_sel_rst = -1;
     lv_label_set_text_fmt(s_prog, "%u/%u", s_tr.round + 1, TRAINER_ROUNDS);
     if (s_fb) lv_obj_add_flag(s_fb, LV_OBJ_FLAG_HIDDEN);
+    if (s_hint) lv_obj_clear_flag(s_hint, LV_OBJ_FLAG_HIDDEN);
     if (s_input) { lv_obj_clear_flag(s_input, LV_OBJ_FLAG_HIDDEN); render_input(); }
     /* 选项文本随每轮更新 */
     for (int i = 0; i < 4; i++) {
