@@ -13,6 +13,7 @@
 - 屏幕 320×240 横屏（`sdkconfig.defaults` 已是 `CONFIG_LV_DISPLAY_ORIENTATION_LANDSCAPE=y`，`LV_HOR_RES_MAX=320`），不改方向。
 - 阶段 1 只允许黑、白、灰：不设置任何非灰色 `lv_color`，不加圆角/阴影/动画（`CONFIG_LV_THEME_DEFAULT_TRANSITION_TIME` 保持，但不额外写动画）。
 - 字体只用现有 `font20`（含中文，line_height 26）、`font28`（line_height 37）、`EN_BIG`（大号英数，line_height 82）。
+- **规则：任何含中文的标签一律用 `UI_FONT_CN`。** `UI_FONT_MID`/`UI_FONT_BIG` 只能承载纯 ASCII。违反时不会报错，只会在屏幕上渲染成空白。
 - **字形限制（已实测）**：`font28` / `EN_BIG` 只含可打印 ASCII（无中文）；`font20` 含全部 ASCII + 3791 个汉字。三者都**没有** `…` `≥` `♪` `·` `−` 等符号，也没有 `LV_SYMBOL_*` 图标字形。界面文字只能用 ASCII + 汉字：省略号写 `...`，"大于等于"写"以上"，点划用 ASCII 的 `.` 和 `-`。中文只能用 `font20`（`UI_FONT_CN`）；`UI_FONT_MID`/`UI_FONT_BIG` 只能放 ASCII。
 - 完全离线：不编译 WiFi / BT / WebSocket；`idf_component.yml` 不含 `esp_websocket_client`。
 - 侧音延迟目标 <15ms：I2S DMA 缓冲总深度 3×64 样本 @32kHz = 6ms。
@@ -3103,7 +3104,7 @@ lv_obj_t *ui_home_create(void)
     lv_obj_add_event_cb(card, go_koch, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *l1 = lv_label_create(card);
-    lv_obj_set_style_text_font(l1, UI_FONT_MID, 0);
+    /* 含中文，只能用 UI_FONT_CN（font28/EN_BIG 无汉字字形）。不设 font 即继承屏幕默认的 UI_FONT_CN。 */
     lv_obj_set_style_text_color(l1, UI_BLACK, 0);
     lv_label_set_text_fmt(l1, "KOCH 第 %u 课", cfg->koch_lesson);
     lv_obj_align(l1, LV_ALIGN_TOP_LEFT, 0, 0);
@@ -3125,7 +3126,7 @@ lv_obj_t *ui_home_create(void)
     lv_obj_align(l3, LV_ALIGN_TOP_LEFT, 0, 96);
 
     lv_obj_t *l4 = lv_label_create(card);
-    lv_obj_set_style_text_font(l4, UI_FONT_MID, 0);
+    /* 含中文，同上：继承 UI_FONT_CN。 */
     lv_obj_set_style_text_color(l4, UI_BLACK, 0);
     lv_label_set_text(l4, last == 0xFF ? "开始练习 >" : "继续练习 >");
     lv_obj_align(l4, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
@@ -3964,19 +3965,19 @@ lv_obj_t *ui_keyer_create(void)
     if (ext) {
         lv_obj_t *l = lv_label_create(s_scr); lv_label_set_text(l, "外接电键已就绪"); lv_obj_align(l, LV_ALIGN_TOP_MID, 0, py + 8);
         for (int i = 0; i < (straight ? 1 : 2); i++) {
-            s_pad[i] = ui_cell(s_scr, straight ? "键" : (i == 0 ? "点" : "划"), UI_FONT_MID, NULL, NULL);
+            s_pad[i] = ui_cell(s_scr, straight ? "键" : (i == 0 ? "点" : "划"), UI_FONT_CN, NULL, NULL);
             lv_obj_set_size(s_pad[i], 90, 60);
             lv_obj_set_pos(s_pad[i], straight ? 115 : 60 + i * 110, py + 44);
             lv_obj_clear_flag(s_pad[i], LV_OBJ_FLAG_CLICKABLE);
         }
     } else if (straight) {
-        s_pad[0] = ui_cell(s_scr, "直键（按住）", UI_FONT_MID, NULL, NULL);
+        s_pad[0] = ui_cell(s_scr, "直键（按住）", UI_FONT_CN, NULL, NULL);
         lv_obj_set_pos(s_pad[0], 0, py); lv_obj_set_size(s_pad[0], 320, ph);
         lv_obj_add_event_cb(s_pad[0], pad_cb, LV_EVENT_ALL, (void *)0);
         s_pad[1] = NULL;
     } else {
         for (int i = 0; i < 2; i++) {
-            s_pad[i] = ui_cell(s_scr, i == 0 ? "点" : "划", UI_FONT_MID, NULL, NULL);
+            s_pad[i] = ui_cell(s_scr, i == 0 ? "点" : "划", UI_FONT_CN, NULL, NULL);
             lv_obj_set_pos(s_pad[i], i * 160, py); lv_obj_set_size(s_pad[i], 160, ph);
             lv_obj_add_event_cb(s_pad[i], pad_cb, LV_EVENT_ALL, (void *)(intptr_t)i);
         }
