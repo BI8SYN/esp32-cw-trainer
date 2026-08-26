@@ -4,6 +4,7 @@ idf_component_register(
         "cw_settings.c"
         "tone_gen.c"
         "cw_player.c"
+        "key_input.c"
         "core/morse_table.c"
         "core/morse_timing.c"
         "core/keyer.c"
