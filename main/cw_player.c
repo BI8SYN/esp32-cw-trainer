@@ -36,7 +36,7 @@ static bool next_char(void)
         char c = s_text[s_idx];
         if (c == ' ') {
             s_idx++;
-            arm(s_t.word_gap_ms - s_t.char_gap_ms);
+            arm(s_t.word_gap_ms > s_t.char_gap_ms ? s_t.word_gap_ms - s_t.char_gap_ms : 0);
             return true;
         }
         s_pat = morse_table_lookup(c);
@@ -57,7 +57,13 @@ static bool next_char(void)
 static void timer_cb(void *arg)
 {
     (void)arg;
-    if (!s_playing) return;
+    if (!s_playing) {
+        /* 可能是 stop() 与本回调竞争后残留的一次触发：
+         * esp_timer_stop() 不会等待正在执行的回调，所以那次回调可能已经把音开起来
+         * 并重新装了定时器。这里必须把音关掉，否则会留下一个永远不停的长音。 */
+        tone_gen_set(false);
+        return;
+    }
 
     if (s_key_on) {
         /* 元素结束 → 关音，安排间隔 */
