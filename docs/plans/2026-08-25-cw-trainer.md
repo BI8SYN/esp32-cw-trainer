@@ -2241,7 +2241,12 @@ git commit -m "CW：新增 I2S DAC 低延迟侧音"
 - Produces:
   ```c
   typedef enum { CW_PLAYER_EV_CHAR_START, CW_PLAYER_EV_DONE, CW_PLAYER_EV_STOPPED } cw_player_event_t;
-  typedef void (*cw_player_cb_t)(cw_player_event_t ev, char c, void *user);  /* 在 esp_timer 任务上下文回调 */
+  /* 回调上下文并不统一，接界面时必须注意：
+ *   CW_PLAYER_EV_CHAR_START / CW_PLAYER_EV_DONE  -> esp_timer 任务上下文
+ *   CW_PLAYER_EV_STOPPED                         -> 同步运行在调用 cw_player_stop() 的那个任务上
+ * LVGL 不是线程安全的，所以消费者必须把这三个事件**全部**经同一条线程安全通道
+ * （如 ui_async_post）转交，只处理其中两个会留下偶发的界面损坏。 */
+typedef void (*cw_player_cb_t)(cw_player_event_t ev, char c, void *user);
   esp_err_t cw_player_init(void);
   void cw_player_set_timing(const morse_timing_t *t);
   /* 播放文本（复制到内部 64 字节缓冲）。正在播放时先 stop。 */
@@ -2334,7 +2339,10 @@ static bool next_char(void)
 static void timer_cb(void *arg)
 {
     (void)arg;
-    if (!s_playing) return;
+    /* 可能是 stop() 与本回调竞争后残留的一次触发：esp_timer_stop() 不等待正在执行的回调，
+     * 那次回调可能已经把音开起来并重新装了定时器。这里必须把音关掉，
+     * 否则会留下一个永远不停的长音（下一次回调会在这里直接返回）。 */
+    if (!s_playing) { tone_gen_set(false); return; }
 
     if (s_key_on) {
         /* 元素结束 → 关音，安排间隔 */
