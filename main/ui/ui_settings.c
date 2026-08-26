@@ -1,5 +1,265 @@
 #include "ui_settings.h"
+#include <stdio.h>
+#include <string.h>
 #include "ui_common.h"
 #include "ui_home.h"
-static void back(lv_event_t *e) { (void)e; ui_nav_show(ui_home_create); }
-lv_obj_t *ui_settings_create(void) { lv_obj_t *s = ui_screen_create(); ui_topbar(s, "设置（桩）", back); return s; }
+#include "cw_settings.h"
+#include "cw_player.h"
+#include "tone_gen.h"
+#include "backlight.h"
+#include "morse_timing.h"
+#include "koch_engine.h"
+
+#define APP_VERSION "0.1.0"
+
+typedef enum { IT_NUM, IT_CHOICE, IT_TOGGLE, IT_CALLSIGN, IT_RESET, IT_INFO } item_type_t;
+typedef struct {
+    const char *name; item_type_t type;
+    int min, max, step; const char *unit;
+    const char *const *choices; int nchoices;
+    bool listen;   /* 数值页显示"试听" */
+} item_t;
+
+static const char *const KEY_INPUTS[] = { "触摸屏", "外接口" };
+static const char *const KEYER_MODES[] = { "直键", "Iambic A", "Iambic B" };
+
+static const item_t AUDIO[] = {
+    { "字符速度", IT_NUM, 5, 40, 1, " WPM", NULL, 0, true },
+    { "有效速度", IT_NUM, 5, 40, 1, " WPM", NULL, 0, true },
+    { "音调",     IT_NUM, 400, 1000, 50, " Hz", NULL, 0, true },
+    { "音量",     IT_NUM, 0, 100, 10, "%", NULL, 0, true },
+};
+static const item_t KEY[] = {
+    { "电键输入", IT_CHOICE, 0, 0, 0, "", KEY_INPUTS, 2, false },
+    { "电键类型", IT_CHOICE, 0, 0, 0, "", KEYER_MODES, 3, false },
+    { "桨键左右对调", IT_TOGGLE, 0, 0, 0, "", NULL, 0, false },
+};
+static const item_t GEN[] = {
+    { "我的呼号", IT_CALLSIGN, 0, 0, 0, "", NULL, 0, false },
+    { "Koch 课次", IT_NUM, 1, 39, 1, "", NULL, 0, false },
+    { "屏幕亮度", IT_NUM, 10, 100, 10, "%", NULL, 0, false },
+    { "恢复出厂设置", IT_RESET, 0, 0, 0, "", NULL, 0, false },
+    { "版本", IT_INFO, 0, 0, 0, "", NULL, 0, false },
+};
+static const item_t *const GROUPS[3] = { AUDIO, KEY, GEN };
+static const int GROUP_N[3] = { 4, 3, 5 };
+static const char *const GROUP_NAMES[3] = { "音频", "电键", "常规" };
+
+static int s_group = 0;
+static const item_t *s_item;
+static lv_obj_t *s_scr, *s_list, *s_tabs[3];
+static lv_obj_t *s_val_label;
+static char s_call_buf[12];
+
+/* ---- 读写设置字段 ---- */
+static int get_val(const item_t *it)
+{
+    cw_settings_t *c = cw_settings_get();
+    if (!strcmp(it->name, "字符速度")) return c->char_wpm;
+    if (!strcmp(it->name, "有效速度")) return c->eff_wpm;
+    if (!strcmp(it->name, "音调")) return c->tone_hz;
+    if (!strcmp(it->name, "音量")) return c->volume;
+    if (!strcmp(it->name, "电键输入")) return c->key_input;
+    if (!strcmp(it->name, "电键类型")) return c->keyer_mode;
+    if (!strcmp(it->name, "桨键左右对调")) return c->paddle_swap;
+    if (!strcmp(it->name, "Koch 课次")) return c->koch_lesson;
+    if (!strcmp(it->name, "屏幕亮度")) return c->brightness;
+    return 0;
+}
+
+static void apply_audio(void)
+{
+    cw_settings_t *c = cw_settings_get();
+    morse_timing_t tm; morse_timing_compute(c->char_wpm, c->eff_wpm, &tm);
+    cw_player_set_timing(&tm);
+    tone_gen_set_freq(c->tone_hz);
+    tone_gen_set_volume(c->volume);
+}
+
+static void set_val(const item_t *it, int v)
+{
+    cw_settings_t *c = cw_settings_get();
+    if (!strcmp(it->name, "字符速度")) { c->char_wpm = (uint8_t)v; if (c->eff_wpm > c->char_wpm) c->eff_wpm = c->char_wpm; }
+    else if (!strcmp(it->name, "有效速度")) { if (v > c->char_wpm) v = c->char_wpm; c->eff_wpm = (uint8_t)v; }
+    else if (!strcmp(it->name, "音调")) c->tone_hz = (uint16_t)v;
+    else if (!strcmp(it->name, "音量")) c->volume = (uint8_t)v;
+    else if (!strcmp(it->name, "电键输入")) c->key_input = (uint8_t)v;
+    else if (!strcmp(it->name, "电键类型")) c->keyer_mode = (uint8_t)v;
+    else if (!strcmp(it->name, "桨键左右对调")) c->paddle_swap = (uint8_t)v;
+    else if (!strcmp(it->name, "Koch 课次")) c->koch_lesson = (uint8_t)v;
+    else if (!strcmp(it->name, "屏幕亮度")) { c->brightness = (uint8_t)v; backlight_set(c->brightness); }
+    apply_audio();
+    cw_settings_save();
+}
+
+static void fmt_val(const item_t *it, char *out, size_t n)
+{
+    cw_settings_t *c = cw_settings_get();
+    switch (it->type) {
+    case IT_NUM: snprintf(out, n, "%d%s", get_val(it), it->unit); break;
+    case IT_CHOICE: snprintf(out, n, "%s", it->choices[get_val(it)]); break;
+    case IT_TOGGLE: snprintf(out, n, "%s", get_val(it) ? "开" : "关"); break;
+    case IT_CALLSIGN: snprintf(out, n, "%s", c->callsign); break;
+    case IT_INFO: snprintf(out, n, "%s", APP_VERSION); break;
+    default: out[0] = 0;
+    }
+}
+
+/* ---- 子页面 ---- */
+static void back_to_settings(lv_event_t *e) { (void)e; ui_nav_show(ui_settings_create); }
+
+static void adj_cb(lv_event_t *e)
+{
+    int d = (int)(intptr_t)lv_event_get_user_data(e);
+    int v = get_val(s_item) + d * s_item->step;
+    if (v < s_item->min) v = s_item->min;
+    if (v > s_item->max) v = s_item->max;
+    set_val(s_item, v);
+    char b[16]; fmt_val(s_item, b, sizeof b);
+    lv_label_set_text(s_val_label, b);
+}
+static void listen_cb(lv_event_t *e) { (void)e; cw_player_play("PARIS", NULL, NULL); }
+
+static lv_obj_t *build_adjust(void)
+{
+    lv_obj_t *s = ui_screen_create();
+    ui_topbar(s, s_item->name, back_to_settings);
+    lv_obj_t *minus = ui_cell(s, "-", UI_FONT_BIG, adj_cb, (void *)(intptr_t)-1);
+    lv_obj_set_size(minus, 64, 64); lv_obj_set_pos(minus, 24, 70);
+    lv_obj_t *plus = ui_cell(s, "+", UI_FONT_BIG, adj_cb, (void *)(intptr_t)1);
+    lv_obj_set_size(plus, 64, 64); lv_obj_set_pos(plus, 232, 70);
+    s_val_label = lv_label_create(s);
+    lv_obj_set_style_text_font(s_val_label, UI_FONT_MID, 0);
+    char b[16]; fmt_val(s_item, b, sizeof b);
+    lv_label_set_text(s_val_label, b);
+    lv_obj_align(s_val_label, LV_ALIGN_TOP_MID, 0, 88);
+    if (s_item->listen) {
+        lv_obj_t *l = ui_button(s, "试听", listen_cb, NULL);
+        lv_obj_set_width(l, 120); lv_obj_align(l, LV_ALIGN_TOP_MID, 0, 170);
+    }
+    return s;
+}
+
+static void choice_cb(lv_event_t *e)
+{
+    set_val(s_item, (int)(intptr_t)lv_event_get_user_data(e));
+    ui_nav_show(ui_settings_create);
+}
+static lv_obj_t *build_choice(void)
+{
+    lv_obj_t *s = ui_screen_create();
+    ui_topbar(s, s_item->name, back_to_settings);
+    int cur = get_val(s_item);
+    for (int i = 0; i < s_item->nchoices; i++) {
+        char t[24]; snprintf(t, sizeof t, "%s %s", i == cur ? "*" : "  ", s_item->choices[i]);
+        lv_obj_t *c = ui_cell(s, t, UI_FONT_CN, choice_cb, (void *)(intptr_t)i);
+        lv_obj_set_pos(c, 0, UI_TOPBAR_H + i * 52); lv_obj_set_size(c, 320, 52);
+        lv_obj_set_style_border_side(c, LV_BORDER_SIDE_BOTTOM, 0);
+    }
+    return s;
+}
+
+static void reset_yes(lv_event_t *e) { (void)e; cw_settings_reset(); apply_audio(); backlight_set(cw_settings_get()->brightness); ui_nav_show(ui_home_create); }
+static lv_obj_t *build_reset(void)
+{
+    lv_obj_t *s = ui_screen_create();
+    ui_topbar(s, "恢复出厂设置", back_to_settings);
+    lv_obj_t *l = lv_label_create(s);
+    lv_label_set_text(l, "将清除 Koch 进度和全部设置，不可恢复");
+    lv_obj_set_width(l, 280); lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+    lv_obj_align(l, LV_ALIGN_TOP_MID, 0, 60);
+    lv_obj_t *no = ui_button(s, "取消", back_to_settings, NULL); lv_obj_set_width(no, 120); lv_obj_set_pos(no, 30, 160);
+    lv_obj_t *yes = ui_button(s, "确认清除", reset_yes, NULL); lv_obj_set_width(yes, 120); lv_obj_set_pos(yes, 170, 160);
+    return s;
+}
+
+/* 呼号编辑：4 行 × 9 列 + 退格/确定 */
+static lv_obj_t *s_call_label;
+static void call_key_cb(lv_event_t *e)
+{
+    const char *k = lv_label_get_text(lv_obj_get_child(lv_event_get_target(e), 0));
+    size_t l = strlen(s_call_buf);
+    if (!strcmp(k, "退格")) { if (l) s_call_buf[l - 1] = 0; }
+    else if (!strcmp(k, "确定")) {
+        if (l >= 3) { strcpy(cw_settings_get()->callsign, s_call_buf); cw_settings_save(); }
+        ui_nav_show(ui_settings_create); return;
+    } else if (l < 10) { s_call_buf[l] = k[0]; s_call_buf[l + 1] = 0; }
+    lv_label_set_text(s_call_label, s_call_buf);
+}
+static lv_obj_t *build_callsign(void)
+{
+    lv_obj_t *s = ui_screen_create();
+    ui_topbar(s, "我的呼号", back_to_settings);
+    strcpy(s_call_buf, cw_settings_get()->callsign);
+    s_call_label = lv_label_create(s);
+    lv_obj_set_style_text_font(s_call_label, UI_FONT_MID, 0);
+    lv_label_set_text(s_call_label, s_call_buf);
+    lv_obj_align(s_call_label, LV_ALIGN_TOP_MID, 0, UI_TOPBAR_H + 2);
+    const char *keys = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    int cols = 10, cw = 32, ch = 42, y0 = UI_TOPBAR_H + 40;
+    for (int i = 0; i < 36; i++) {
+        char t[2] = { keys[i], 0 };
+        lv_obj_t *k = ui_cell(s, t, UI_FONT_CN, call_key_cb, NULL);
+        lv_obj_set_pos(k, (i % cols) * cw, y0 + (i / cols) * ch); lv_obj_set_size(k, cw, ch);
+    }
+    lv_obj_t *bs = ui_cell(s, "退格", UI_FONT_CN, call_key_cb, NULL);
+    lv_obj_set_pos(bs, 6 * cw, y0 + 3 * ch); lv_obj_set_size(bs, 2 * cw, ch);
+    lv_obj_t *ok = ui_cell(s, "确定", UI_FONT_CN, call_key_cb, NULL);
+    lv_obj_set_pos(ok, 8 * cw, y0 + 3 * ch); lv_obj_set_size(ok, 2 * cw, ch);
+    return s;
+}
+
+/* ---- 主设置页 ---- */
+static void item_cb(lv_event_t *e)
+{
+    s_item = lv_event_get_user_data(e);
+    switch (s_item->type) {
+    case IT_NUM: ui_nav_show(build_adjust); break;
+    case IT_CHOICE: ui_nav_show(build_choice); break;
+    case IT_TOGGLE: set_val(s_item, !get_val(s_item)); ui_nav_show(ui_settings_create); break;
+    case IT_CALLSIGN: ui_nav_show(build_callsign); break;
+    case IT_RESET: ui_nav_show(build_reset); break;
+    default: break;
+    }
+}
+
+static void fill_list(void)
+{
+    lv_obj_clean(s_list);
+    for (int i = 0; i < GROUP_N[s_group]; i++) {
+        const item_t *it = &GROUPS[s_group][i];
+        char v[24]; fmt_val(it, v, sizeof v);
+        char t[48]; snprintf(t, sizeof t, "%s", it->name);
+        lv_obj_t *row = ui_cell(s_list, t, UI_FONT_CN, it->type == IT_INFO ? NULL : item_cb, (void *)it);
+        lv_obj_set_size(row, 260, 42);
+        lv_obj_set_pos(row, 0, i * 42);
+        lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
+        lv_obj_align(lv_obj_get_child(row, 0), LV_ALIGN_LEFT_MID, 8, 0);
+        lv_obj_t *vl = lv_label_create(row);
+        lv_label_set_text_fmt(vl, "%s %s", v, it->type == IT_INFO ? "" : ">");
+        lv_obj_align(vl, LV_ALIGN_RIGHT_MID, -8, 0);
+    }
+    for (int g = 0; g < 3; g++) lv_obj_set_style_bg_color(s_tabs[g], g == s_group ? UI_GRAY_DOWN : UI_WHITE, 0);
+}
+
+static void tab_cb(lv_event_t *e) { s_group = (int)(intptr_t)lv_event_get_user_data(e); fill_list(); }
+static void back_home(lv_event_t *e) { (void)e; ui_nav_show(ui_home_create); }
+
+lv_obj_t *ui_settings_create(void)
+{
+    s_scr = ui_screen_create();
+    ui_topbar(s_scr, "设置", back_home);
+    int h = (240 - UI_TOPBAR_H) / 3;
+    for (int g = 0; g < 3; g++) {
+        s_tabs[g] = ui_cell(s_scr, GROUP_NAMES[g], UI_FONT_CN, tab_cb, (void *)(intptr_t)g);
+        lv_obj_set_pos(s_tabs[g], 0, UI_TOPBAR_H + g * h); lv_obj_set_size(s_tabs[g], 60, h);
+    }
+    s_list = lv_obj_create(s_scr);
+    lv_obj_set_pos(s_list, 60, UI_TOPBAR_H); lv_obj_set_size(s_list, 260, 240 - UI_TOPBAR_H);
+    lv_obj_set_style_pad_all(s_list, 0, 0); lv_obj_set_style_radius(s_list, 0, 0);
+    lv_obj_set_style_border_width(s_list, 1, 0); lv_obj_set_style_border_side(s_list, LV_BORDER_SIDE_LEFT, 0);
+    lv_obj_set_style_border_color(s_list, UI_BLACK, 0);
+    lv_obj_set_scroll_dir(s_list, LV_DIR_VER);
+    fill_list();
+    return s_scr;
+}
