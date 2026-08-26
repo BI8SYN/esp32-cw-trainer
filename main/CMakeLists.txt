@@ -22,6 +22,7 @@ idf_component_register(
         "ui/ui_home.c"
         "ui/ui_preview.c"
         "ui/ui_practice.c"
+        "ui/ui_result.c"
         "ui/ui_keyer.c"
         "ui/ui_settings.c"
     INCLUDE_DIRS "." "fonts" "core" "ui"
