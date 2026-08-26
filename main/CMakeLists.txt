@@ -27,6 +27,7 @@ idf_component_register(
         "ui/ui_settings.c"
     INCLUDE_DIRS "." "fonts" "core" "ui"
     REQUIRES
+        esp_app_format
         driver
         esp_driver_i2s
         esp_timer

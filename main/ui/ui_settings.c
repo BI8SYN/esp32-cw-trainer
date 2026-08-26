@@ -3,6 +3,7 @@
 #include <string.h>
 #include "ui_common.h"
 #include "ui_home.h"
+#include "esp_app_desc.h"
 #include "cw_settings.h"
 #include "cw_player.h"
 #include "tone_gen.h"
@@ -10,7 +11,8 @@
 #include "morse_timing.h"
 #include "koch_engine.h"
 
-#define APP_VERSION "0.1.0"
+/* 版本号不再硬编码：info 为 NULL 的 IT_INFO 行显示固件真正嵌入的版本
+ * （来自 CMakeLists 的 PROJECT_VER），显示值与固件值不可能对不上。 */
 
 typedef enum { IT_NUM, IT_CHOICE, IT_TOGGLE, IT_CALLSIGN, IT_RESET, IT_INFO } item_type_t;
 typedef struct {
@@ -46,7 +48,7 @@ static const item_t GEN[] = {
     { "屏幕亮度", IT_NUM, 10, 100, 10, "%", NULL, 0, false, NULL },
     { "恢复出厂设置", IT_RESET, 0, 0, 0, "", NULL, 0, false, NULL },
     { "作者", IT_INFO, 0, 0, 0, "", NULL, 0, false, "BI8SYN" },
-    { "版本", IT_INFO, 0, 0, 0, "", NULL, 0, false, APP_VERSION },
+    { "版本", IT_INFO, 0, 0, 0, "", NULL, 0, false, NULL },
 };
 static const item_t *const GROUPS[3] = { AUDIO, KEY, GEN };
 static const int GROUP_N[3] = { 4, 3, 6 };
@@ -111,7 +113,8 @@ static void fmt_val(const item_t *it, char *out, size_t n)
     case IT_CHOICE: snprintf(out, n, "%s", it->choices[get_val(it)]); break;
     case IT_TOGGLE: snprintf(out, n, "%s", get_val(it) ? "开" : "关"); break;
     case IT_CALLSIGN: snprintf(out, n, "%s", c->callsign); break;
-    case IT_INFO: snprintf(out, n, "%s", it->info); break;
+    case IT_INFO: snprintf(out, n, "%s", it->info ? it->info
+                                              : esp_app_get_description()->version); break;
     default: out[0] = 0;
     }
 }
