@@ -2053,7 +2053,7 @@ git commit -m "CW：新增 NVS 设置模块"
 **Interfaces:**
 - Produces:
   ```c
-  esp_err_t tone_gen_init(void);            /* I2S0 内置 DAC，16kHz，DMA 3×64 样本 ≈ 12ms */
+  esp_err_t tone_gen_init(void);            /* I2S0 内置 DAC，32kHz，DMA 3×64 样本 ≈ 6ms */
   bool tone_gen_is_ok(void);                /* init 失败时 false，UI 据此显示"音频异常" */
   void tone_gen_set(bool on);               /* 任意上下文可调用（原子 flag） */
   void tone_gen_set_freq(uint16_t hz);
