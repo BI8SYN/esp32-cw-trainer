@@ -13,6 +13,34 @@
 
 #define IDLE_OFF_MS 120000
 
+/* 默认主题除了 grow（已在下面清零 transform_width/height）以外，还无条件给
+   lv_btn_class 挂了两份 transition：transition_normal 挂在 selector=LV_STATE_PRESSED
+   （按下瞬间渐变），transition_delayed 挂在 selector=0（松开后延迟渐变回默认态）。
+   两份都会让本地按下态背景色（UI_GRAY_BG vs UI_WHITE）渐变而不是瞬时切换，仍是
+   phase 1 禁止的动画。这里在同样的两个 selector 上用本地样式挂一份覆盖同一组
+   属性、time=0 的描述符去顶掉它们（不是设成 NULL——那样会在 lv_obj_set_state
+   内部被当成非空描述符解引用，直接崩溃；0 时长的合法描述符已用设备实测确认
+   会被 lv_map 的边界分支直接返回终值，没有除零） */
+static const lv_style_prop_t s_no_fade_props[] = {
+    LV_STYLE_BG_OPA, LV_STYLE_BG_COLOR,
+    LV_STYLE_TRANSFORM_WIDTH, LV_STYLE_TRANSFORM_HEIGHT,
+    LV_STYLE_TRANSLATE_Y, LV_STYLE_TRANSLATE_X,
+    LV_STYLE_TRANSFORM_ZOOM, LV_STYLE_TRANSFORM_ANGLE,
+    LV_STYLE_COLOR_FILTER_OPA, LV_STYLE_COLOR_FILTER_DSC,
+    0
+};
+
+static const lv_style_transition_dsc_t *no_fade_transition(void)
+{
+    static lv_style_transition_dsc_t dsc;
+    static bool inited;
+    if (!inited) {
+        lv_style_transition_dsc_init(&dsc, s_no_fade_props, lv_anim_path_linear, 0, 0, NULL);
+        inited = true;
+    }
+    return &dsc;
+}
+
 static lv_obj_t *s_scr, *s_clock, *s_bat;
 static lv_timer_t *s_timer;
 static bool s_dimmed;
@@ -91,6 +119,9 @@ lv_obj_t *ui_home_create(void)
        phase 1 禁止任何动画，这里显式清零覆盖 */
     lv_obj_set_style_transform_width(card, 0, LV_STATE_PRESSED);
     lv_obj_set_style_transform_height(card, 0, LV_STATE_PRESSED);
+    /* 同一件事的另一半：顶掉主题按下/松开两份 transition，见文件顶部注释 */
+    lv_obj_set_style_transition(card, no_fade_transition(), LV_STATE_PRESSED);
+    lv_obj_set_style_transition(card, no_fade_transition(), 0);
     lv_obj_set_pos(card, 0, top);
     lv_obj_set_size(card, 200, 240 - top);
     lv_obj_add_event_cb(card, go_koch, LV_EVENT_CLICKED, NULL);

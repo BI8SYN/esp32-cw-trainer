@@ -1,5 +1,41 @@
 #include "ui_common.h"
 
+/* 默认主题除了 grow（已在 make_btn/home 卡片清零 transform_width/height）以外，还
+   无条件给每个 lv_btn_class 挂了两份 transition：
+   - transition_normal，挂在 selector = LV_STATE_PRESSED，负责按下瞬间的渐变；
+   - transition_delayed，挂在 selector = 0（默认态，任何方向的迁移都会扫到它），
+     负责松开后延迟一小段再渐变回默认态。
+   两份都覆盖 BG_COLOR/BG_OPA/COLOR_FILTER_*（按下态的变暗滤镜）等一串属性，只要
+   这些属性在两个状态间取值不同（我们的按下态背景色就是不同的），就会渐变而不是
+   瞬间切换——这仍然是 phase 1 禁止的动画。
+   `_lv_obj_style_create_transition` 是按“本对象样式数组里第一个把这个属性列进
+   transition 描述符的条目”来决定用谁的时长（本地样式永远排在主题样式前面，
+   见 lv_obj_add_style 的插入逻辑），所以只要在同样的两个 selector（0 和
+   LV_STATE_PRESSED）上，用本地样式挂一份覆盖同一组属性、但 time=0 的描述符，
+   就能连着按下和松开两个方向一起顶掉主题那两份、变成瞬时切换（不是删掉整个
+   transition 属性——设成 NULL 会在 lv_obj_set_state 内部被当成非空描述符解引用，
+   直接崩溃；0 时长的合法描述符则被 lv_map 的边界分支直接返回终值，没有除零，
+   已用设备实测确认过）。 */
+static const lv_style_prop_t s_no_fade_props[] = {
+    LV_STYLE_BG_OPA, LV_STYLE_BG_COLOR,
+    LV_STYLE_TRANSFORM_WIDTH, LV_STYLE_TRANSFORM_HEIGHT,
+    LV_STYLE_TRANSLATE_Y, LV_STYLE_TRANSLATE_X,
+    LV_STYLE_TRANSFORM_ZOOM, LV_STYLE_TRANSFORM_ANGLE,
+    LV_STYLE_COLOR_FILTER_OPA, LV_STYLE_COLOR_FILTER_DSC,
+    0
+};
+
+static const lv_style_transition_dsc_t *no_fade_transition(void)
+{
+    static lv_style_transition_dsc_t dsc;
+    static bool inited;
+    if (!inited) {
+        lv_style_transition_dsc_init(&dsc, s_no_fade_props, lv_anim_path_linear, 0, 0, NULL);
+        inited = true;
+    }
+    return &dsc;
+}
+
 void ui_nav_show(ui_screen_builder_t builder)
 {
     lv_obj_t *old = lv_scr_act();
@@ -70,6 +106,9 @@ static lv_obj_t *make_btn(lv_obj_t *parent, const char *text, const lv_font_t *f
        不依赖 Kconfig（谁都可能把那个选项改回去） */
     lv_obj_set_style_transform_width(b, 0, LV_STATE_PRESSED);
     lv_obj_set_style_transform_height(b, 0, LV_STATE_PRESSED);
+    /* 同一件事的另一半：顶掉主题按下/松开两份 transition，见文件顶部注释 */
+    lv_obj_set_style_transition(b, no_fade_transition(), LV_STATE_PRESSED);
+    lv_obj_set_style_transition(b, no_fade_transition(), 0);
     lv_obj_set_style_bg_color(b, UI_WHITE, 0);
     lv_obj_set_style_bg_color(b, UI_GRAY_DOWN, LV_STATE_PRESSED);
     lv_obj_set_style_bg_color(b, UI_WHITE, LV_STATE_DISABLED);
