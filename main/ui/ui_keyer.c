@@ -50,7 +50,7 @@ static void pad_cb(lv_event_t *e)
 
 static void clear_cb(lv_event_t *e) { (void)e; s_buf[0] = 0; lv_label_set_text(s_text, ""); }
 static void back(lv_event_t *e) { (void)e; ui_nav_show(ui_home_create); }
-static void on_delete(lv_event_t *e) { (void)e; key_input_stop(); lv_timer_del(s_timer); s_timer = NULL; s_scr = NULL; }
+static void on_delete(lv_event_t *e) { (void)e; key_input_stop(); lv_timer_del(s_timer); s_timer = NULL; s_scr = NULL; s_pad[0] = s_pad[1] = NULL; }
 
 lv_obj_t *ui_keyer_create(void)
 {
@@ -71,11 +71,13 @@ lv_obj_t *ui_keyer_create(void)
     lv_obj_set_pos(s_text, 8, top + 4);
     lv_obj_set_size(s_text, 304, 60);
     lv_label_set_long_mode(s_text, LV_LABEL_LONG_WRAP);
+    lv_label_set_text(s_text, "");
     s_buf[0] = 0;
 
     s_seq = lv_label_create(s_scr);
     lv_obj_set_style_text_font(s_seq, UI_FONT_MID, 0);
     lv_obj_align(s_seq, LV_ALIGN_TOP_MID, 0, top + 66);
+    lv_label_set_text(s_seq, "");
 
     /* s_pad[] 是跨页面存活的文件级 static；下面三条布局分支里，仅"外接+直键"
      * 分支只写 s_pad[0]（循环上限 1），不会碰 s_pad[1]。如果上一次进入本页时
