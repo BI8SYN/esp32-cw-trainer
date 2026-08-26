@@ -75,17 +75,25 @@ static void gen_round(trainer_t *t)
             strcpy(t->rst_options[i], t->rst_options[j]);
             strcpy(t->rst_options[j], tmp);
         }
-        snprintf(t->play_text, sizeof t->play_text, "CQ CQ DE %s K UR RST %s %s BK", t->target, t->rst, t->rst);
+        snprintf(t->play_text, sizeof t->play_text, "%s DE %s %s K UR RST %s %s BK", t->my_callsign, t->target, t->target, t->rst, t->rst);
         break;
     }
     }
 }
 
-void trainer_start(trainer_t *t, trainer_mode_t mode, uint8_t lesson, uint32_t seed)
+void trainer_start(trainer_t *t, trainer_mode_t mode, uint8_t lesson, const char *my_callsign, uint32_t seed)
 {
     memset(t, 0, sizeof *t);
     t->mode = mode;
     t->lesson = lesson;
+    if (my_callsign && my_callsign[0]) {
+        strncpy(t->my_callsign, my_callsign, sizeof t->my_callsign - 1);
+        t->my_callsign[sizeof t->my_callsign - 1] = '\0';
+    } else {
+        /* NOCALL: 业余无线电设备（Yaesu/Icom 等）出厂未设置呼号时的通行占位符，
+         * 熟悉 CW 训练场景的用户一看就懂这是"尚未设置呼号"，而不是真实呼号。 */
+        strcpy(t->my_callsign, "NOCALL");
+    }
     rng_seed(&t->rng, seed);
     gen_round(t);
 }
