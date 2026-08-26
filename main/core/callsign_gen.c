@@ -105,7 +105,12 @@ void callsign_gen_distractors(const char *target, rng_t *rng, char out[3][CALLSI
         if (already_taken(cand, out, made)) continue;
         strcpy(out[made++], cand);
     }
-    /* 极端情况兜底：依次改第 0、1、2 位 */
+    /* 极端情况兜底（实践中无法到达）：
+     * 主循环在 guard=200 前用尽所有 200 次尝试且未完成，则进入此路径。
+     * 这在实践中无法从公开 API 到达，因为 type_preserving_other() 在每个类别
+     * （数字 9 个，字母 25 个）提供充分的替代选项，且主循环已进行 200 次尝试。
+     * 此路径存在是为了保证即使主循环耗尽，out[] 也不会有未初始化的槽。
+     * 它通过检查而非测试验证（因为它实践上无法从用户代码触发）。 */
     for (; made < 3; made++) {
         size_t pos = made % len;
         char cand[CALLSIGN_MAX];

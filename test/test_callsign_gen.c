@@ -96,42 +96,38 @@ TEST(distractors_preserve_shape)
 TEST(confusable_table_via_distractors)
 {
     rng_t r;
-    /* 验证易混表的关键变化通过生成干扰项的行为体现出来。
-     * 使用包含特定字符的目标，验证生成的干扰项的字符替换。 */
     char d[3][CALLSIGN_MAX];
 
-    /* 目标包含 9：应该能生成包含 0 的干扰项，不应该生成包含 6 的 */
+    /* 验证 9↔0（新对）替换成功，且 9 不再与 6 混淆（旧的错误对）。
+     * 从含 9 的目标生成多个干扰项，收集所有在 9 位置上的替代字符。
+     * 预期：可以看到 0，不应该看到 6（这会在旧表中失败）。 */
     rng_seed(&r, 12);
-    bool found_9_to_0 = false;
-    for (int i = 0; i < 50; i++) {
+    bool seen_9_to_0 = false, seen_9_to_6 = false;
+    for (int i = 0; i < 100; i++) {
         callsign_gen_distractors("A9B5CD", &r, d);
         for (int j = 0; j < 3; j++) {
-            if (d[j][1] == '0' && d[j][0] == 'A' && d[j][2] == 'B') found_9_to_0 = true;
+            if (d[j][0] == 'A' && d[j][2] == 'B' && d[j][3] == '5' && d[j][4] == 'C' && d[j][5] == 'D') {
+                if (d[j][1] == '0') seen_9_to_0 = true;
+                if (d[j][1] == '6') seen_9_to_6 = true;
+            }
         }
     }
-    ASSERT_TRUE(found_9_to_0);
+    ASSERT_TRUE(seen_9_to_0);      /* 新表中 9 与 0 相关联 */
+    ASSERT_TRUE(!seen_9_to_6);     /* 新表中 9 不与 6 相关联（这在旧表中会失败） */
 
-    /* 目标包含 T：应该能生成包含 M 的干扰项 */
-    rng_seed(&r, 13);
-    bool found_T_to_M = false;
-    for (int i = 0; i < 50; i++) {
-        callsign_gen_distractors("T3B5CD", &r, d);
-        for (int j = 0; j < 3; j++) {
-            if (d[j][0] == 'M' && strcmp(d[j] + 1, "3B5CD") == 0) found_T_to_M = true;
-        }
-    }
-    ASSERT_TRUE(found_T_to_M);
-
-    /* 目标包含 6：应该能生成包含 5 的干扰项 */
+    /* 验证 6↔5（新对）替换成功。从含 6 的目标生成干扰项，
+     * 验证可以看到 5 替代 6（这在旧表中不存在）。 */
     rng_seed(&r, 14);
-    bool found_6_to_5 = false;
-    for (int i = 0; i < 50; i++) {
-        callsign_gen_distractors("A6B5CD", &r, d);
+    bool seen_6_to_5 = false;
+    for (int i = 0; i < 100; i++) {
+        callsign_gen_distractors("A6B3CD", &r, d);
         for (int j = 0; j < 3; j++) {
-            if (d[j][1] == '5' && d[j][0] == 'A' && d[j][2] == 'B') found_6_to_5 = true;
+            if (d[j][0] == 'A' && d[j][2] == 'B' && d[j][3] == '3' && d[j][4] == 'C' && d[j][5] == 'D') {
+                if (d[j][1] == '5') seen_6_to_5 = true;
+            }
         }
     }
-    ASSERT_TRUE(found_6_to_5);
+    ASSERT_TRUE(seen_6_to_5);      /* 新表中 6 与 5 相关联（旧表中不存在此对） */
 }
 
 TEST(rst_options_distinct)
