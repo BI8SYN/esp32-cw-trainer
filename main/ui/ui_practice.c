@@ -68,10 +68,29 @@ static void on_play_done_ui(void *arg)
     set_keys_enabled(true);
 }
 
+/* cw_player 是全局单例，本页的会话可能被别的页面（例如刚打开的另一个练习/
+ * 预告会话）用 cw_player_stop_if() 或 cw_player_stop() 抢停——即便有了会话
+ * 归属令牌，仍然可能真的被别人合法地停掉，不只是本页自己 play()/退出时才
+ * 会收到 STOPPED。如果对此坐视不理，s_phase 会永远停在 PH_PLAYING，键盘
+ * 永远禁用，且 replay_cb 又只在 PH_INPUT 时才生效——页面会彻底卡死，没有任何
+ * 用户操作能恢复。这里选择跟 on_play_done_ui 完全一样的恢复方式：直接进入
+ * PH_INPUT 并整体解锁，提示文案说明发生了中断。用户可以凭已经听到的部分
+ * 直接作答，也可以点"重播"重新完整听一遍——两者都是已有的正常路径，不需要
+ * 新增一种"只解锁重播"的中间状态。 */
+static void on_play_stopped_ui(void *arg)
+{
+    (void)arg;
+    if (!s_scr || s_phase != PH_PLAYING) return;
+    s_phase = PH_INPUT;
+    set_hint("播放被中断，可直接作答或点“重播”");
+    set_keys_enabled(true);
+}
+
 static void player_cb(cw_player_event_t ev, char c, void *user)
 {
     (void)c; (void)user;
     if (ev == CW_PLAYER_EV_DONE) ui_async_post(on_play_done_ui, NULL);
+    else if (ev == CW_PLAYER_EV_STOPPED) ui_async_post(on_play_stopped_ui, NULL);
 }
 
 static void play(void)
@@ -79,7 +98,8 @@ static void play(void)
     s_phase = PH_PLAYING;
     set_hint("正在播放中");
     set_keys_enabled(false);
-    cw_player_play(s_tr.play_text, player_cb, NULL);
+    /* &s_tr 作为本页在 cw_player 里的会话归属令牌——见 on_delete 的注释 */
+    cw_player_play(s_tr.play_text, player_cb, &s_tr);
 }
 
 static void replay_cb(lv_event_t *e) { (void)e; if (s_phase == PH_INPUT) play(); }
@@ -237,7 +257,13 @@ static void back(lv_event_t *e) { (void)e; ui_confirm("退出后本轮不计入�
 static void on_delete(lv_event_t *e)
 {
     (void)e;
-    cw_player_stop();
+    /* cw_player 是全局单例：on_delete 可能在下一个页面已经开始播放之后才
+     * 触发（ui_nav_show 先 build() 新页——新页可能已经调用 cw_player_play()
+     * ——再异步删除旧页），无条件 cw_player_stop() 会掐掉新会话刚起播的
+     * 音频。改用 cw_player_stop_if(&s_tr)：只有当前播放会话确实还是本页
+     * 自己发起的（token 匹配）才真的停止，否则什么都不做。&s_tr 取本页
+     * 会话状态的地址当令牌——天然唯一、天然与本页生命周期绑定。 */
+    cw_player_stop_if(&s_tr);
     if (s_fb_timer) { lv_timer_del(s_fb_timer); s_fb_timer = NULL; }
     s_scr = NULL; s_hint = s_input = s_fb = s_replay = s_submit = NULL;
     memset(s_opts, 0, sizeof s_opts); memset(s_rst_opts, 0, sizeof s_rst_opts); s_nkeys = 0;

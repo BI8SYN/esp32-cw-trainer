@@ -199,4 +199,23 @@ void cw_player_stop(void)
     fire_cb(&pending);   /* 锁外触发 STOPPED */
 }
 
+/* 与 cw_player_stop() 同一套加锁/收尾/锁外触发流程，唯一区别是：先在锁内确认
+ * "正在播放的会话确实是 user 这一个"，不是就什么都不做——不停音，不摸状态，
+ * 也不触发任何回调。锁内比较、锁内收尾、锁外触发回调，三步顺序与
+ * cw_player_stop()/cw_player_play() 完全一致，理由同样是 fire_cb() 必须在
+ * s_mutex 释放之后才能调用，否则会在 esp_timer 任务上自锁死。 */
+bool cw_player_stop_if(void *user)
+{
+    pending_cb_t pending = { .fire = false };
+    bool stopped = false;
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    if (s_playing && s_user == user) {
+        stop_locked(&pending);
+        stopped = true;
+    }
+    xSemaphoreGive(s_mutex);
+    fire_cb(&pending);
+    return stopped;
+}
+
 bool cw_player_is_playing(void) { return s_playing; }

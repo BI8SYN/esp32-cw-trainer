@@ -35,10 +35,18 @@ static void play_one(void)
 {
     char t[2] = { koch_new_char(s_lesson), 0 };
     lv_label_set_text_fmt(s_status, "正在播放 %d / %d", s_played + 1, REPEATS);
-    cw_player_play(t, player_cb, NULL);
+    /* &s_scr 作为本页在 cw_player 里的会话归属令牌——见 on_delete 的注释 */
+    cw_player_play(t, player_cb, &s_scr);
 }
 
-static void on_delete(lv_event_t *e) { (void)e; cw_player_stop(); s_scr = NULL; }
+/* cw_player 是全局单例：on_delete 可能在下一个页面已经开始播放之后才触发
+ * （ui_nav_show 先 build() 新页——新页可能已经调用 cw_player_play()——再异步
+ * 删除旧页），这时无条件 cw_player_stop() 会掐掉新会话刚起播的音频，而不是
+ * 本页自己那一段。改用 cw_player_stop_if(&s_scr)：只有当前播放会话确实还是
+ * 本页自己发起的（token 匹配）才真的停止，否则什么都不做。&s_scr 取本模块
+ * 静态变量的地址当令牌——地址稳定、每个页面各不相同，天然满足"区分会话
+ * 归属"的要求，不需要另外声明一个专用变量。 */
+static void on_delete(lv_event_t *e) { (void)e; cw_player_stop_if(&s_scr); s_scr = NULL; }
 static void back(lv_event_t *e) { (void)e; ui_nav_show(ui_home_create); }
 static void replay(lv_event_t *e) { (void)e; s_played = 0; play_one(); }
 static void start(lv_event_t *e) { (void)e; ui_practice_open_lesson(s_lesson); }

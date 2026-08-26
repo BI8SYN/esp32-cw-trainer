@@ -25,6 +25,11 @@ esp_err_t cw_player_init(void);
 void      cw_player_set_timing(const morse_timing_t *t);
 esp_err_t cw_player_play(const char *text, cw_player_cb_t cb, void *user);
 void      cw_player_stop(void);
+/* 只在当前播放会话属于 user 时才停止，否则什么都不做，返回是否真的停了。
+ * 页面的 on_delete 必须用这个而不是 cw_player_stop()：ui_nav_show 会先建好新页面
+ * （新页面此时可能已经开始播放），再异步删除旧页面。旧页面的 on_delete 若无条件
+ * 停止播放，掐掉的是新页面刚开始的音频。 */
+bool      cw_player_stop_if(void *user);
 bool      cw_player_is_playing(void);
 
 #endif
