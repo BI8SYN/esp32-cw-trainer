@@ -44,7 +44,28 @@ esp_err_t battery_start(battery_cb_t cb)
     s_cb = cb;
     ESP_ERROR_CHECK(adc1_config_width(ADC_WIDTH_BIT_12));
     ESP_ERROR_CHECK(adc1_config_channel_atten(BOARD_BATTERY_ADC_CH, ADC_ATTEN_DB_11));
-    esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, 1100, &s_cal);
+
+    /* 记录校准来源（不属于 brief 原文，经协调者批准追加）：
+     * esp_adc_cal_characterize 的返回值指出实际使用的校准数据来源。
+     * 若芯片没有烧录 eFuse 校准值，会静默退化为下面写死的 1100mV 默认参考电压，
+     * 所有电压读数都会因此产生系统性偏差且没有任何提示——这里把来源打到日志里，
+     * 换一块没有 eFuse 校准的芯片时能立刻看出来，而不是被当成正常读数。 */
+    esp_adc_cal_value_t cal_src = esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, 1100, &s_cal);
+    switch (cal_src) {
+    case ESP_ADC_CAL_VAL_EFUSE_VREF:
+        ESP_LOGI(TAG, "adc cal source: eFuse Vref");
+        break;
+    case ESP_ADC_CAL_VAL_EFUSE_TP:
+        ESP_LOGI(TAG, "adc cal source: eFuse Two Point");
+        break;
+    case ESP_ADC_CAL_VAL_EFUSE_TP_FIT:
+        ESP_LOGI(TAG, "adc cal source: eFuse Two Point (fitting curve)");
+        break;
+    default:
+        ESP_LOGW(TAG, "adc cal source: DEFAULT VREF FALLBACK (1100 mV assumed) - readings may be inaccurate");
+        break;
+    }
+
     return xTaskCreate(task, "battery", 3072, NULL, 1, NULL) == pdPASS ? ESP_OK : ESP_FAIL;
 }
 
