@@ -2,6 +2,7 @@ idf_component_register(
     SRCS
         "main.c"
         "cw_settings.c"
+        "tone_gen.c"
         "core/morse_table.c"
         "core/morse_timing.c"
         "core/keyer.c"

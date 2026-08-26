@@ -4,6 +4,7 @@
 #include "esp_timer.h"
 #include "nvs_flash.h"
 #include "cw_settings.h"
+#include "tone_gen.h"
 #include "lvgl.h"
 #include "lv_port_disp.h"
 #include "lv_port_indev.h"
@@ -33,6 +34,14 @@ void app_main(void)
              cw_settings_get()->char_wpm, cw_settings_get()->eff_wpm,
              cw_settings_get()->tone_hz, cw_settings_get()->koch_lesson,
              cw_settings_was_reset());
+
+    if (tone_gen_init() == ESP_OK) {
+        tone_gen_set_freq(cw_settings_get()->tone_hz);
+        tone_gen_set_volume(cw_settings_get()->volume);
+        tone_gen_set(true);  vTaskDelay(pdMS_TO_TICKS(100));
+        tone_gen_set(false);
+    }
+
     lv_init();
     lv_port_disp_init();
     lv_port_indev_init();
