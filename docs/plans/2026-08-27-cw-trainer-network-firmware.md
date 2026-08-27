@@ -292,7 +292,7 @@ git commit -m "feat(cw-trainer): CWCom 包编解码，黄金向量取自真实�
 - Produces:
 ```c
 typedef enum {
-    KOB_ST_IDLE, KOB_ST_CONNECTING, KOB_ST_REGISTERING, KOB_ST_ONLINE
+    KOB_ST_IDLE, KOB_ST_CONNECTING, KOB_ST_ONLINE
 } kob_state_t;
 
 typedef struct kob_client kob_client_t;
@@ -330,7 +330,9 @@ bool kob_client_send_code(kob_client_t *c, const int32_t *code, int32_t n,
 #define KOB_TIMEOUT_MS    30000
 ```
 
-**关键行为（实测得来，不是文档所载）**：收到 `ACK` 只是**连上**，必须紧接着发一个 ID 包才会被服务器纳入中继。漏了这一步的表现是「显示在线但对方永远收不到」，且**服务器不报错**。因此状态机里 `REGISTERING` 是独立状态，不能与 `ONLINE` 合并。
+**关键行为（实测得来，不是文档所载）**：收到 `ACK` 只是**连上**，必须紧接着发一个 ID 包才会被服务器纳入中继。漏了这一步的表现是「显示在线但对方永远收不到」，且**服务器不报错**。
+
+> **实现时的修正**：本计划初稿要求 `REGISTERING` 作为独立状态。实现时判定不需要——服务器**不会** ACK 这个 ID 包，没有任何东西可等，该状态会在同一次调用里进入又退出，是死重量。最终做法是在 ACK 处理里同步发 ID 再进 `ONLINE`，由 `ack_triggers_id_registration_then_online` 与 `reconnect_after_timeout_registers_again` 两个用例钉死「ID 包必须发出」和「重连后必须重新注册」。
 
 - [ ] **Step 1: 写失败的测试**
 
