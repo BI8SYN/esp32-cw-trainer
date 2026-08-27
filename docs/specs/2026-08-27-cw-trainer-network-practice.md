@@ -1,0 +1,401 @@
+# CW Trainer 联网对练（CWCom / MorseKOB）
+
+日期：2026-08-27
+状态：设计草案，待评审
+前置：`docs/superpowers/specs/2026-08-25-cw-trainer-design.md`（该 spec 第 21 行把「联网对练、WiFi」列为明确不做的增强项，本 spec 即是那个「另开的 spec」）
+
+## 1. 为什么是 CWCom，以及一条硬约束
+
+### 选型
+
+能让电键接进互联网、和别人实时对练的方案有三类：
+
+| 方案 | 认证 | 设备可行性 |
+|---|---|---|
+| **CWCom / MorseKOB** | **无**（自报一个 office ID 字符串即可） | 纯 UDP 定长包，无 TLS，无编解码 |
+| iCW | Mumble 服务器需注册用户名，部分社区要人工批 | 需 Opus 编解码 + TLS 控制通道，成本高一个数量级 |
+| Zoom 类课堂（LICW / CW Academy） | 需账号 | 与设备无关，是人对人上课 |
+
+CWCom 是唯一同时满足「不需要账号」和「ESP32 扛得住」的方案。
+
+### 硬约束：一个字符一个包，且无重传
+
+协议规范（`Morse-Code-over-IP/protocol-cwcom` 的 README）原文：
+
+> The timing of the elements of each character is encoded as a sequence of numbers and **sent in its own packet** over the network.
+
+一个字符一个 UDP 包，正数是键闭合毫秒数，负数是断开毫秒数。例如字母 V：
+
+```
+(-2000, +50, -50, +50, -50, +50, -50, +150)
+```
+
+**丢一个包 = 丢一个完整字符**，而 UDP 没有重传。这条决定了本 spec 的服务器选型。
+
+### 实测：国际线路不可用，必须自建
+
+2026-08-27 于阿里云广州（`ali99`，8.138.130.141，AS37963）实测，无代理裸连：
+
+| 测试 | 结果 |
+|---|---|
+| DNS 解析 `mtc-kob.dyndns.org` | 正常 → 169.48.104.92，**无污染** |
+| ICMP ping（1s 间隔，已排除限速） | RTT 212ms，抖动 mdev **2.2ms**，丢包 **23%** |
+| **CWCom 协议握手**（发 CON 收 ACK） | **握手成功**，37 发 28 回 → 丢包 ~24% |
+| UDP 基线：美国 NTP | 丢包 17.5%，199ms，抖动 13ms |
+| UDP 基线：Cloudflare NTP | 丢包 92.5%（此路不通） |
+| UDP 基线：阿里云 NTP（国内） | 丢包 **0%**，40ms，抖动 4ms |
+
+结论有两层：
+
+1. **不需要翻墙**，国际公共服务器裸连就能握手，没有任何封锁迹象。
+2. **但不可用**。延迟 212ms、抖动 2.2ms 都很优秀，唯独丢包稳定在 17~24% —— 换算成协议语义就是**每五个字符消失一个**。接收侧缓冲能补抖动，补不了根本没到的包。
+
+因此：**本 spec 只做自建服务器，不接国际 wire**。服务器地址端口做成可配置，将来线路改善或有人架了更近的节点，改一个字段即可，不用动代码。
+
+## 2. 范围
+
+### 本 spec 做
+
+1. WiFi 配网（多槽位、扫描选择、屏幕键盘输入、从 FMO 伴侣一键导入）
+2. WiFi 按需开关（默认关闭）
+3. CWCom 协议客户端（连接 / 收发 / 保活 / 断线重连）
+4. 联网对练页：在线站点列表、收报显示、发报占用指示
+5. 自建服务器部署（`ali99`）
+
+### 本 spec 不做
+
+- 不接国际公共 wire（默认地址指向自建服务器）
+- 不做私有频道 PIN（服务端 `pins.py` 支持，客户端先不暴露）
+- 不做 OTA、不做 Web 配网门户
+- 不做把练习成绩上传服务器
+
+## 3. 配网
+
+**配网是整个功能的第一道门**，而且是唯一需要用户在电阻触摸屏上敲字的地方 —— 体验成败在这里。
+
+### 3.1 存几个 WiFi：4 个
+
+**结论：4 个槽位**（`CW_WIFI_PROFILE_MAX 4`）。
+
+存储成本完全不是约束。每槽 `used(1) + ssid[33] + password[64]` = 98 字节，4 槽 392 字节，而 NVS 分区有 `0x6000` = 24KB。存 20 个都毫无压力。
+
+真正的成本是**输入痛苦**：在 320×240 电阻屏上用 LVGL 键盘敲一个 WPA2 密码是件苦差事，所以槽位再多也不会有人填。定 4 的依据是随身设备的实际场景：
+
+| 槽位 | 典型用途 |
+|---|---|
+| 1 | 家 |
+| 2 | 单位 / 宿舍 |
+| 3 | **手机热点** —— 随身练习时唯一可用的网络，必须占一格 |
+| 4 | 流动点：朋友家、电台活动现场、酒店 |
+
+上限定在 4 而不是更多的理由：横屏 320×240 一屏能舒服地列 4 行，5 行以上要滚动；而且槽位一多，用户自己也记不清哪格是哪个。
+
+参考对比：`fmo-companion` 用的是 3（`app_settings.h:61` `APP_WIFI_PROFILE_MAX 3`）。它是台面设备，流动性弱；cw-trainer 是随身盒子，多给一格。
+
+连接策略沿用 fmo-companion 已验证的做法（`wifi_manager.c:627` 起）：主动全信道扫描，把扫到的 AP 和已存槽位做匹配，连上第一个匹配到的。不需要用户手动选。
+
+### 3.2 存哪里：独立 NVS key，绝对不能进 `cw_settings_t`
+
+**这是本 spec 最容易踩坏的地方。**
+
+`cw_settings.c:59` 的加载逻辑是：
+
+```c
+if (err != ESP_OK || len != sizeof s_cfg || s_cfg.version != CW_SETTINGS_VERSION) {
+    set_defaults(&s_cfg);   // 全部回默认值
+    s_was_reset = true;
+}
+```
+
+而 `cw_settings_t`（`cw_settings.h:11`）里装着 `koch_lesson` 和 `koch_last_pct[41]` —— **用户的全部 Koch 训练进度**。
+
+也就是说：只要往这个结构体里加 WiFi 字段并提升 `CW_SETTINGS_VERSION`，所有老用户升级固件后 **Koch 进度直接清零**。长度校验 `len != sizeof s_cfg` 也会独立触发同一条路径，就算不改版本号也一样会清。
+
+**做法**：照抄 fmo-companion 的分离式设计 —— WiFi 配置存在独立的 NVS key、带独立版本号：
+
+```c
+#define NVS_KEY_WIFI_PROFILES  "wifi_profiles"   /* 与 appcfg 同名，便于导入 */
+#define CW_WIFI_PROFILES_VERSION 1
+
+typedef struct {
+    uint8_t used;
+    char    ssid[33];       /* 32 字节 SSID + '\0' */
+    char    password[64];   /* 63 字节 WPA2 + '\0' */
+} cw_wifi_profile_t;
+
+typedef struct {
+    uint32_t          version;
+    cw_wifi_profile_t profiles[CW_WIFI_PROFILE_MAX];
+    uint8_t           active;      /* 当前选中槽位 */
+} cw_wifi_profiles_blob_t;
+```
+
+同理，联网对练的服务器地址、wire 号、office ID 也放这个独立 blob，不进 `cw_settings_t`。`cw_settings_t` 和 `CW_SETTINGS_VERSION` 本 spec **一个字节都不动**。
+
+### 3.3 从 FMO 伴侣导入（省掉敲密码）
+
+两个固件刷在同一块板子上，NVS 分区共享，只是命名空间不同：cw-trainer 是 `cwtrn`（`cw_settings.c:7`），fmo-companion 是 `appcfg`（`app_settings.c:47`）。而 fmo-companion 早就把 WiFi 存在 `appcfg` 的 `wifi_profiles` key 里了。
+
+所以：**首次进入配网页时，若 `cwtrn` 下没有任何 WiFi，就去读 `appcfg` 的 `wifi_profiles`；读到有效数据就提供一个「从 FMO 伴侣导入」按钮，一键搬过来。**
+
+这对经常在两个固件间来回刷的人（也就是本项目唯一的用户）几乎完全消除了配网成本。
+
+实现注意：
+- 只读，不写 `appcfg`，不影响 fmo-companion
+- 结构体布局不同（fmo 的 blob 是 3 槽 + WireGuard 保留字段），必须按 fmo 的 `app_wifi_profiles_blob_t` 定义显式解析，不能直接 `memcpy`
+- fmo 侧 3 槽导入到本侧 4 槽的前 3 格，第 4 格留空
+- 读不到或版本不匹配就静默跳过，不显示导入按钮，不报错
+
+### 3.4 配网 UI
+
+直接搬 fmo-companion 已验证的方案（`app_ui.c:1981` 起）：
+
+- 槽位列表（4 行），每行显示 SSID 或「空」，点击进入编辑
+- SSID 支持两种填法：从扫描结果列表点选，或手工输入
+- 密码用 `lv_textarea` + `lv_keyboard`（`LV_KEYBOARD_MODE_TEXT_LOWER`）
+- 已存槽位重新点选同名 SSID 时自动回填密码
+- 保存后立即尝试连接，页面上显示连接状态
+
+横屏 320×240 下键盘会占掉大半屏，textarea 和键盘需要错开布局，不能照搬 fmo 的竖屏排布。
+
+### 3.5 WiFi 默认关闭，按需开启
+
+**WiFi 默认不启动。** 只有用户进入「联网对练」页时才 `esp_wifi_start()`，退出即 `esp_wifi_stop()`。
+
+三条理由，每条都是实打实的：
+
+1. **侧音噪声** —— 侧音走的是 ESP32 内置 DAC（`tone_gen.c`），模拟输出。CYD 这类板子电源去耦弱，WiFi 发射的电流尖峰很可能在耳机里听成周期性底噪。离线练习（Koch 听写、电键）是主线场景，绝不能被联网功能拖累音质。
+2. **电池** —— WiFi TX 峰值 250~300mA，随身盒子的续航会明显缩水。
+3. **启动速度与内存** —— WiFi + lwIP 常驻约 50~60KB 堆；不用时还回去。
+
+配网页是例外：进配网页需要扫描，所以那一页也临时开 WiFi，退出关掉。
+
+## 4. 协议实现
+
+### 4.1 权威参考
+
+| 仓库 | 许可 | 用途 |
+|---|---|---|
+| `MorseKOB/PyKOB` | MIT | `src.py/pykob/internet.py` 是权威协议实现，包格式和状态机以它为准 |
+| `Morse-Code-over-IP/protocol-cwcom` | GPL-3.0 | 协议规范文档 + `cwcom.pdf` + **C 实现**（可直接参考移植） |
+| `Morse-Code-over-IP/morse_kob_server` | 无声明 | 服务端，单文件 Python，自带 Dockerfile |
+| `MorseKOB/MuKOB` | MIT | 「MorseKOB for a microcontroller-based platform」，单片机版前置工作 |
+| `Morse-Code-over-IP/irmc-avr` | — | AVR 版客户端 —— 8 位机都跑得动，佐证 ESP32 毫无压力 |
+
+注意 `protocol-cwcom` 是 **GPL-3.0**。如果直接移植它的 C 代码，本项目相应部分要受 GPL 约束；若要避免，就照着 `cwcom.pdf` 规范和 MIT 的 PyKOB 重新实现。**建议走后者**。
+
+### 4.2 包格式（已从 PyKOB 源码核实）
+
+```c
+/* 命令码，小端 int16 */
+#define KOB_DIS  2   /* Disconnect */
+#define KOB_DAT  3   /* Code or ID */
+#define KOB_CON  4   /* Connect    */
+#define KOB_ACK  5   /* Ack        */
+```
+
+- 短包 `struct '<hh'` = (cmd, wire)，**4 字节**。连接、断开、保活都用它。
+- 长包 **496 字节**，两种布局：
+  - ID 包：`'<hh 128s 4x i i 8x 208x 128s 8x'` = (cmd, byts, id, seq, idflag, ver)
+  - 码包：`'<hh 128s 4x i 12x 51i i 128s 8x'` = (cmd, byts, id, seq, code[51], n, txt)
+
+码包一次最多携带 **51 个时序元素**，足够装下一个字符的全部点划。`txt` 是可读文本，接收端可以直接显示，不必自己解码。
+
+**闭合电路扩展**（landline telegraphy 语义，MorseKOB 在 CWCom 上的扩展）：
+- `+1`：长闭合开始，锁存电路闭合直到下一个 mark 结束
+- `+2`：长闭合结束，解锁
+- 收到 `(-n, +2)` 且 n > 3000 时，视为「打断」而非长划，立即开路，不走缓冲
+
+### 4.3 客户端状态机
+
+```
+IDLE ──进入对练页──> WIFI_UP ──连上AP──> CONNECTING ──收到ACK──> REGISTERING
+  ^                                          |                        │发 ID 包
+  │                                          |                        ▼
+  └──────────退出页面 / 发 DIS───────────────┴──超时重试────────── ONLINE
+```
+
+- 连接：周期发 `(CON, wire)`，收到 `ACK` 表示连上了
+- **注册：收到 ACK 之后必须再发一个 ID 包（`n = 0` 的长包，带 office ID 和版本串），否则服务器不会把本站纳入中继。**
+- 保活：PyKOB 的做法是持续重发 `CON` 短包；沿用之
+- 断线判定：连续 N 个保活周期收不到任何包 → 回 `CONNECTING`
+- 退出：发 `(DIS, wire)`
+
+> **注册这一步是实测踩出来的，不是从文档看来的。** 2026-08-27 对自建服务器实测：只发 `CON` 拿到 `ACK` 之后直接发码包，另一个同 wire 的客户端**收不到任何东西**，服务器不报错、不拒绝，静默丢弃；补上 ID 包后立刻中继成功。CON/ACK 只建立连接，不等于加入了 wire。固件如果漏掉这一步，表现是「显示在线但对方永远听不到我」，且没有任何错误可查。
+
+同一次实测也验证了时序元素是**逐字节原样透传**的（发 `[-2000, 60, -60, 60, -60, 60, -60, 180]`，对端收到完全一致），这正是收报还原音频所依赖的前提。
+
+### 4.4 收报缓冲
+
+协议文档明确写了 MorseKOB 的做法：**接收侧缓冲约 0.5 秒再送给发声器**，用来吸收字符长度和网络传输的抖动。照做。
+
+例外见 4.2 的「打断」规则：`(-n, +2)` 且 n > 3000 必须绕过缓冲立即处理，否则打断反应迟钝。
+
+自建服务器实测抖动只有 4ms，0.5s 缓冲绰绰有余，甚至可以做成可调（0.2 / 0.5 / 1.0s）。
+
+### 4.5 与现有模块的接线
+
+- **收报** → 时序元素直接驱动 `tone_gen`，它已经是 32kHz 查表正弦发生器，只是多一个事件源
+- **发报** → `key_input.c` 已经在产出精确时序，攒够一个字符打包成码包发出
+- **任务与核心** —— `tone` 钉在 core 1 优先级 23，`key_input` 钉在 core 1 优先级 22，而 WiFi 和 lwIP 默认跑在 core 0。**现成的隔离，不用改**，网络栈抢不走发报时序。
+- **ADC 不冲突** —— 电量检测走 `ADC1_CHANNEL_6` / GPIO34（`board_config.h:32`）。WiFi 独占的是 ADC2，无关。触摸是 XPT2046 走 SPI，也无关。
+
+### 4.6 资源预算
+
+同一块板子上，`fmo-companion` 已经实测跑通了更重的组合（WiFi + WebSocket + 实时音频流 + LVGL），实测数字见 `docs/changes.md:90-138`：启动约 5s 可用堆 111,804 字节、最大连续块 102,400，运行时堆低点约 37KB，Flash 尚余 421KB（app 分区 3MB）。
+
+cw-trainer 把 `wifi_manager`、`audio_ws`、`bt_audio`、`audio_output`、`esp_websocket_client` 全删了，本 spec 只加回 WiFi + 一个 UDP socket，没有 TLS、没有音频流、没有编解码。**增量约 50~60KB 堆，CPU 增量近似为零**（每字符一个 496 字节包，正常发报速度下每秒几包到几十包）。
+
+需要说明：上述数字来自 fmo-companion 的烧录实测，cw-trainer 目前仓库里没有构建产物，它自己的准确余量要建一次才知道。方向上只会更宽松。
+
+## 5. 自建服务器
+
+部署在 `ali99`（阿里云广州）。选它的依据就是第 1 节那张表：国内到它 **0% 丢包、40ms、4ms 抖动**，而国际线路 17~24% 丢包。
+
+服务端是 `Morse-Code-over-IP/morse_kob_server`，特征：
+
+- **单个 7.9KB 的 Python 文件** `KOBServer.py`，纯标准库，无需 pip 装依赖
+- 纯 UDP，无数据库，状态全在内存的 `Station` 对象里
+- 自带 `Dockerfile` 和 `docker-compose.yml`
+- 环境变量 `VERSION` / `PORT`（默认 7890）/ `TIMEOUT`（默认 90s）
+- 命令行 `python KOBServer.py <webroot> [port]`，会在 webroot 写活动页 `index.html` 和 `logs/log.html`
+- `pins.py` 是 wire 号 → PIN 码的字典，用于私有频道，本 spec 不启用
+
+**资源要求极低**：闭合电路模型下一条 wire 上同时只有一个人在发报，包定长 496 字节，带宽是 KB/s 量级。实测常驻内存 6.6 MB。
+
+### 5.1 部署实况（2026-08-27 已完成并验证）
+
+**服务器地址：`8.138.130.141:7890`（UDP）。这就是固件默认要填的值。**
+
+| 项 | 值 |
+|---|---|
+| 部署路径 | `/opt/morsekob/` — `repo/`（原始克隆）、`app/`（运行代码）、`www/`（活动页与日志） |
+| 运行方式 | **systemd，不是 Docker** |
+| 单元 | `morsekob.service`（UDP 7890，6.6 MB）、`morsekob-web.service`（TCP 7891 静态页，14.6 MB） |
+| 自启与重启 | 两个都 `enabled`，`Restart=always`（已用 `kill -9` 验证拉起） |
+| 活动页 | http://8.138.130.141:7891/index.html |
+| 日志 | `journalctl -u morsekob -f`；连接日志 `/opt/morsekob/www/logs/log.html` |
+| 复验脚本 | `python3 /opt/morsekob/kobprobe.py <host> <port> <wire>` |
+
+**没走 Docker 的原因**（三条，都是硬理由）：
+
+1. 上游 `docker-compose.yml` 指向 `ghcr.io/morse-code-over-ip/morse_kob_server:latest`，实际拉取返回 **401 unauthorized**，镜像并未公开发布，compose 开箱即坏。
+2. 本地构建要拉约 1GB 的 `python:3` 基础镜像，而 ali99 空闲内存只有约 730MB；这个服务除标准库外零依赖，系统已有 Python 3.11.2。
+3. **更要紧的是正确性**：Docker 的 UDP 代理会重写源地址，而这个服务器是按 `(IP, port)` 二元组标识站点的。走 systemd 才能拿到真实客户端 IP（日志已确认）。
+
+Web 页面单独起了一个 `http.server` 单元，而不是往现有 nginx 里加 vhost —— 现有 nginx（80/443）完全没被碰过。
+
+### 5.2 实测验证
+
+丢包问题确认解决。同一台机器背靠背对比：
+
+| 目标 | 丢包 | 中位 RTT |
+|---|---|---|
+| **ali99（自建）** | **0.0%**（0/200） | **23.6 ms** |
+| mtc-kob.dyndns.org（国际） | 12.0%（12/100） | 227.2 ms |
+
+从**用户家庭网络**独立复测（这是最接近 ESP32 真实路径的一条线）：`150/150 ACK，丢包 0.0%，中位 30.7ms，p95 35.2ms，抖动 2.2ms`。
+
+功能验证（两客户端同 wire）：DAT 码包中继成功，且 51 元素时序数组**逐字节原样透传**。详见 4.3 的注册要求。
+
+### 5.3 两个必须记住的坑
+
+**一、上游 `pins.py` 里带着别人的 PIN。** 原文件内容是 `{1844: '1234', 1850: '7315'}` —— 这会让 wire 1844 和 1850 在客户端不提供匹配 PIN 时**静默拒绝中继**。部署时已在 `app/pins.py` 覆盖为空字典，所有 wire 开放。如果固件恰好选中 1844，现象是消息凭空消失且无任何报错。将来要做私有频道，在这里加回条目。
+
+**二、`KOBServer.py` 的命令行端口参数是死的。** 它解析了位置参数 `port` 但从不使用，`sock.bind(('', PORT))` 只读环境变量 `PORT`。systemd 单元里用的是 `Environment=PORT=7890`；命令行传端口会被静默忽略。
+
+### 5.4 安全组：无需操作，但值得复核
+
+UDP 7890 和 TCP 7891 **未做任何改动就已从公网可达**，阿里云安全组和本机防火墙都不需要动。
+
+反过来说，这意味着该实例的安全组对高位端口是放行的。这不属于本 spec 范围，但建议单独复核一次。
+
+另外，7891 上的 `logs/log.html` 曾对全网可读，其中记录了每个客户端的公网 IP 和站点 ID。**已处理**：`www/logs/` 改为 `0750`，web 单元改以 `User=nobody` 运行。现在 `index.html` 仍返回 200（在外面用手机能看谁在线），`logs/` 和 `logs/log.html` 返回 404。
+
+### 5.5 备份与日志维护
+
+**没有需要备份的业务数据。** 服务端无数据库，站点状态全在内存的 `stations` 字典里，重启即重建；`index.html` 每秒重新生成。整个部署里唯一不可再生的是配置，合计不到 2KB。
+
+这些配置已全部纳入本仓库 **`tools/morsekob/`**（unit 文件 ×2、`pins.py`、logrotate 配置、重建步骤）。服务器因此是一次性的 —— 与其做快照，不如照 `tools/morsekob/README.md` 重建。上游锁在 commit `aee71c0`。
+
+**日志会无限增长，已配 logrotate。** `/opt/morsekob/www/logs/log.html` 由 `KOBServer.py:160` 以 `mode='a'` 打开并长期持有句柄，从不轮转、从不重开。策略：每周或超 5MB 轮转、保留 8 份、压缩。
+
+> **`copytruncate` 是必需的，不是偏好。** 改名式轮转会让进程继续写向已删除的 inode，新文件永远为空，**且没有任何报错**，直到重启服务才恢复。已实测验证：强制轮转后服务继续向截断后的文件追加，中继功能不受影响。
+
+增长量级：日志按会话数增长而非流量增长，约 61 字节/行。真实使用下每次对练几行；但服务暴露在公网，扫描器也会产生条目，所以轮转是必要的兜底。
+
+journald 方面，`morsekob.service` 几乎不写（只有启动横幅）；web 单元会记录每条 HTTP 请求，已设 `LogRateLimitIntervalSec=30s` / `LogRateLimitBurst=200` 防扫描灌爆。
+
+**一项与本服务无关但值得复核的观察**：该实例的 journald 已占用 521MB，而 `/etc/systemd/journald.conf` 里 `SystemMaxUse` 未设置（默认上限为文件系统的 10%，本机 40G 即约 4GB）。这是既有服务积累的，本 spec 未做改动。
+
+## 6. 页面
+
+新增一页「联网对练」，入口在主页。
+
+```
+┌────────────────────────────────────────────┐
+│ 联网对练      wire 11    ● 在线    [退出]  │
+├──────────────────────┬─────────────────────┤
+│ 收报                 │ 在线站点            │
+│                      │                     │
+│  CQ CQ DE BI8SYN     │  BI8SYN  (我)       │
+│  BI8SYN K            │  BG7XXX  ← 正在发报 │
+│                      │  BD4YYY             │
+│                      │                     │
+├──────────────────────┴─────────────────────┤
+│  [电键]                        缓冲 0.5s   │
+└────────────────────────────────────────────┘
+```
+
+- 收报区直接显示码包里的 `txt` 字段，不必自己解码
+- 「正在发报」由收到的 ID 包 / 码包的发送方标识驱动
+- 未配网时进入此页 → 跳配网页
+
+设置页新增一组，默认值取已部署的自建服务器：
+
+| 字段 | 默认值 |
+|---|---|
+| 服务器地址 | `8.138.130.141` |
+| 端口 | `7890` |
+| wire 号 | `11`（避开 `pins.py` 里的 1844 / 1850，见 5.3） |
+| office ID | 跟随 `cw_settings_t.callsign` |
+| 收报缓冲 | `0.5s`（可选 0.2 / 0.5 / 1.0） |
+
+## 7. 测试
+
+**主机测试**（`firmware/cw-trainer/test/`，沿用现有的纯 C + macOS 直接编译模式）：
+
+- 包编解码：短包 4 字节、长包 496 字节的字段偏移逐个校验，用 PyKOB 生成的真实包做黄金样本
+- 闭合电路扩展：`+1` / `+2` 锁存解锁、`(-n, +2)` 且 n > 3000 的打断路径
+- 收报缓冲：抖动注入下的输出时序
+- 客户端状态机：连接、超时、重连、断开
+
+**设备测试**：
+
+- 4 个槽位的存取、扫描匹配、从 `appcfg` 导入
+- **升级路径回归**：刷入带 WiFi 的新固件后，`koch_lesson` 和 `koch_last_pct` 必须原样保留（对应 3.2 的坑）
+- WiFi 开启时侧音是否有可闻底噪 —— 主观听感，但必须测
+- 与 PyKOB 桌面客户端在同一 wire 上互通
+
+## 8. 实施阶段
+
+1. **配网**：独立 NVS blob、4 槽位、扫描与连接、配网 UI、从 FMO 导入、按需开关。此阶段结束时设备能连上 WiFi，但还没有对练功能。
+2. **协议**：包编解码 + 状态机，先在主机上跑通，用 PyKOB 做对端。
+3. ~~**服务器**：`ali99` 部署 + 安全组放行 + 互通验证。~~ **已完成（2026-08-27），见 5.1–5.4。** 剩一项未做：与 PyKOB 桌面客户端的互通验证（目前只用自写探针验过协议层）。
+4. **对练页**：UI、收报显示、发报接线、缓冲。
+5. **联调**：设备 ↔ 自建服务器 ↔ PyKOB 桌面端三方互通。
+
+阶段 1 和阶段 3 无依赖，可并行。
+
+## 9. 已知风险
+
+| 风险 | 严重度 | 应对 |
+|---|---|---|
+| WiFi 发射在内置 DAC 侧音上引入底噪 | 中 | WiFi 默认关闭（3.5）；实测确认后再决定是否降 TX 功率 |
+| 电池续航下降 | 中 | 同上，按需开启 |
+| 往 `cw_settings_t` 加字段清空 Koch 进度 | **高** | 独立 NVS blob（3.2），并在测试中固化升级路径回归 |
+| 漏发 ID 注册包 → 显示在线但对方收不到，且无任何报错 | **高** | 状态机强制 REGISTERING 阶段（4.3）；主机测试覆盖「只 CON 不注册」这条负路径 |
+| 选中的 wire 恰好在服务端 `pins.py` 里 → 静默丢包 | 中 | 部署时已清空 `pins.py`（5.3）；固件默认 wire 避开 1844 / 1850 |
+| ~~阿里云安全组未放行~~ | — | 已验证无需操作（5.4） |
+| 移植 GPL-3.0 的 C 实现污染许可 | 中 | 照 `cwcom.pdf` 规范和 MIT 的 PyKOB 重新实现 |
+| 电阻屏敲密码体验差劝退 | 中 | 从 FMO 伴侣导入（3.3）绕开绝大多数情况 |
