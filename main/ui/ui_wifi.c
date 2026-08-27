@@ -35,6 +35,29 @@ static volatile uint32_t s_scan_gen;
 
 static lv_obj_t *build_list(void);
 
+/*
+ * 输入类控件的统一尺寸。UI_FONT_CN 行高 26，加上下 padding 3+3 和 border 1+1
+ * 正好 34——项目里 ui_button() 用 36 是同一笔账。
+ *
+ * 这个数不能拍脑袋往小了写：对象比内容行高矮时 LVGL 会判定为溢出，既把文字
+ * 往下偏移又给控件打开滚动，看起来就是"输入框只有一半高度"。ui_common.c 里
+ * 顶栏返回箭头的注释记的是同一个坑。
+ */
+#define FIELD_H 34
+
+static void field_style(lv_obj_t *o)
+{
+    lv_obj_set_style_radius(o, 0, 0);
+    lv_obj_set_style_shadow_width(o, 0, 0);
+    lv_obj_set_style_pad_top(o, 3, 0);
+    lv_obj_set_style_pad_bottom(o, 3, 0);
+    lv_obj_set_style_pad_left(o, 6, 0);
+    lv_obj_set_style_pad_right(o, 6, 0);
+    lv_obj_set_style_border_width(o, 1, 0);
+    lv_obj_set_style_border_color(o, UI_BLACK, 0);
+    lv_obj_set_style_bg_color(o, UI_WHITE, 0);
+}
+
 static void show(lv_obj_t *(*builder)(void)) { ui_nav_show(builder); }
 
 /* ---------------------------------------------------------------- 编辑态 */
@@ -154,38 +177,65 @@ static lv_obj_t *build_edit(void)
 
     const cw_net_cfg_t *cfg = net_store_get();
 
+    /* 纵向预算（共 240）：顶栏 28 / SSID 34 / 密码 34 / 键盘 134，行间留 3 */
+    const int y_ssid = UI_TOPBAR_H + 3;              /* 31 */
+    const int y_pass = y_ssid + FIELD_H + 4;         /* 69 */
+    const int y_kb   = y_pass + FIELD_H + 3;         /* 106 */
+
     s_ta_ssid = lv_textarea_create(s_scr);
     lv_textarea_set_one_line(s_ta_ssid, true);
-    lv_obj_set_pos(s_ta_ssid, 4, UI_TOPBAR_H + 2);
-    /* 右侧 108px 留给扫描下拉框。之前两者都放在 (4, 30) 且都是全宽，
-       下拉框直接盖住了 SSID 输入框的左半边。 */
-    lv_obj_set_size(s_ta_ssid, 204, 28);
+    field_style(s_ta_ssid);
+    /* 右侧留给扫描下拉框。之前两者都放在 (4,30) 且输入框是全宽的，
+       下拉框直接盖住了它的左半边。 */
+    lv_obj_set_pos(s_ta_ssid, 4, y_ssid);
+    lv_obj_set_size(s_ta_ssid, 204, FIELD_H);
     lv_textarea_set_placeholder_text(s_ta_ssid, "SSID");
     lv_textarea_set_text(s_ta_ssid, cfg->profiles[s_edit_idx].ssid);
     lv_obj_add_event_cb(s_ta_ssid, ta_focus, LV_EVENT_FOCUSED, NULL);
 
     s_ta_pass = lv_textarea_create(s_scr);
     lv_textarea_set_one_line(s_ta_pass, true);
-    lv_obj_set_pos(s_ta_pass, 4, UI_TOPBAR_H + 32);
-    lv_obj_set_size(s_ta_pass, 312, 28);
+    field_style(s_ta_pass);
+    lv_obj_set_pos(s_ta_pass, 4, y_pass);
+    lv_obj_set_size(s_ta_pass, 312, FIELD_H);
     lv_textarea_set_placeholder_text(s_ta_pass, "密码");
     lv_textarea_set_text(s_ta_pass, cfg->profiles[s_edit_idx].password);
     lv_obj_add_event_cb(s_ta_pass, ta_focus, LV_EVENT_FOCUSED, NULL);
 
-    /* 键盘占下半屏。横屏下 textarea 必须在它上方，否则输入时看不见自己在打什么。 */
-    s_kb = lv_keyboard_create(s_scr);
-    lv_obj_set_pos(s_kb, 0, UI_TOPBAR_H + 62);
-    lv_obj_set_size(s_kb, 320, 240 - UI_TOPBAR_H - 62);
-    lv_keyboard_set_textarea(s_kb, s_ta_ssid);
-    lv_keyboard_set_mode(s_kb, LV_KEYBOARD_MODE_TEXT_LOWER);
-
-    /* 扫描结果作为 SSID 的快捷输入。先把下拉框摆出来显示「扫描中…」，
+    /* 扫描结果作为 SSID 的快捷输入。先摆出下拉框显示「扫描中...」，
        真正的扫描扔给后台任务，结果回来再填——不阻塞界面。 */
     s_dd = lv_dropdown_create(s_scr);
+    field_style(s_dd);
     lv_dropdown_set_options(s_dd, "扫描中...");
-    lv_obj_set_pos(s_dd, 212, UI_TOPBAR_H + 2);
-    lv_obj_set_size(s_dd, 104, 28);
+    lv_obj_set_pos(s_dd, 212, y_ssid);
+    lv_obj_set_size(s_dd, 104, FIELD_H);
     lv_obj_add_event_cb(s_dd, pick_ssid, LV_EVENT_VALUE_CHANGED, NULL);
+
+    /* 键盘。横屏下 textarea 必须在它上方，否则输入时看不见自己在打什么。
+     *
+     * 这里必须用 lv_obj_align(TOP_LEFT) 而不是 lv_obj_set_pos()：
+     * lv_keyboard 的构造函数里有一句 lv_obj_align(obj, LV_ALIGN_BOTTOM_MID, 0, 0)，
+     * 而 LVGL 8 中 align 一旦不是默认值，set_pos() 设的 x/y 就变成**相对该对齐
+     * 点的偏移**。于是 set_pos(0, 106) 的实际效果是"在底部对齐的基础上再往下
+     * 推 106px"——键盘被顶出屏幕，只露出顶部一条，上方还留下一大片空白。 */
+    s_kb = lv_keyboard_create(s_scr);
+    lv_obj_align(s_kb, LV_ALIGN_TOP_LEFT, 0, y_kb);
+    lv_obj_set_size(s_kb, 320, 240 - y_kb);
+    /* 4 行按键要塞进 134px：把键盘自身和按键的 padding 压到最小，
+       每行才有 (134-4-3*2)/4 = 31 > 行高 26 的余量。 */
+    lv_obj_set_style_pad_all(s_kb, 2, 0);
+    lv_obj_set_style_pad_row(s_kb, 2, 0);
+    lv_obj_set_style_pad_column(s_kb, 2, 0);
+    lv_obj_set_style_radius(s_kb, 0, 0);
+    lv_obj_set_style_pad_all(s_kb, 0, LV_PART_ITEMS);
+    lv_obj_set_style_radius(s_kb, 0, LV_PART_ITEMS);
+    lv_obj_set_style_shadow_width(s_kb, 0, LV_PART_ITEMS);
+    /* 与 ui_common.c 的 make_btn 同理：默认主题给按下态加了放大 + 缓动，
+       本项目禁止动画，显式清零。 */
+    lv_obj_set_style_transform_width(s_kb, 0, LV_PART_ITEMS | LV_STATE_PRESSED);
+    lv_obj_set_style_transform_height(s_kb, 0, LV_PART_ITEMS | LV_STATE_PRESSED);
+    lv_keyboard_set_textarea(s_kb, s_ta_ssid);
+    lv_keyboard_set_mode(s_kb, LV_KEYBOARD_MODE_TEXT_LOWER);
 
     s_scan_n = 0;
     uint32_t gen = ++s_scan_gen;
