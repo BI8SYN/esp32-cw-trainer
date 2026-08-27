@@ -1,6 +1,8 @@
 #include "ui_wifi.h"
 #include <stdio.h>
 #include <string.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "ui_common.h"
 #include "ui_home.h"
 #include "ui_async.h"
@@ -22,10 +24,14 @@
 
 static lv_obj_t *s_scr;
 static lv_obj_t *s_list;
-static lv_obj_t *s_ta_ssid, *s_ta_pass, *s_kb;
+static lv_obj_t *s_ta_ssid, *s_ta_pass, *s_kb, *s_dd;
 static int       s_edit_idx = -1;
 static char      s_scanned[SCAN_MAX][33];
 static int       s_scan_n;
+/* 扫描是异步的，页面可能在扫描返回前就被删掉了。用代次而不是只判空指针：
+   连续两次进出编辑页时，第一次的扫描任务可能在第二次建好页之后才回来，
+   那时 s_scr 非空但已经是另一个页面了，直接往里塞结果就是张冠李戴。 */
+static volatile uint32_t s_scan_gen;
 
 static lv_obj_t *build_list(void);
 
@@ -72,7 +78,10 @@ static void ta_focus(lv_event_t *e)
    回填——省掉重复输入，也让「改密码」变成「重选一次再改」。 */
 static void pick_ssid(lv_event_t *e)
 {
-    int idx = (int)(intptr_t)lv_event_get_user_data(e);
+    /* 选中项必须从下拉框本身读。之前这里读的是 add_event_cb 传进来的
+       user_data，而那是建控件时写死的常量 0——结果无论选哪一项都只会回填
+       第一个扫到的网络。 */
+    int idx = (int)lv_dropdown_get_selected(lv_event_get_target(e));
     if (idx < 0 || idx >= s_scan_n) return;
     lv_textarea_set_text(s_ta_ssid, s_scanned[idx]);
 
@@ -85,12 +94,47 @@ static void pick_ssid(lv_event_t *e)
     }
 }
 
+/* 扫描完成后回到 LVGL 线程填下拉框。 */
+static void scan_done_ui(void *arg)
+{
+    uint32_t gen = (uint32_t)(uintptr_t)arg;
+    if (!s_dd || gen != s_scan_gen) return;   /* 页面已换，丢弃这次结果 */
+
+    if (s_scan_n <= 0) {
+        lv_dropdown_set_options(s_dd, "(未扫到)");
+        return;
+    }
+    char opts[SCAN_MAX * 34] = "";
+    for (int i = 0; i < s_scan_n; i++) {
+        strncat(opts, s_scanned[i], sizeof opts - strlen(opts) - 2);
+        if (i < s_scan_n - 1) strncat(opts, "\n", sizeof opts - strlen(opts) - 1);
+    }
+    lv_dropdown_set_options(s_dd, opts);
+}
+
+/*
+ * 扫描任务。wifi_net_scan() 要开射频并阻塞数秒，绝不能在 LVGL 线程里调
+ * ——那会让整个界面卡死几秒（wifi_net.h 里就是这么写的，之前的实现却正是
+ * 在 build_edit() 里直接调的）。
+ */
+static void scan_task(void *arg)
+{
+    uint32_t gen = (uint32_t)(uintptr_t)arg;
+    int n = wifi_net_scan(s_scanned, SCAN_MAX);
+    if (gen == s_scan_gen) {
+        s_scan_n = n;
+        ui_async_post(scan_done_ui, (void *)(uintptr_t)gen);
+    }
+    vTaskDelete(NULL);
+}
+
 static void back_to_list(lv_event_t *e) { (void)e; show(build_list); }
 
 static void edit_on_delete(lv_event_t *e)
 {
     (void)e;
-    s_scr = NULL; s_ta_ssid = s_ta_pass = s_kb = NULL;
+    s_scan_gen++;          /* 在途的扫描结果作废 */
+    s_scr = NULL; s_ta_ssid = s_ta_pass = s_kb = s_dd = NULL;
 }
 
 static lv_obj_t *build_edit(void)
@@ -113,7 +157,9 @@ static lv_obj_t *build_edit(void)
     s_ta_ssid = lv_textarea_create(s_scr);
     lv_textarea_set_one_line(s_ta_ssid, true);
     lv_obj_set_pos(s_ta_ssid, 4, UI_TOPBAR_H + 2);
-    lv_obj_set_size(s_ta_ssid, 312, 28);
+    /* 右侧 108px 留给扫描下拉框。之前两者都放在 (4, 30) 且都是全宽，
+       下拉框直接盖住了 SSID 输入框的左半边。 */
+    lv_obj_set_size(s_ta_ssid, 204, 28);
     lv_textarea_set_placeholder_text(s_ta_ssid, "SSID");
     lv_textarea_set_text(s_ta_ssid, cfg->profiles[s_edit_idx].ssid);
     lv_obj_add_event_cb(s_ta_ssid, ta_focus, LV_EVENT_FOCUSED, NULL);
@@ -133,20 +179,19 @@ static lv_obj_t *build_edit(void)
     lv_keyboard_set_textarea(s_kb, s_ta_ssid);
     lv_keyboard_set_mode(s_kb, LV_KEYBOARD_MODE_TEXT_LOWER);
 
-    /* 扫描结果作为 SSID 的快捷输入。扫描要开射频且会阻塞几秒，所以只在
-       进入编辑页时做一次，不做实时刷新。 */
-    s_scan_n = wifi_net_scan(s_scanned, SCAN_MAX);
-    if (s_scan_n > 0) {
-        lv_obj_t *dd = lv_dropdown_create(s_scr);
-        char opts[SCAN_MAX * 34] = "";
-        for (int i = 0; i < s_scan_n; i++) {
-            strncat(opts, s_scanned[i], sizeof opts - strlen(opts) - 2);
-            if (i < s_scan_n - 1) strncat(opts, "\n", sizeof opts - strlen(opts) - 1);
-        }
-        lv_dropdown_set_options(dd, opts);
-        lv_obj_set_pos(dd, 4, UI_TOPBAR_H + 2);
-        lv_obj_set_size(dd, 96, 28);
-        lv_obj_add_event_cb(dd, pick_ssid, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)0);
+    /* 扫描结果作为 SSID 的快捷输入。先把下拉框摆出来显示「扫描中…」，
+       真正的扫描扔给后台任务，结果回来再填——不阻塞界面。 */
+    s_dd = lv_dropdown_create(s_scr);
+    lv_dropdown_set_options(s_dd, "扫描中...");
+    lv_obj_set_pos(s_dd, 212, UI_TOPBAR_H + 2);
+    lv_obj_set_size(s_dd, 104, 28);
+    lv_obj_add_event_cb(s_dd, pick_ssid, LV_EVENT_VALUE_CHANGED, NULL);
+
+    s_scan_n = 0;
+    uint32_t gen = ++s_scan_gen;
+    if (xTaskCreatePinnedToCore(scan_task, "wifi_scan", 4096,
+                                (void *)(uintptr_t)gen, 5, NULL, 0) != pdPASS) {
+        lv_dropdown_set_options(s_dd, "(扫描失败)");
     }
     return s_scr;
 }

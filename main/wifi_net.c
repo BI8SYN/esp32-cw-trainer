@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "esp_netif.h"
@@ -24,6 +25,16 @@ static bool             s_got_ip;
 static bool             s_disconnected;
 static TaskHandle_t     s_task;
 static esp_netif_t     *s_netif;
+/*
+ * 串行化所有 esp_wifi_* 操作序列。配网页会同时存在两个使用者：
+ * wifi_net_start() 拉起的连接任务，和 ui_wifi 的扫描任务。两者都要
+ * radio_on() 和 esp_wifi_scan_start()，并发时后者直接返回
+ * ESP_ERR_WIFI_STATE——表现是「有时候扫不出任何网络」这种偶发故障。
+ */
+static SemaphoreHandle_t s_mux;
+
+static void wifi_lock(void)   { if (s_mux) xSemaphoreTake(s_mux, portMAX_DELAY); }
+static void wifi_unlock(void) { if (s_mux) xSemaphoreGive(s_mux); }
 
 static void report(wifi_net_state_t st, const char *ssid)
 {
@@ -47,6 +58,7 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
 
 esp_err_t wifi_net_init(void)
 {
+    if (!s_mux) s_mux = xSemaphoreCreateMutex();
     if (s_netif_ready) return ESP_OK;
 
     esp_err_t err = esp_netif_init();
@@ -145,7 +157,9 @@ static void worker(void *arg)
 {
     (void)arg;
 
+    wifi_lock();
     if (radio_on() != ESP_OK) {
+        wifi_unlock();
         report(WIFI_NET_FAIL_NO_AP, NULL);
         s_task = NULL;
         vTaskDelete(NULL);
@@ -158,6 +172,7 @@ static void worker(void *arg)
     uint16_t n = scan_once(&recs);
     int idx = (n && recs) ? pick_profile(recs, n) : -1;
     free(recs);
+    wifi_unlock();
 
     if (idx < 0) {
         ESP_LOGW(TAG, "no saved network in range (%u AP scanned)", n);
@@ -253,10 +268,12 @@ const char      *wifi_net_ssid(void)         { return s_ssid; }
 
 int wifi_net_scan(char out[][33], int max_n)
 {
-    if (!s_radio_on && radio_on() != ESP_OK) return 0;
+    wifi_lock();
+    if (!s_radio_on && radio_on() != ESP_OK) { wifi_unlock(); return 0; }
 
     wifi_ap_record_t *recs = NULL;
     uint16_t n = scan_once(&recs);
+    wifi_unlock();
     if (!n || !recs) return 0;
 
     int cnt = 0;
