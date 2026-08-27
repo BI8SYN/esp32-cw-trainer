@@ -17,6 +17,7 @@ idf_component_register(
         "core/kob_rxbuf.c"
         "net_store.c"
         "wifi_net.c"
+        "kob_net.c"
         "ui_async.c"
         "backlight.c"
         "battery.c"

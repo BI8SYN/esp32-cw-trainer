@@ -25,6 +25,8 @@ static bool s_ext_last[2], s_ext_stable[2];
 static key_input_char_cb_t volatile s_cb;
 static void *s_user;
 static bool s_last_out;
+static key_input_edge_cb_t volatile s_edge_cb;
+static void *s_edge_user;
 
 static uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 
@@ -94,6 +96,10 @@ static void task(void *arg)
             tone_gen_set(out);
             cw_decoder_key(&s_dec, out, t);
             s_last_out = out;
+            /* 同 s_cb 的写法：先拷到局部再判空再调用。另一个任务可能正在把它
+             * 清成 NULL，分两次求值会在中间那一小段窗口里经空指针跳转崩掉。 */
+            key_input_edge_cb_t ecb = s_edge_cb;
+            if (ecb) ecb(out, t, s_edge_user);
         }
         char c;
         /* 先把 s_cb 拷到局部变量再判断、再调用：key_input_stop() 会从另一个任务
@@ -167,6 +173,19 @@ void key_input_touch(int paddle, bool pressed)
 {
     if (paddle < 0 || paddle > 1) return;
     s_touch[paddle] = pressed;
+}
+
+void key_input_set_edge_cb(key_input_edge_cb_t cb, void *user)
+{
+    /* 先挂 user 再挂 cb，先摘 cb 再摘 user：这样 5ms 任务那边无论在哪一拍
+     * 读到非空的 cb，配套的 user 都已经是有效值。 */
+    if (cb) {
+        s_edge_user = user;
+        s_edge_cb = cb;
+    } else {
+        s_edge_cb = NULL;
+        s_edge_user = NULL;
+    }
 }
 
 const char *key_input_pattern(void) { return cw_decoder_pattern(&s_dec); }
