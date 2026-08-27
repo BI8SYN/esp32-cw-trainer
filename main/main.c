@@ -7,6 +7,7 @@
 #include "lv_port_disp.h"
 #include "lv_port_indev.h"
 #include "cw_settings.h"
+#include "net_store.h"
 #include "tone_gen.h"
 #include "cw_player.h"
 #include "key_input.h"
@@ -58,6 +59,16 @@ void app_main(void)
     const cw_settings_t *cfg = cw_settings_get();
     ESP_LOGI(TAG, "cfg: wpm=%u/%u tone=%u lesson=%u reset=%d",
              cfg->char_wpm, cfg->eff_wpm, cfg->tone_hz, cfg->koch_lesson, cw_settings_was_reset());
+
+    /* 网络配置存在独立的 NVS key，与 cw_settings 互不影响——往 cw_settings_t
+     * 里加字段会清空用户的 Koch 进度，详见 net_store.h 顶部的说明。
+     * 同样不能用 ESP_ERROR_CHECK：NVS 与 fmo-companion 共享，写满时这里会失败，
+     * 而 net_store_init() 的每条失败分支都已把结构体填成默认值，固件照常运行。 */
+    esp_err_t net_err = net_store_init();
+    if (net_err != ESP_OK) {
+        ESP_LOGE(TAG, "net_store_init failed: %s - network settings will NOT persist",
+                 esp_err_to_name(net_err));
+    }
 
     /* 音频 */
     if (tone_gen_init() == ESP_OK) {
