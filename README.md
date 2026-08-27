@@ -104,3 +104,47 @@ v1.1.0 已在真机上验证：切到「上下翻转」后画面和触摸一起�
 以下这条不是"没人验证过"，是明确**没有实现**，跟上面清单性质不同，单独记一笔：
 
 - **低电量自动关机（spec 里的 <5% 关机）没有实现。** 设计文档（`docs/superpowers/specs/2026-08-25-cw-trainer-design.md` 第 5 节状态清单）写的是"沿用现有关机"，但 `main/battery.c` 目前只做采样和百分比计算，`ui_home.c` 只在 <15% 时给电量文字加 ⚠，跌破 5%（`battery.c` 里的 `CRITICAL_PERCENT`，与 `fmo-companion/main/battery_monitor.c` 的 `BATTERY_PROTECT_PERCENT` 一致）目前也只打一条 `ESP_LOGW` 告警，没有任何自动关机或降级动作。之所以搁置：这台开发机没有真电池，自动关机这条路径完全没法在真实条件下测过；一个没测过的自动关机、一旦在不该触发的时候误关机，比"完全没有这个功能"更糟；而且这块电路很可能本身已经有硬件级的欠压保护兜底，不依赖软件关机。如果以后要补上，`fmo-companion/main/battery_monitor.c` 里的 `battery_apply_power_state()`/`BATTERY_CRITICAL_PERCENT`/`BATTERY_PROTECT_PERCENT` 一整套状态机可以直接照搬，但补之前请务必先想清楚用什么手段在没有真电池的情况下把关机路径实测一遍（例如临时调低 `EMPTY_MV`/`FULL_MV` 或者改 `to_percent()` 注入假电压），不要写完就当它是好的。
+
+## 联网对练
+
+设计见 `docs/superpowers/specs/2026-08-27-cw-trainer-network-practice.md`，
+实施计划见 `docs/superpowers/plans/2026-08-27-cw-trainer-network-firmware.md`。
+
+主页「联网对练」进入。没配过网会自动跳配网页。
+
+**默认服务器 `8.138.130.141:7890`（UDP），wire 11** —— 自建在阿里云广州。
+不接国际公共 wire：实测国际线路 UDP 丢包 17~24%，而 CWCom 协议是每字符一个
+包、无重传，等于每五个字符消失一个。自建实测 0% 丢包、30ms。服务端部署配置
+在 `tools/morsekob/`。
+
+**wire 号不要用 1844 或 1850** —— 上游服务端 `pins.py` 的历史 PIN 会让这两条
+wire 在客户端不带匹配 PIN 时静默拒绝中继，不报错、消息凭空消失。
+
+### WiFi
+
+最多存 4 个槽位（家 / 单位 / 手机热点 / 流动点）。连接时主动扫描，在已保存的
+槽位里选信号最强的自动连上，不需要手动选。
+
+WiFi **默认关闭**，只在配网页和对练页临时开启，退出即 `esp_wifi_deinit()`。
+三个理由：侧音走内置 DAC 是模拟输出，WiFi 电流尖峰会窜成底噪，而离线练习是
+主线场景；TX 峰值 250~300mA 吃续航；WiFi + lwIP 常驻 50~60KB 堆。
+
+**首次配网可以从 FMO 伴侣一键导入**：两个固件刷在同一块板上、共享 NVS 分区
+（命名空间 `cwtrn` vs `appcfg`），对方配过的 WiFi 直接搬过来，一个字都不用敲。
+只在本机一个槽位都没配、且对方确实有数据时才出现这个按钮。
+
+网络配置存在独立的 NVS key `net_cfg`，**不在** `cw_settings_t` 里——那个结构体
+一旦长度或版本变化就会 `set_defaults()`，清空全部 Koch 进度。
+
+### 协议
+
+CWCom / MorseKOB。权威参考是 `MorseKOB/PyKOB` 的 `src.py/pykob/internet.py`
+（MIT）。**不要移植 `Morse-Code-over-IP/protocol-cwcom` 的 C 实现——它是
+GPL-3.0，会传染本项目。**
+
+有一条实测踩出来、文档上查不到的约束：**收到 ACK 只是连上，必须紧接着发一个
+ID 包才会被服务器纳入中继。** 漏掉它的表现是「界面显示在线，但对方永远听不到
+我」，服务器不报错、不拒绝，静默丢弃，没有任何错误可查。
+
+`main/core/kob_*.c` 是纯 C、无 ESP-IDF 依赖，主机可测（`test_kob_packet`
+黄金向量取自真实服务器中继回来的字节）。
