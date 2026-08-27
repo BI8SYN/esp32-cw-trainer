@@ -44,7 +44,7 @@ typedef struct {
     int16_t           wire;
     char              office[16];
     uint16_t          rx_delay_ms;
-    uint8_t           echo_mode;            /* 0 = 机器人 QSO，1 = 回声 */
+    uint8_t           echo_mode;            /* 0 = 机器人 QSO(wire)，1 = 回声(CW_NET_ECHO_WIRE) */
     uint8_t           noise_notice_shown;   /* 侧音底噪提示是否已展示过 */
 } cw_net_cfg_t;
 
@@ -57,6 +57,14 @@ typedef struct {
 #define CW_NET_DEFAULT_HOST  "8.138.130.141"
 #define CW_NET_DEFAULT_PORT  7890
 #define CW_NET_DEFAULT_WIRE  11
+/*
+ * 回声陪练单独占一条 wire。
+ *
+ * 机器人跑在服务端、是 wire 上一个普通客户端，读不到本机的 echo_mode。
+ * 与其为此扩协议，不如直接用协议自己的频道机制：wire 11 上跑 QSO 陪练，
+ * wire 12 上跑回声，echo_mode 只是决定接哪条。零额外状态。
+ */
+#define CW_NET_ECHO_WIRE     12
 
 esp_err_t     net_store_init(void);
 cw_net_cfg_t *net_store_get(void);

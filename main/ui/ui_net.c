@@ -134,7 +134,8 @@ static void apply_status(void)
         pads_on = false;
         break;
     case KOB_NET_CONNECTING:
-        snprintf(band, sizeof band, "正在接入 wire %d ...", net_store_get()->wire);
+        snprintf(band, sizeof band, "正在接入 wire %d ...",
+                 net_store_get()->echo_mode ? CW_NET_ECHO_WIRE : net_store_get()->wire);
         pads_on = false;
         break;
     case KOB_NET_ERR_WIFI:

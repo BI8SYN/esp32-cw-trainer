@@ -5,6 +5,7 @@
 #include "ui_home.h"
 #include "esp_app_desc.h"
 #include "cw_settings.h"
+#include "net_store.h"
 #include "cw_player.h"
 #include "tone_gen.h"
 #include "backlight.h"
@@ -30,6 +31,7 @@ static const char *const KEYER_MODES[] = { "直键", "Iambic A", "Iambic B" };
  * 的字形表里没有 `unicode = 0x00b0` 这一项），会静默渲染成空白——正是 README
  * 「界面里的中文字体」一节描述的那类只有对着真屏幕才看得出来的坑。 */
 static const char *const SCREEN_ROTS[] = { "正常", "上下翻转" };
+static const char *const PRACTICE_MODES[] = { "机器人 QSO", "回声" };
 
 /* 下面三张表里的 name 字符串同时也是 get_val()/set_val() 的分派键（按
  * strcmp 匹配）。改这里的 name 必须同步改那两个函数里对应的字符串——两边
@@ -55,13 +57,26 @@ static const item_t GEN[] = {
     { "作者", IT_INFO, 0, 0, 0, "", NULL, 0, false, "BI8SYN" },
     { "版本", IT_INFO, 0, 0, 0, "", NULL, 0, false, NULL },
 };
-static const item_t *const GROUPS[3] = { AUDIO, KEY, GEN };
-static const int GROUP_N[3] = { 4, 3, 7 };
-static const char *const GROUP_NAMES[3] = { "音频", "电键", "常规" };
+/*
+ * 网络组的字段存在 net_store（独立 NVS key），不在 cw_settings_t 里——往
+ * 后者加字段会清空 Koch 进度，见 net_store.h。所以 get_val/set_val 里这几
+ * 条要走 net_store_get() 并调 net_store_save()。
+ */
+static const item_t NET[] = {
+    { "陪练模式", IT_CHOICE, 0, 0, 0, "", PRACTICE_MODES, 2, false, NULL },
+    { "收报缓冲", IT_NUM, 200, 1000, 100, " ms", NULL, 0, false, NULL },
+    { "wire 号",  IT_NUM, 1, 999, 1, "", NULL, 0, false, NULL },
+    { "服务器",   IT_INFO, 0, 0, 0, "", NULL, 0, false, NULL },
+};
+
+static const item_t *const GROUPS[4] = { AUDIO, KEY, GEN, NET };
+static const int GROUP_N[4] = { 4, 3, 7, 4 };
+static const char *const GROUP_NAMES[4] = { "音频", "电键", "常规", "网络" };
+#define GROUP_COUNT 4
 
 static int s_group = 0;
 static const item_t *s_item;
-static lv_obj_t *s_list, *s_tabs[3];
+static lv_obj_t *s_list, *s_tabs[GROUP_COUNT];
 static lv_obj_t *s_val_label;
 static char s_call_buf[12];
 static lv_obj_t *s_call_hint;
@@ -72,6 +87,10 @@ static lv_obj_t *s_call_hint;
 static int get_val(const item_t *it)
 {
     cw_settings_t *c = cw_settings_get();
+    cw_net_cfg_t *nc = net_store_get();
+    if (!strcmp(it->name, "陪练模式")) return nc->echo_mode ? 1 : 0;
+    if (!strcmp(it->name, "收报缓冲")) return nc->rx_delay_ms;
+    if (!strcmp(it->name, "wire 号")) return nc->wire;
     if (!strcmp(it->name, "字符速度")) return c->char_wpm;
     if (!strcmp(it->name, "有效速度")) return c->eff_wpm;
     if (!strcmp(it->name, "音调")) return c->tone_hz;
@@ -114,6 +133,11 @@ static void apply_rotation(uint8_t rotate_180)
 /* 同 get_val()：it->name 是分派键，改名字必须两边一起改。 */
 static void set_val(const item_t *it, int v)
 {
+    cw_net_cfg_t *nc = net_store_get();
+    if (!strcmp(it->name, "陪练模式")) { nc->echo_mode = (uint8_t)(v ? 1 : 0); net_store_save(); return; }
+    if (!strcmp(it->name, "收报缓冲")) { nc->rx_delay_ms = (uint16_t)v; net_store_save(); return; }
+    if (!strcmp(it->name, "wire 号")) { nc->wire = (int16_t)v; net_store_save(); return; }
+
     cw_settings_t *c = cw_settings_get();
     if (!strcmp(it->name, "字符速度")) { c->char_wpm = (uint8_t)v; if (c->eff_wpm > c->char_wpm) c->eff_wpm = c->char_wpm; }
     else if (!strcmp(it->name, "有效速度")) { if (v > c->char_wpm) v = c->char_wpm; c->eff_wpm = (uint8_t)v; }
@@ -137,8 +161,11 @@ static void fmt_val(const item_t *it, char *out, size_t n)
     case IT_CHOICE: snprintf(out, n, "%s", it->choices[get_val(it)]); break;
     case IT_TOGGLE: snprintf(out, n, "%s", get_val(it) ? "开" : "关"); break;
     case IT_CALLSIGN: snprintf(out, n, "%s", c->callsign); break;
-    case IT_INFO: snprintf(out, n, "%s", it->info ? it->info
-                                              : esp_app_get_description()->version); break;
+    case IT_INFO:
+        if (!strcmp(it->name, "服务器")) snprintf(out, n, "%s", net_store_get()->host);
+        else snprintf(out, n, "%s", it->info ? it->info
+                                             : esp_app_get_description()->version);
+        break;
     default: out[0] = 0;
     }
 }
@@ -304,7 +331,7 @@ static void fill_list(void)
         else lv_label_set_text_fmt(vl, "%s >", v);
         lv_obj_align(vl, LV_ALIGN_RIGHT_MID, -8, 0);
     }
-    for (int g = 0; g < 3; g++) lv_obj_set_style_bg_color(s_tabs[g], g == s_group ? UI_GRAY_DOWN : UI_WHITE, 0);
+    for (int g = 0; g < GROUP_COUNT; g++) lv_obj_set_style_bg_color(s_tabs[g], g == s_group ? UI_GRAY_DOWN : UI_WHITE, 0);
 }
 
 static void tab_cb(lv_event_t *e) { s_group = (int)(intptr_t)lv_event_get_user_data(e); fill_list(); }
@@ -314,8 +341,8 @@ lv_obj_t *ui_settings_create(void)
 {
     lv_obj_t *scr = ui_screen_create();
     ui_topbar(scr, "设置", back_home);
-    int h = (240 - UI_TOPBAR_H) / 3;
-    for (int g = 0; g < 3; g++) {
+    int h = (240 - UI_TOPBAR_H) / GROUP_COUNT;
+    for (int g = 0; g < GROUP_COUNT; g++) {
         s_tabs[g] = ui_cell(scr, GROUP_NAMES[g], UI_FONT_CN, tab_cb, (void *)(intptr_t)g);
         lv_obj_set_pos(s_tabs[g], 0, UI_TOPBAR_H + g * h); lv_obj_set_size(s_tabs[g], 60, h);
     }
