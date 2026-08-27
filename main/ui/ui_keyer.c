@@ -48,6 +48,18 @@ static void pad_cb(lv_event_t *e)
     else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) key_input_touch(paddle, false);
 }
 
+void ui_keyer_paddles(lv_obj_t *parent, int y, int h, lv_obj_t *out[2])
+{
+    for (int i = 0; i < 2; i++) {
+        /* 字体必须是 UI_FONT_CN(font20, 3888 字形)。UI_FONT_MID(font28) 和
+         * EN_BIG 都只有 96 个 ASCII 字形、不含中文，"点""划"会变成豆腐块。 */
+        out[i] = ui_cell(parent, i == 0 ? "点" : "划", UI_FONT_CN, NULL, NULL);
+        lv_obj_set_pos(out[i], i * 160, y);
+        lv_obj_set_size(out[i], 160, h);
+        lv_obj_add_event_cb(out[i], pad_cb, LV_EVENT_ALL, (void *)(intptr_t)i);
+    }
+}
+
 static void clear_cb(lv_event_t *e) { (void)e; s_buf[0] = 0; lv_label_set_text(s_text, ""); }
 static void back(lv_event_t *e) { (void)e; ui_nav_show(ui_home_create); }
 static void on_delete(lv_event_t *e) { (void)e; key_input_stop(); lv_timer_del(s_timer); s_timer = NULL; s_scr = NULL; s_pad[0] = s_pad[1] = NULL; }
@@ -106,11 +118,7 @@ lv_obj_t *ui_keyer_create(void)
         lv_obj_add_event_cb(s_pad[0], pad_cb, LV_EVENT_ALL, (void *)0);
         s_pad[1] = NULL;
     } else {
-        for (int i = 0; i < 2; i++) {
-            s_pad[i] = ui_cell(s_scr, i == 0 ? "点" : "划", UI_FONT_CN, NULL, NULL);
-            lv_obj_set_pos(s_pad[i], i * 160, py); lv_obj_set_size(s_pad[i], 160, ph);
-            lv_obj_add_event_cb(s_pad[i], pad_cb, LV_EVENT_ALL, (void *)(intptr_t)i);
-        }
+        ui_keyer_paddles(s_scr, py, ph, s_pad);
     }
 
     key_input_start(char_cb, NULL);

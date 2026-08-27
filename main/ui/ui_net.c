@@ -3,6 +3,7 @@
 #include <string.h>
 #include "ui_common.h"
 #include "ui_home.h"
+#include "ui_keyer.h"
 #include "ui_wifi.h"
 #include "kob_net.h"
 #include "net_store.h"
@@ -165,14 +166,6 @@ static void poll(lv_timer_t *t)
 
 /* ---------------------------------------------------------------- 交互 */
 
-static void pad_cb(lv_event_t *e)
-{
-    int paddle = (int)(intptr_t)lv_event_get_user_data(e);
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_PRESSED) key_input_touch(paddle, true);
-    else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) key_input_touch(paddle, false);
-}
-
 static void back(lv_event_t *e) { (void)e; ui_nav_show(ui_home_create); }
 
 static void on_delete(lv_event_t *e)
@@ -230,14 +223,11 @@ lv_obj_t *ui_net_create(void)
     lv_obj_align(s_band, LV_ALIGN_LEFT_MID, 6, 0);
     lv_label_set_text(s_band, "");
 
-    /* 电键 110px：两块 160x110，远超 44px 触控下限 */
+    /* 电键 110px：两块 160x110，远超 44px 触控下限。
+       用电键页导出的同一个构造函数，不再复制一份——之前那份把字体写成了
+       UI_FONT_MID，而 font28 没有中文字形，"点""划"渲染成了豆腐块。 */
     int py = UI_TOPBAR_H + 78 + 24;
-    for (int i = 0; i < 2; i++) {
-        s_pad[i] = ui_cell(s_scr, i == 0 ? "点" : "划", UI_FONT_MID, NULL, NULL);
-        lv_obj_set_pos(s_pad[i], i * 160, py);
-        lv_obj_set_size(s_pad[i], 160, 240 - py);
-        lv_obj_add_event_cb(s_pad[i], pad_cb, LV_EVENT_ALL, (void *)(intptr_t)i);
-    }
+    ui_keyer_paddles(s_scr, py, 240 - py, s_pad);
 
     kob_net_start();
     apply_status();
