@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CW Trainer 联网对练 灰阶原型</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #ddd; font-family: sans-serif; color: #000; padding: 16px; }
+  h1 { font-size: 16px; margin-bottom: 8px; }
+  .wrap { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+  .device { width: 320px; height: 240px; background: #fff; border: 2px solid #000; position: relative; overflow: hidden; flex: none; }
+  .page { display: none; width: 320px; height: 240px; position: absolute; inset: 0; }
+  .page.on { display: block; }
+  .bar { height: 28px; border-bottom: 1px solid #000; display: flex; align-items: center; padding: 0 6px; gap: 8px; font-size: 13px; }
+  .bar .sp { flex: 1; }
+  .back { cursor: pointer; padding: 0 4px; }
+  .btn { border: 1px solid #000; padding: 6px 8px; cursor: pointer; text-align: center; font-size: 13px; user-select: none; background: #fff; }
+  .btn:active, .btn.dn { background: #999; }
+  .btn.dis { color: #999; border-color: #999; cursor: default; }
+  .row { display: flex; }
+  .col { display: flex; flex-direction: column; }
+  .f1 { flex: 1; }
+  .c { text-align: center; }
+  .sm { font-size: 12px; color: #444; }
+
+  /* 对练页三段：收报 78 / 状态带 24 / 电键 110 */
+  .log { height: 78px; padding: 4px 6px; font-size: 13px; line-height: 22px; overflow: hidden; border-bottom: 1px solid #000; }
+  .log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .log .who { display: inline-block; width: 46px; color: #444; }
+  .band { height: 24px; border-bottom: 1px solid #000; display: flex; align-items: center; padding: 0 6px; font-size: 13px; background: #eee; }
+  .keyer { height: 110px; display: flex; }
+  .pad { flex: 1; border-right: 1px solid #000; display: flex; align-items: center; justify-content: center; font-size: 20px; cursor: pointer; user-select: none; }
+  .pad:last-child { border-right: 0; }
+  .pad:active, .pad.dn { background: #999; }
+  .pad.dis { color: #999; cursor: default; }
+
+  .mid { font-size: 20px; }
+  .center { height: 212px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 0 16px; text-align: center; }
+
+  .panel { font-size: 12px; width: 280px; }
+  .panel h2 { font-size: 13px; margin: 10px 0 4px; }
+  .panel a { display: inline-block; margin: 2px 4px 2px 0; padding: 2px 6px; border: 1px solid #666; background: #fff; cursor: pointer; text-decoration: none; color: #000; }
+  .panel a:hover { background: #ccc; }
+  .panel p { margin: 4px 0; color: #444; }
+  ul { padding-left: 16px; }
+  li { margin: 3px 0; color: #444; }
+</style>
+</head>
+<body>
+<h1>CW Trainer · 联网对练 灰阶原型（320×240 横屏）</h1>
+<div class="wrap">
+<div class="device" id="dev">
+
+<!-- 未配网 -->
+<div class="page" id="nowifi">
+  <div class="bar"><span>联网对练</span><span class="sp"></span><span class="back" onclick="alert('回主页')">返回</span></div>
+  <div class="center">
+    <div class="mid">联网对练需要先连接 WiFi</div>
+    <div class="sm">当前没有保存任何网络</div>
+    <div class="btn" style="width:120px" onclick="go('connecting');step()">去配网</div>
+  </div>
+</div>
+
+<!-- 连接中 -->
+<div class="page" id="connecting">
+  <div class="bar"><span>联网对练</span><span class="sp"></span><span class="back" onclick="go('nowifi')">取消</span></div>
+  <div class="center">
+    <div class="mid" id="cn-1">正在连接 Lee_Home_2.4G …</div>
+    <div class="sm" id="cn-2"></div>
+  </div>
+</div>
+
+<!-- WiFi 连不上 -->
+<div class="page" id="errwifi">
+  <div class="bar"><span>联网对练</span><span class="sp"></span><span class="back" onclick="go('nowifi')">返回</span></div>
+  <div class="center">
+    <div class="mid">连不上 Lee_Home_2.4G</div>
+    <div class="sm">已试 3 次</div>
+    <div class="row" style="gap:10px">
+      <div class="btn" style="width:96px" onclick="go('connecting');step()">重试</div>
+      <div class="btn" style="width:96px" onclick="go('nowifi')">换网络</div>
+    </div>
+  </div>
+</div>
+
+<!-- 服务器不可达 -->
+<div class="page" id="errsrv">
+  <div class="bar"><span>联网对练</span><span class="sp"></span><span class="back" onclick="go('nowifi')">返回</span></div>
+  <div class="center">
+    <div class="mid">WiFi 已连接，但连不上对练服务器</div>
+    <div class="sm">8.138.130.141:7890</div>
+    <div class="row" style="gap:10px">
+      <div class="btn" style="width:96px" onclick="go('connecting');step()">重试</div>
+      <div class="btn" style="width:110px" onclick="alert('跳设置页')">检查设置</div>
+    </div>
+  </div>
+</div>
+
+<!-- 对练主页（全部在线状态都走这一页） -->
+<div class="page" id="online">
+  <div class="bar">
+    <span id="ol-title">联网对练</span><span class="sp"></span>
+    <span class="sm" id="ol-peers">BOT · 0 人</span>
+    <span class="back" onclick="go('nowifi')">退出</span>
+  </div>
+  <div class="log" id="ol-log"></div>
+  <div class="band" id="ol-band">▶ 该你发了</div>
+  <div class="keyer">
+    <div class="pad" id="ol-dit" onmousedown="key(this,'dit')" onmouseup="unkey(this)" onmouseleave="unkey(this)">dit</div>
+    <div class="pad" id="ol-dah" onmousedown="key(this,'dah')" onmouseup="unkey(this)" onmouseleave="unkey(this)">dah</div>
+  </div>
+</div>
+
+</div>
+
+<div class="panel">
+  <h2>主流程（点着走一遍）</h2>
+  <a onclick="go('nowifi')">1 未配网</a>
+  <a onclick="go('connecting');step()">2 连接中</a>
+  <a onclick="st('bot')">3 在线·仅陪练</a>
+  <a onclick="st('human')">4 真人加入</a>
+
+  <h2>在线状态</h2>
+  <a onclick="st('bot')">仅陪练</a>
+  <a onclick="st('human')">有真人</a>
+  <a onclick="st('rx')">对方正在发</a>
+  <a onclick="st('tx')">我正在发</a>
+  <a onclick="st('broken')">我被打断</a>
+  <a onclick="st('breaking')">我打断对方</a>
+  <a onclick="st('partial')">收报残缺</a>
+  <a onclick="st('reconnect')">断线重连</a>
+  <a onclick="st('echo')">回声模式</a>
+
+  <h2>错误</h2>
+  <a onclick="go('errwifi')">WiFi 连不上</a>
+  <a onclick="go('errsrv')">服务器不可达</a>
+
+  <h2>这版要验证什么</h2>
+  <ul>
+    <li>进来就有 BOT 在呼叫，不需要先想「第一步干什么」</li>
+    <li>状态带永远回答「现在什么情况」——空闲说该你了，对方发时说谁在发，我发时实时回显</li>
+    <li>收报区是双方对话记录，我发过的能回头看</li>
+    <li>电键在对方发报时<b>不禁用</b>，按下即打断（CW 的正常交互）</li>
+    <li>WiFi 失败和服务器不可达分开报，处理方式不同</li>
+    <li>丢包的字符显示 ?，不静默吞掉</li>
+  </ul>
+  <p>在设备上按 dit / dah 可以试发报，松开后会落进记录。</p>
+</div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+function go(p){ document.querySelectorAll('.page').forEach(e=>e.classList.remove('on')); $(p).classList.add('on'); }
+
+// 连接中的两段进度
+function step(){
+  $('cn-1').textContent = '正在连接 Lee_Home_2.4G …'; $('cn-2').textContent = '';
+  setTimeout(()=>{ $('cn-1').textContent = 'WiFi 已连接'; $('cn-2').textContent = '正在接入 wire 11 …'; }, 900);
+  setTimeout(()=>{ st('bot'); }, 1800);
+}
+
+// 记录
+let log = [];
+function draw(){ $('ol-log').innerHTML = log.slice(-3).map(([w,t])=>`<div><span class="who">${w}</span>${t}</div>`).join(''); }
+function push(w,t){ log.push([w,t]); draw(); }
+
+// 在线状态
+function pads(on){ ['ol-dit','ol-dah'].forEach(i=>$(i).classList.toggle('dis', !on)); }
+function st(s){
+  go('online');
+  $('ol-title').textContent = '联网对练'; pads(true);
+  if (s === 'bot') {
+    log = [['BOT ▸','CQ CQ DE BOT BOT K']];
+    $('ol-peers').textContent = 'BOT · 0 人'; $('ol-band').textContent = '▶ 该你发了';
+  } else if (s === 'human') {
+    log = [['BOT ▸','CQ CQ DE BOT BOT K'], ['我  ▸','BOT DE BI8SYN K'], ['BOT ▸','BI8SYN DE BOT = TNX = UR RST']];
+    $('ol-peers').textContent = 'BOT · BG7XXX'; $('ol-band').textContent = '▶ 该你发了';
+  } else if (s === 'rx') {
+    log = [['我  ▸','BOT DE BI8SYN K'], ['BG7XXX ▸','BI8SYN DE BG7XXX']];
+    $('ol-peers').textContent = 'BOT · BG7XXX'; $('ol-band').textContent = '◀ BG7XXX 正在发报 —— 按电键将打断';
+  } else if (s === 'tx') {
+    log = [['BOT ▸','CQ CQ DE BOT BOT K']];
+    $('ol-peers').textContent = 'BOT · 0 人'; $('ol-band').textContent = '我 ▸ DE BI8SYN BI8S_';
+  } else if (s === 'broken') {
+    log = [['我  ▸','DE BI8SYN BI8SYN']];
+    $('ol-peers').textContent = 'BOT · BG7XXX'; $('ol-band').textContent = '⏸ BG7XXX 打断了你 —— 松开电键让位';
+  } else if (s === 'breaking') {
+    log = [['BG7XXX ▸','BI8SYN DE BG7XXX = UR RST']];
+    $('ol-peers').textContent = 'BOT · BG7XXX'; $('ol-band').textContent = '⏸ 你打断了 BG7XXX';
+  } else if (s === 'partial') {
+    log = [['BOT ▸','BI8SYN DE B?T = T?X = UR RST']];
+    $('ol-peers').textContent = 'BOT · 0 人'; $('ol-band').textContent = '▶ 该你发了　（? = 丢包未解出）';
+  } else if (s === 'reconnect') {
+    log = [['BOT ▸','BI8SYN DE BOT = TNX = UR RST']];
+    $('ol-peers').textContent = '—'; $('ol-band').textContent = '⟳ 连接中断，正在重连 …'; pads(false);
+  } else if (s === 'echo') {
+    log = [['我  ▸','CQ DE BI8SYN'], ['回声▸','CQ DE BI8SYN']];
+    $('ol-title').textContent = '联网对练'; $('ol-peers').textContent = '回声模式';
+    $('ol-band').textContent = '▶ 该你发了';
+  }
+  draw();
+}
+
+// 试着发报
+let buf = '', timer = null;
+function key(el, s){
+  if (el.classList.contains('dis')) return;
+  el.classList.add('dn');
+  if ($('ol-band').textContent.indexOf('正在发报') >= 0) { $('ol-band').textContent = '⏸ 你打断了 BG7XXX'; return; }
+  buf += (s === 'dit' ? '.' : '-');
+  $('ol-band').textContent = '我 ▸ ' + buf + '_';
+  clearTimeout(timer);
+  timer = setTimeout(()=>{ if (buf) { push('我  ▸', buf); buf = ''; $('ol-band').textContent = '▶ 该你发了'; } }, 1600);
+}
+function unkey(el){ el.classList.remove('dn'); }
+
+st('bot');
+</script>
+</body>
+</html>
