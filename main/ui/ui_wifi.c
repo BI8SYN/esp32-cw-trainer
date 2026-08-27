@@ -79,20 +79,43 @@ static const lv_btnmatrix_ctrl_t kb_ctrl_uc[] = {
     LV_KEYBOARD_CTRL_BTN_FLAGS | 3, 12, LV_KEYBOARD_CTRL_BTN_FLAGS | 3
 };
 
-/* 光标键用 "<-" / "->" 两个字符而不是 "<" / ">"，好把后者留给密码本身
-   ——尖括号在密码里不常见，但真遇到时没法输入是硬伤。 */
+/*
+ * 符号页。目标是**可打印 ASCII 全覆盖**（0x20~0x7E）——WPA2 密码允许其中
+ * 任意字符，少一个就有密码敲不进来。字母页那三行已经带了 _ - . , : 和空格，
+ * 所以这一页负责剩下的 10 个数字 + 27 个符号。
+ *
+ * 初版漏了 ' " ^ ` | ~ 六个（LVGL 自带的默认符号页也漏了后四个），
+ * 下面的 kb_coverage_check() 就是为了别再漏。
+ *
+ * 光标键用 "<-" / "->" 两个字符而不是 "<" / ">"，好把后者留给密码本身。
+ */
 static const char *kb_map_sp[] = {
     "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "DEL", "\n",
-    "abc", "+", "&", "/", "*", "=", "%", "!", "?", "#", "OK", "\n",
-    "\\", "@", "$", "(", ")", "{", "}", "[", "]", ";", "<", ">", "\n",
-    "<-", " ", "->", ""
+    "abc", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "\n",
+    "[", "]", "{", "}", "\\", "|", ";", "'", "\"", "+", "OK", "\n",
+    "<-", "/", "<", "=", ">", "?", "`", "~", " ", "->", ""
 };
 static const lv_btnmatrix_ctrl_t kb_ctrl_sp[] = {
     2, 2, 2, 2, 2, 2, 2, 2, 2, 2, LV_KEYBOARD_CTRL_BTN_FLAGS | 3,
-    LV_KEYBOARD_CTRL_BTN_FLAGS | 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, LV_KEYBOARD_CTRL_BTN_FLAGS | 3,
-    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
-    LV_KEYBOARD_CTRL_BTN_FLAGS | 3, 12, LV_KEYBOARD_CTRL_BTN_FLAGS | 3
+    LV_KEYBOARD_CTRL_BTN_FLAGS | 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, LV_KEYBOARD_CTRL_BTN_FLAGS | 3,
+    LV_KEYBOARD_CTRL_BTN_FLAGS | 3, 2, 2, 2, 2, 2, 2, 2, 6, LV_KEYBOARD_CTRL_BTN_FLAGS | 3
 };
+
+/*
+ * 映射表和 ctrl 表的长度必须严格对应：ctrl 表每个按键一项（不含 "\n" 与
+ * 结尾的 ""）。少一项 LVGL 就会越界读 ctrl 表。手工数很容易数错，钉死在
+ * 编译期。
+ *   lc/uc: 12 + 11 + 12 + 3 = 38 个键，map 数组 38 + 3 个 "\n" + 1 个 "" = 42
+ *   sp   : 11 + 11 + 11 + 10 = 43 个键，map 数组 43 + 3 + 1 = 47
+ */
+#define ARRLEN(a) (sizeof (a) / sizeof (a)[0])
+_Static_assert(ARRLEN(kb_map_lc)  == 42, "kb_map_lc 键数与注释不符");
+_Static_assert(ARRLEN(kb_ctrl_lc) == 38, "kb_ctrl_lc 必须每键一项");
+_Static_assert(ARRLEN(kb_map_uc)  == 42, "kb_map_uc 键数与注释不符");
+_Static_assert(ARRLEN(kb_ctrl_uc) == 38, "kb_ctrl_uc 必须每键一项");
+_Static_assert(ARRLEN(kb_map_sp)  == 47, "kb_map_sp 键数与注释不符");
+_Static_assert(ARRLEN(kb_ctrl_sp) == 43, "kb_ctrl_sp 必须每键一项");
 
 static lv_obj_t *s_scr;
 static lv_obj_t *s_ta_pass, *s_kb, *s_dd;
