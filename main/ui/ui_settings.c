@@ -26,6 +26,10 @@ typedef struct {
 
 static const char *const KEY_INPUTS[] = { "触摸屏", "外接口" };
 static const char *const KEYER_MODES[] = { "直键", "Iambic A", "Iambic B" };
+/* 写"上下翻转"而不是"180°"：`°`(U+00B0) 不在 font20 的 cmap 里（`fonts/font20.c`
+ * 的字形表里没有 `unicode = 0x00b0` 这一项），会静默渲染成空白——正是 README
+ * 「界面里的中文字体」一节描述的那类只有对着真屏幕才看得出来的坑。 */
+static const char *const SCREEN_ROTS[] = { "正常", "上下翻转" };
 
 /* 下面三张表里的 name 字符串同时也是 get_val()/set_val() 的分派键（按
  * strcmp 匹配）。改这里的 name 必须同步改那两个函数里对应的字符串——两边
@@ -46,12 +50,13 @@ static const item_t GEN[] = {
     { "我的呼号", IT_CALLSIGN, 0, 0, 0, "", NULL, 0, false, NULL },
     { "Koch 课次", IT_NUM, 1, 39, 1, "", NULL, 0, false, NULL },
     { "屏幕亮度", IT_NUM, 10, 100, 10, "%", NULL, 0, false, NULL },
+    { "屏幕旋转", IT_CHOICE, 0, 0, 0, "", SCREEN_ROTS, 2, false, NULL },
     { "恢复出厂设置", IT_RESET, 0, 0, 0, "", NULL, 0, false, NULL },
     { "作者", IT_INFO, 0, 0, 0, "", NULL, 0, false, "BI8SYN" },
     { "版本", IT_INFO, 0, 0, 0, "", NULL, 0, false, NULL },
 };
 static const item_t *const GROUPS[3] = { AUDIO, KEY, GEN };
-static const int GROUP_N[3] = { 4, 3, 6 };
+static const int GROUP_N[3] = { 4, 3, 7 };
 static const char *const GROUP_NAMES[3] = { "音频", "电键", "常规" };
 
 static int s_group = 0;
@@ -76,6 +81,7 @@ static int get_val(const item_t *it)
     if (!strcmp(it->name, "桨键左右对调")) return c->paddle_swap;
     if (!strcmp(it->name, "Koch 课次")) return c->koch_lesson;
     if (!strcmp(it->name, "屏幕亮度")) return c->brightness;
+    if (!strcmp(it->name, "屏幕旋转")) return c->rotate_180;
     return 0;
 }
 
@@ -86,6 +92,23 @@ static void apply_audio(void)
     cw_player_set_timing(&tm);
     tone_gen_set_freq(c->tone_hz);
     tone_gen_set_volume(c->volume);
+}
+
+/* 立刻生效的屏幕翻转。
+ *
+ * 开机那一次走的是 main.c 里的 lv_port_disp_set_rotate_180()（必须在
+ * lv_port_disp_init() 之前）；这里是运行时改设置时的那一次，只能走
+ * lv_disp_set_rotation()——disp_drv 已经注册过了，再改那个静态标志没有用。
+ *
+ * 180° 不交换宽高，所有页面的坐标、尺寸都不用动；触摸坐标也不用自己翻，
+ * LVGL 8 会按 disp_drv.rotated 变换（components/lvgl/src/core/lv_indev.c:347）。
+ * 旋转本身由 lv_port_disp_init() 里打开的 sw_rotate 在 flush 前就地完成
+ * （draw_buf_rotate_180），对局部刷新的双缓冲配置是安全的。 */
+static void apply_rotation(uint8_t rotate_180)
+{
+    lv_disp_t *disp = lv_disp_get_default();
+    if (!disp) return;
+    lv_disp_set_rotation(disp, rotate_180 ? LV_DISP_ROT_180 : LV_DISP_ROT_NONE);
 }
 
 /* 同 get_val()：it->name 是分派键，改名字必须两边一起改。 */
@@ -101,6 +124,7 @@ static void set_val(const item_t *it, int v)
     else if (!strcmp(it->name, "桨键左右对调")) c->paddle_swap = (uint8_t)v;
     else if (!strcmp(it->name, "Koch 课次")) c->koch_lesson = (uint8_t)v;
     else if (!strcmp(it->name, "屏幕亮度")) { c->brightness = (uint8_t)v; backlight_set(c->brightness); }
+    else if (!strcmp(it->name, "屏幕旋转")) { c->rotate_180 = (uint8_t)(v ? 1 : 0); apply_rotation(c->rotate_180); }
     apply_audio();
     cw_settings_save();
 }
@@ -185,7 +209,7 @@ static lv_obj_t *build_choice(void)
     return s;
 }
 
-static void reset_yes(lv_event_t *e) { (void)e; cw_settings_reset(); apply_audio(); backlight_set(cw_settings_get()->brightness); ui_nav_show(ui_home_create); }
+static void reset_yes(lv_event_t *e) { (void)e; cw_settings_reset(); apply_audio(); backlight_set(cw_settings_get()->brightness); apply_rotation(cw_settings_get()->rotate_180); ui_nav_show(ui_home_create); }
 static lv_obj_t *build_reset(void)
 {
     lv_obj_t *s = ui_screen_create();

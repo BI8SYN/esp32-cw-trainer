@@ -60,6 +60,29 @@ ESP32 的内置 DAC 走的是 legacy I2S 驱动（`driver/i2s.h`），它在设�
 
 在换真实电键之前，请先看 `main/board_config.h` 里针对 `BOARD_KEY_DAH_GPIO` 的完整说明。
 
+## 屏幕旋转
+
+设置 → 常规 → 屏幕旋转 = 正常 / 上下翻转，存在 NVS 里，重启保持。
+
+v1.1.0 已在真机上验证：切到「上下翻转」后画面和触摸一起翻转，触摸点没有留在原来的位置。
+
+**这块板子没有重力传感器**，所以不存在"翻转设备屏幕自动跟着转"这回事。`docs/hardware.md` 里列出的板载外设只有 ST7789 屏、XPT2046 电阻触摸、电池 ADC、RGB LED、内置 DAC 音频和 TF 卡座，厂商手册里也搜不到任何 IMU / 加速度计 / 陀螺仪。方向只能来自设置项。
+
+只做 180°，不做 90°/270°。180° 不交换宽高，320×240 的画布不变，所有页面的坐标和尺寸一行都不用改；90°/270° 意味着画布变成 240×320，六个页面的布局要全部重做，而且 LVGL 8 的 90/270 软件旋转还要额外的旋转缓冲和每帧 CPU 开销，在这块无 PSRAM 的 ESP32 上会明显掉帧。
+
+实现分两处，**两处都需要，缺一不可**：
+
+- 开机那一次走 `lv_port_disp_set_rotate_180()`（`main.c`），必须在 `lv_port_disp_init()` **之前**调用——`rotated` 是在那里才写进 `disp_drv` 并注册的，之后再改那个静态标志不会有任何效果。
+- 运行时改设置那一次走 `lv_disp_set_rotation()`（`ui/ui_settings.c` 的 `apply_rotation()`），因为 `disp_drv` 已经注册过了。
+
+触摸坐标不需要自己翻：LVGL 8 会按 `disp_drv.rotated` 变换（`components/lvgl/src/core/lv_indev.c:347`）。旋转本身由 `sw_rotate` 在 flush 前就地完成（`draw_buf_rotate_180`），对这里的局部刷新双缓冲是安全的。
+
+选项文案写的是"上下翻转"而不是"180°"：`°`(U+00B0) 不在 font20 的字形表里，会静默渲染成空白——和上一节说的是同一类坑。
+
+### NVS 配置版本 v1 → v2
+
+`rotate_180` 是追加在结构体末尾的一个 `uint8_t`，正好落进原来的尾部填充字节里，**v1 和 v2 的 `sizeof` 都是 68 字节**，靠 blob 长度分辨不出版本。因此 `cw_settings_init()` 里的迁移判断看的是 `version` 字段而不是长度。如果不做这个迁移，老配置会因为版本号不匹配被整个重置，Koch 进度（`koch_last_pct`）会跟着一起丢。迁移用的 v1 布局快照 `cw_settings_v1_t` 固定在 `cw_settings.c` 里，不要再改动它。
+
 ## 界面里的中文字体
 
 `main/ui/ui_common.h` 声明了三款字体：`font20`（`UI_FONT_CN`）、`font28`（`UI_FONT_MID`）、`EN_BIG`（`UI_FONT_BIG`）。**只有 `font20` 含中文字形**，`font28` 和 `EN_BIG` 只是可打印 ASCII 的位图集。
