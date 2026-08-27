@@ -16,6 +16,7 @@ idf_component_register(
         "core/kob_client.c"
         "core/kob_rxbuf.c"
         "net_store.c"
+        "wifi_net.c"
         "ui_async.c"
         "backlight.c"
         "battery.c"
@@ -29,6 +30,10 @@ idf_component_register(
     INCLUDE_DIRS "." "core" "ui"
     REQUIRES
         esp_app_format
+        esp_wifi
+        esp_netif
+        esp_event
+        lwip
         driver
         esp_driver_i2s
         esp_timer
