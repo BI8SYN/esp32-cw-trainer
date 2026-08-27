@@ -16,27 +16,19 @@
  * 重要的功能其实是「从 FMO 伴侣导入」——两个固件刷在同一块板上、共享 NVS
  * 分区，对方配过的 WiFi 可以直接搬过来，绝大多数情况下一个字都不用敲。
  *
- * 横屏 320x240 下键盘弹出会占掉大半屏，所以编辑态是独立一屏（不是弹层），
- * textarea 放在键盘上方——fmo-companion 那边是竖屏布局，不能照搬。
+ * SSID **只能从扫描结果里选**，不提供手工输入：手工敲 SSID 既费劲又容易
+ * 敲错（错了还只能在连接失败时才发现），而能连上的网络必然扫得到。唯一的
+ * 例外是槽位里已存的 SSID 当前不在范围内——那一条会被塞进列表首位，免得
+ * 编辑一次就把它弄丢。
+ *
+ * 横屏 320x240 下键盘占掉下半屏，所以编辑态是独立一屏（不是弹层），
+ * 密码框放在键盘上方——fmo-companion 那边是竖屏布局，不能照搬。
  */
 
 #define SCAN_MAX 20
 
-static lv_obj_t *s_scr;
-static lv_obj_t *s_list;
-static lv_obj_t *s_ta_ssid, *s_ta_pass, *s_kb, *s_dd;
-static int       s_edit_idx = -1;
-static char      s_scanned[SCAN_MAX][33];
-static int       s_scan_n;
-/* 扫描是异步的，页面可能在扫描返回前就被删掉了。用代次而不是只判空指针：
-   连续两次进出编辑页时，第一次的扫描任务可能在第二次建好页之后才回来，
-   那时 s_scr 非空但已经是另一个页面了，直接往里塞结果就是张冠李戴。 */
-static volatile uint32_t s_scan_gen;
-
-static lv_obj_t *build_list(void);
-
 /*
- * 输入类控件的统一尺寸。UI_FONT_CN 行高 26，加上下 padding 3+3 和 border 1+1
+ * 输入类控件的统一高度。UI_FONT_CN 行高 26，加上下 padding 3+3 和 border 1+1
  * 正好 34——项目里 ui_button() 用 36 是同一笔账。
  *
  * 这个数不能拍脑袋往小了写：对象比内容行高矮时 LVGL 会判定为溢出，既把文字
@@ -44,6 +36,78 @@ static lv_obj_t *build_list(void);
  * 顶栏返回箭头的注释记的是同一个坑。
  */
 #define FIELD_H 34
+
+/*
+ * 自定义键盘映射。
+ *
+ * LVGL 默认的键盘映射用 LV_SYMBOL_BACKSPACE / NEW_LINE / KEYBOARD / LEFT /
+ * RIGHT / OK 这六个图标键，它们的码点落在 0xF000+ 的私有区，而本项目的
+ * fonts/font20.c 里**一个都没有**（实测 grep "unicode = 0xF" 返回 0 条），
+ * 于是全部渲染成豆腐块。
+ *
+ * 给字体补上那段字形要重新生成字体文件、还会增大固件体积，而这几个键用
+ * ASCII 文字标注一样清楚，所以直接换映射。模式切换键 "abc"/"ABC"/"1#" 本来
+ * 就是 ASCII，不用动。
+ *
+ * 换了文字就不能再用 lv_keyboard_def_event_cb —— 它是靠 strcmp 按键文字来
+ * 分发的，认不出 "DEL" 会走到最后的 else 把 "DEL" 三个字母原样插进输入框。
+ * 因此下面把默认回调摘掉，换成 kb_event()。
+ */
+static const char *kb_map_lc[] = {
+    "1#", "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "DEL", "\n",
+    "ABC", "a", "s", "d", "f", "g", "h", "j", "k", "l", "OK", "\n",
+    "_", "-", "z", "x", "c", "v", "b", "n", "m", ".", ",", ":", "\n",
+    "<-", " ", "->", ""
+};
+static const lv_btnmatrix_ctrl_t kb_ctrl_lc[] = {
+    LV_KEYBOARD_CTRL_BTN_FLAGS | 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, LV_KEYBOARD_CTRL_BTN_FLAGS | 3,
+    LV_KEYBOARD_CTRL_BTN_FLAGS | 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, LV_KEYBOARD_CTRL_BTN_FLAGS | 3,
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+    LV_KEYBOARD_CTRL_BTN_FLAGS | 3, 12, LV_KEYBOARD_CTRL_BTN_FLAGS | 3
+};
+
+static const char *kb_map_uc[] = {
+    "1#", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "DEL", "\n",
+    "abc", "A", "S", "D", "F", "G", "H", "J", "K", "L", "OK", "\n",
+    "_", "-", "Z", "X", "C", "V", "B", "N", "M", ".", ",", ":", "\n",
+    "<-", " ", "->", ""
+};
+static const lv_btnmatrix_ctrl_t kb_ctrl_uc[] = {
+    LV_KEYBOARD_CTRL_BTN_FLAGS | 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, LV_KEYBOARD_CTRL_BTN_FLAGS | 3,
+    LV_KEYBOARD_CTRL_BTN_FLAGS | 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, LV_KEYBOARD_CTRL_BTN_FLAGS | 3,
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+    LV_KEYBOARD_CTRL_BTN_FLAGS | 3, 12, LV_KEYBOARD_CTRL_BTN_FLAGS | 3
+};
+
+/* 光标键用 "<-" / "->" 两个字符而不是 "<" / ">"，好把后者留给密码本身
+   ——尖括号在密码里不常见，但真遇到时没法输入是硬伤。 */
+static const char *kb_map_sp[] = {
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "DEL", "\n",
+    "abc", "+", "&", "/", "*", "=", "%", "!", "?", "#", "OK", "\n",
+    "\\", "@", "$", "(", ")", "{", "}", "[", "]", ";", "<", ">", "\n",
+    "<-", " ", "->", ""
+};
+static const lv_btnmatrix_ctrl_t kb_ctrl_sp[] = {
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, LV_KEYBOARD_CTRL_BTN_FLAGS | 3,
+    LV_KEYBOARD_CTRL_BTN_FLAGS | 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, LV_KEYBOARD_CTRL_BTN_FLAGS | 3,
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+    LV_KEYBOARD_CTRL_BTN_FLAGS | 3, 12, LV_KEYBOARD_CTRL_BTN_FLAGS | 3
+};
+
+static lv_obj_t *s_scr;
+static lv_obj_t *s_ta_pass, *s_kb, *s_dd;
+static int       s_edit_idx = -1;
+static char      s_scanned[SCAN_MAX][33];
+static int       s_scan_n;
+static char      s_sel_ssid[33];     /* 当前选中的 SSID，保存时用它 */
+static char      s_keep_ssid[33];    /* 槽位里已存、但当前可能扫不到的那个 */
+/* 扫描是异步的，页面可能在扫描返回前就被删掉了。用代次而不是只判空指针：
+   连续两次进出编辑页时，第一次的扫描任务可能在第二次建好页之后才回来，
+   那时指针非空但已经是另一个页面了，直接往里塞结果就是张冠李戴。 */
+static volatile uint32_t s_scan_gen;
+
+static lv_obj_t *build_list(void);
+static void show(lv_obj_t *(*builder)(void)) { ui_nav_show(builder); }
 
 static void field_style(lv_obj_t *o)
 {
@@ -58,7 +122,30 @@ static void field_style(lv_obj_t *o)
     lv_obj_set_style_bg_color(o, UI_WHITE, 0);
 }
 
-static void show(lv_obj_t *(*builder)(void)) { ui_nav_show(builder); }
+/* ---------------------------------------------------------------- 键盘 */
+
+static void kb_event(lv_event_t *e)
+{
+    lv_obj_t *kb = lv_event_get_target(e);
+    uint16_t id = lv_btnmatrix_get_selected_btn(kb);
+    if (id == LV_BTNMATRIX_BTN_NONE) return;
+    const char *txt = lv_btnmatrix_get_btn_text(kb, id);
+    if (!txt) return;
+
+    if (strcmp(txt, "abc") == 0) { lv_keyboard_set_mode(kb, LV_KEYBOARD_MODE_TEXT_LOWER); return; }
+    if (strcmp(txt, "ABC") == 0) { lv_keyboard_set_mode(kb, LV_KEYBOARD_MODE_TEXT_UPPER); return; }
+    if (strcmp(txt, "1#")  == 0) { lv_keyboard_set_mode(kb, LV_KEYBOARD_MODE_SPECIAL);    return; }
+
+    lv_obj_t *ta = lv_keyboard_get_textarea(kb);
+    if (!ta) return;
+
+    if (strcmp(txt, "DEL") == 0) { lv_textarea_del_char(ta);     return; }
+    if (strcmp(txt, "<-")  == 0) { lv_textarea_cursor_left(ta);  return; }
+    if (strcmp(txt, "->")  == 0) { lv_textarea_cursor_right(ta); return; }
+    if (strcmp(txt, "OK")  == 0) { lv_event_send(ta, LV_EVENT_READY, NULL); return; }
+
+    lv_textarea_add_text(ta, txt);
+}
 
 /* ---------------------------------------------------------------- 编辑态 */
 
@@ -68,16 +155,15 @@ static void save_cb(lv_event_t *e)
     if (s_edit_idx < 0) return;
     cw_net_cfg_t *cfg = net_store_get();
     cw_wifi_profile_t *p = &cfg->profiles[s_edit_idx];
-    const char *ssid = lv_textarea_get_text(s_ta_ssid);
     const char *pass = lv_textarea_get_text(s_ta_pass);
 
     memset(p, 0, sizeof *p);
-    if (ssid && ssid[0]) {
-        snprintf(p->ssid, sizeof p->ssid, "%s", ssid);
+    if (s_sel_ssid[0]) {
+        snprintf(p->ssid, sizeof p->ssid, "%s", s_sel_ssid);
         snprintf(p->password, sizeof p->password, "%s", pass ? pass : "");
         p->used = 1;
     }
-    /* SSID 留空 = 清空该槽位，这是删除一个网络的唯一入口 */
+    /* 没选中任何 SSID = 清空该槽位，这是删除一个网络的唯一入口 */
     net_store_save();
     show(build_list);
 }
@@ -85,32 +171,24 @@ static void save_cb(lv_event_t *e)
 static void clear_cb(lv_event_t *e)
 {
     (void)e;
-    lv_textarea_set_text(s_ta_ssid, "");
+    s_sel_ssid[0] = '\0';
     lv_textarea_set_text(s_ta_pass, "");
 }
 
-static void ta_focus(lv_event_t *e)
-{
-    lv_obj_t *ta = lv_event_get_target(e);
-    lv_keyboard_set_textarea(s_kb, ta);
-    /* SSID 多为英文数字，密码同理；统一小写字母键盘，用户可自己切大写。 */
-    lv_keyboard_set_mode(s_kb, LV_KEYBOARD_MODE_TEXT_LOWER);
-}
-
-/* 从扫描列表选中一个 SSID 后回填。若该 SSID 已存在于某个槽位，连密码一起
-   回填——省掉重复输入，也让「改密码」变成「重选一次再改」。 */
+/* 选中一个 SSID。若该 SSID 已存在于某个槽位，连密码一起回填——省掉重复
+   输入，也让「改密码」变成「重选一次再改」。 */
 static void pick_ssid(lv_event_t *e)
 {
-    /* 选中项必须从下拉框本身读。之前这里读的是 add_event_cb 传进来的
-       user_data，而那是建控件时写死的常量 0——结果无论选哪一项都只会回填
-       第一个扫到的网络。 */
-    int idx = (int)lv_dropdown_get_selected(lv_event_get_target(e));
-    if (idx < 0 || idx >= s_scan_n) return;
-    lv_textarea_set_text(s_ta_ssid, s_scanned[idx]);
+    lv_obj_t *dd = lv_event_get_target(e);
+    char buf[64];
+    lv_dropdown_get_selected_str(dd, buf, sizeof buf);
+    /* 扫描还没回来时列表里只有占位文字，别把它当成 SSID 存下去 */
+    if (buf[0] == '(' || strcmp(buf, "扫描中...") == 0) { s_sel_ssid[0] = '\0'; return; }
+    snprintf(s_sel_ssid, sizeof s_sel_ssid, "%.32s", buf);
 
     const cw_net_cfg_t *cfg = net_store_get();
     for (int i = 0; i < CW_WIFI_PROFILE_MAX; i++) {
-        if (cfg->profiles[i].used && strcmp(cfg->profiles[i].ssid, s_scanned[idx]) == 0) {
+        if (cfg->profiles[i].used && strcmp(cfg->profiles[i].ssid, s_sel_ssid) == 0) {
             lv_textarea_set_text(s_ta_pass, cfg->profiles[i].password);
             return;
         }
@@ -123,22 +201,42 @@ static void scan_done_ui(void *arg)
     uint32_t gen = (uint32_t)(uintptr_t)arg;
     if (!s_dd || gen != s_scan_gen) return;   /* 页面已换，丢弃这次结果 */
 
-    if (s_scan_n <= 0) {
-        lv_dropdown_set_options(s_dd, "(未扫到)");
+    char opts[(SCAN_MAX + 1) * 34] = "";
+    int sel = 0, n = 0;
+
+    /* 槽位里已存但当前扫不到的 SSID 放首位，否则编辑一次就把它弄丢了 */
+    bool keep_in_scan = false;
+    for (int i = 0; i < s_scan_n; i++) {
+        if (strcmp(s_scanned[i], s_keep_ssid) == 0) { keep_in_scan = true; break; }
+    }
+    if (s_keep_ssid[0] && !keep_in_scan) {
+        strncat(opts, s_keep_ssid, sizeof opts - strlen(opts) - 2);
+        n++;
+    }
+
+    for (int i = 0; i < s_scan_n; i++) {
+        if (n) strncat(opts, "\n", sizeof opts - strlen(opts) - 1);
+        strncat(opts, s_scanned[i], sizeof opts - strlen(opts) - 2);
+        if (strcmp(s_scanned[i], s_sel_ssid) == 0) sel = n;
+        n++;
+    }
+
+    if (n == 0) {
+        lv_dropdown_set_options(s_dd, "(未扫到网络)");
+        s_sel_ssid[0] = '\0';
         return;
     }
-    char opts[SCAN_MAX * 34] = "";
-    for (int i = 0; i < s_scan_n; i++) {
-        strncat(opts, s_scanned[i], sizeof opts - strlen(opts) - 2);
-        if (i < s_scan_n - 1) strncat(opts, "\n", sizeof opts - strlen(opts) - 1);
-    }
     lv_dropdown_set_options(s_dd, opts);
+    lv_dropdown_set_selected(s_dd, sel);
+    /* 让 s_sel_ssid 与列表实际选中项对齐 */
+    char buf[64];
+    lv_dropdown_get_selected_str(s_dd, buf, sizeof buf);
+    snprintf(s_sel_ssid, sizeof s_sel_ssid, "%.32s", buf);
 }
 
 /*
  * 扫描任务。wifi_net_scan() 要开射频并阻塞数秒，绝不能在 LVGL 线程里调
- * ——那会让整个界面卡死几秒（wifi_net.h 里就是这么写的，之前的实现却正是
- * 在 build_edit() 里直接调的）。
+ * ——那会让整个界面卡死几秒（wifi_net.h 里就是这么写的）。
  */
 static void scan_task(void *arg)
 {
@@ -157,7 +255,7 @@ static void edit_on_delete(lv_event_t *e)
 {
     (void)e;
     s_scan_gen++;          /* 在途的扫描结果作废 */
-    s_scr = NULL; s_ta_ssid = s_ta_pass = s_kb = s_dd = NULL;
+    s_scr = NULL; s_ta_pass = s_kb = s_dd = NULL;
 }
 
 static lv_obj_t *build_edit(void)
@@ -176,22 +274,25 @@ static lv_obj_t *build_edit(void)
     lv_obj_align(cl, LV_ALIGN_RIGHT_MID, -64, 0);
 
     const cw_net_cfg_t *cfg = net_store_get();
+    snprintf(s_keep_ssid, sizeof s_keep_ssid, "%s", cfg->profiles[s_edit_idx].ssid);
+    snprintf(s_sel_ssid, sizeof s_sel_ssid, "%s", cfg->profiles[s_edit_idx].ssid);
 
     /* 纵向预算（共 240）：顶栏 28 / SSID 34 / 密码 34 / 键盘 134，行间留 3 */
     const int y_ssid = UI_TOPBAR_H + 3;              /* 31 */
     const int y_pass = y_ssid + FIELD_H + 4;         /* 69 */
     const int y_kb   = y_pass + FIELD_H + 3;         /* 106 */
 
-    s_ta_ssid = lv_textarea_create(s_scr);
-    lv_textarea_set_one_line(s_ta_ssid, true);
-    field_style(s_ta_ssid);
-    /* 右侧留给扫描下拉框。之前两者都放在 (4,30) 且输入框是全宽的，
-       下拉框直接盖住了它的左半边。 */
-    lv_obj_set_pos(s_ta_ssid, 4, y_ssid);
-    lv_obj_set_size(s_ta_ssid, 204, FIELD_H);
-    lv_textarea_set_placeholder_text(s_ta_ssid, "SSID");
-    lv_textarea_set_text(s_ta_ssid, cfg->profiles[s_edit_idx].ssid);
-    lv_obj_add_event_cb(s_ta_ssid, ta_focus, LV_EVENT_FOCUSED, NULL);
+    /* SSID 只能从扫描结果里选，没有手工输入框。先摆出下拉框显示占位文字，
+       真正的扫描扔给后台任务，结果回来再填——不阻塞界面。 */
+    s_dd = lv_dropdown_create(s_scr);
+    field_style(s_dd);
+    /* 默认的下拉箭头是 LV_SYMBOL_DOWN，码点在 0xF000+ 私有区，本项目字体里
+       没有这段字形，会渲染成豆腐块。这里干脆不显示符号。 */
+    lv_dropdown_set_symbol(s_dd, NULL);
+    lv_dropdown_set_options(s_dd, s_keep_ssid[0] ? s_keep_ssid : "扫描中...");
+    lv_obj_set_pos(s_dd, 4, y_ssid);
+    lv_obj_set_size(s_dd, 312, FIELD_H);
+    lv_obj_add_event_cb(s_dd, pick_ssid, LV_EVENT_VALUE_CHANGED, NULL);
 
     s_ta_pass = lv_textarea_create(s_scr);
     lv_textarea_set_one_line(s_ta_pass, true);
@@ -200,18 +301,8 @@ static lv_obj_t *build_edit(void)
     lv_obj_set_size(s_ta_pass, 312, FIELD_H);
     lv_textarea_set_placeholder_text(s_ta_pass, "密码");
     lv_textarea_set_text(s_ta_pass, cfg->profiles[s_edit_idx].password);
-    lv_obj_add_event_cb(s_ta_pass, ta_focus, LV_EVENT_FOCUSED, NULL);
 
-    /* 扫描结果作为 SSID 的快捷输入。先摆出下拉框显示「扫描中...」，
-       真正的扫描扔给后台任务，结果回来再填——不阻塞界面。 */
-    s_dd = lv_dropdown_create(s_scr);
-    field_style(s_dd);
-    lv_dropdown_set_options(s_dd, "扫描中...");
-    lv_obj_set_pos(s_dd, 212, y_ssid);
-    lv_obj_set_size(s_dd, 104, FIELD_H);
-    lv_obj_add_event_cb(s_dd, pick_ssid, LV_EVENT_VALUE_CHANGED, NULL);
-
-    /* 键盘。横屏下 textarea 必须在它上方，否则输入时看不见自己在打什么。
+    /* 键盘。
      *
      * 这里必须用 lv_obj_align(TOP_LEFT) 而不是 lv_obj_set_pos()：
      * lv_keyboard 的构造函数里有一句 lv_obj_align(obj, LV_ALIGN_BOTTOM_MID, 0, 0)，
@@ -221,6 +312,14 @@ static lv_obj_t *build_edit(void)
     s_kb = lv_keyboard_create(s_scr);
     lv_obj_align(s_kb, LV_ALIGN_TOP_LEFT, 0, y_kb);
     lv_obj_set_size(s_kb, 320, 240 - y_kb);
+
+    /* 换掉带图标键的默认映射，并摘掉按文字 strcmp 分发的默认回调 */
+    lv_obj_remove_event_cb(s_kb, lv_keyboard_def_event_cb);
+    lv_keyboard_set_map(s_kb, LV_KEYBOARD_MODE_TEXT_LOWER, kb_map_lc, kb_ctrl_lc);
+    lv_keyboard_set_map(s_kb, LV_KEYBOARD_MODE_TEXT_UPPER, kb_map_uc, kb_ctrl_uc);
+    lv_keyboard_set_map(s_kb, LV_KEYBOARD_MODE_SPECIAL,    kb_map_sp, kb_ctrl_sp);
+    lv_obj_add_event_cb(s_kb, kb_event, LV_EVENT_VALUE_CHANGED, NULL);
+
     /* 4 行按键要塞进 134px：把键盘自身和按键的 padding 压到最小，
        每行才有 (134-4-3*2)/4 = 31 > 行高 26 的余量。 */
     lv_obj_set_style_pad_all(s_kb, 2, 0);
@@ -234,7 +333,8 @@ static lv_obj_t *build_edit(void)
        本项目禁止动画，显式清零。 */
     lv_obj_set_style_transform_width(s_kb, 0, LV_PART_ITEMS | LV_STATE_PRESSED);
     lv_obj_set_style_transform_height(s_kb, 0, LV_PART_ITEMS | LV_STATE_PRESSED);
-    lv_keyboard_set_textarea(s_kb, s_ta_ssid);
+
+    lv_keyboard_set_textarea(s_kb, s_ta_pass);
     lv_keyboard_set_mode(s_kb, LV_KEYBOARD_MODE_TEXT_LOWER);
 
     s_scan_n = 0;
@@ -263,7 +363,7 @@ static void import_cb(lv_event_t *e)
 
 static void back_home(lv_event_t *e) { (void)e; ui_nav_show(ui_home_create); }
 
-static void list_on_delete(lv_event_t *e) { (void)e; s_scr = NULL; s_list = NULL; }
+static void list_on_delete(lv_event_t *e) { (void)e; s_scr = NULL; }
 
 static lv_obj_t *build_list(void)
 {
@@ -294,8 +394,6 @@ static lv_obj_t *build_list(void)
         lv_obj_set_size(b, 200, 30);
         lv_obj_align(b, LV_ALIGN_BOTTOM_MID, 0, -6);
     }
-
-    s_list = s_scr;
     return s_scr;
 }
 
