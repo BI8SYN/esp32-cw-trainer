@@ -56,8 +56,9 @@ void app_main(void)
                  "settings will NOT persist across reboot", esp_err_to_name(settings_err));
     }
     const cw_settings_t *cfg = cw_settings_get();
-    ESP_LOGI(TAG, "cfg: wpm=%u/%u tone=%u lesson=%u reset=%d",
-             cfg->char_wpm, cfg->eff_wpm, cfg->tone_hz, cfg->koch_lesson, cw_settings_was_reset());
+    ESP_LOGI(TAG, "cfg: wpm=%u/%u tone=%u lesson=%u rot180=%u reset=%d",
+             cfg->char_wpm, cfg->eff_wpm, cfg->tone_hz, cfg->koch_lesson,
+             cfg->rotate_180, cw_settings_was_reset());
 
     /* 音频 */
     if (tone_gen_init() == ESP_OK) {
@@ -73,6 +74,11 @@ void app_main(void)
     /* 显示 */
     backlight_init();
     lv_init();
+    /* 必须在 lv_port_disp_init() 之前：那里才把 rotated 写进 disp_drv 并注册，
+     * 之后再调用这个函数不会有任何效果（见 lv_port_disp.c 里的注释）。
+     * 板子没有重力传感器（docs/hardware.md 的外设清单里没有任何 IMU），
+     * 所以方向只能来自设置项，不存在"自动跟着翻"这条路。 */
+    lv_port_disp_set_rotate_180(cfg->rotate_180 != 0);
     lv_port_disp_init();
     lv_port_indev_init();
     const esp_timer_create_args_t tick_args = { .callback = &lv_tick_task, .name = "lv_tick" };
