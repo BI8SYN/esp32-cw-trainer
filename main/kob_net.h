@@ -35,12 +35,28 @@ typedef struct {
     bool            broken;                   /* 我正在发时被别人打断 */
 } kob_net_status_t;
 
-typedef void (*kob_net_evt_cb_t)(const kob_net_status_t *st, void *user);
-/* 一条完整的收发记录。from 为 NULL 表示是本机发出的。 */
-typedef void (*kob_net_text_cb_t)(const char *from, const char *txt, void *user);
+/*
+ * 一条收发记录。from 为空串表示是本机发出的。
+ *
+ * 这里**故意不用回调**。socket 任务如果直接回调进 UI，就得走 ui_async_post()，
+ * 而它用 portMAX_DELAY 取 ui_lock()——那把锁在 lv_timer_handler() 全程被持有，
+ * 页面删除事件正是在里面跑的。于是 kob_net_stop()（LVGL 线程）等 socket 任务
+ * 退出、socket 任务等 ui_lock()，界面至少冻结一秒；更糟的是随后的
+ * esp_wifi_deinit() 可能在 socket 任务还活着的时候执行。
+ *
+ * 改成单生产者（socket 任务）单消费者（UI 轮询）的环形队列后，kob_net 完全
+ * 不碰 LVGL 的任何东西，死锁的前提就不存在了。状态本来也有轮询在读，回调
+ * 是多余的。
+ */
+typedef struct {
+    char from[24];
+    char txt[16];
+} kob_net_line_t;
 
-/* 启动：开 WiFi -> 连 wire -> 接管电键。整个过程非阻塞，进度走 evt 回调。 */
-esp_err_t kob_net_start(kob_net_evt_cb_t evt, kob_net_text_cb_t text, void *user);
+/* 启动：开 WiFi -> 连 wire -> 接管电键。非阻塞，进度靠轮询 kob_net_status()。 */
+esp_err_t kob_net_start(void);
+/* UI 轮询调用，取走一条记录；没有新记录时返回 false。 */
+bool      kob_net_pop_line(kob_net_line_t *out);
 /* 停止：发 DIS、关 socket、摘掉电键回调、关 WiFi。 */
 void      kob_net_stop(void);
 

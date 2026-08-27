@@ -23,10 +23,14 @@ static const char *TAG = "kob_net";
 /* 发报侧累积缓冲。一个字符最多 51 个元素（协议上限），留满即可。 */
 #define TX_ELEM_MAX      KOB_CODE_MAX
 
+#define TXT_RING 8
+
 static kob_net_status_t  s_st;
-static kob_net_evt_cb_t  s_evt;
-static kob_net_text_cb_t s_text;
-static void             *s_user;
+/* 单生产者（socket 任务）单消费者（UI 轮询）环形队列。head/tail 都是 volatile
+   int，且各自只被一侧写，因此不需要锁——见 kob_net.h 里为什么不能用回调。
+   满时丢**新**的：丢旧的要动 head，那是消费者的字段，会破坏 SPSC 的前提。 */
+static kob_net_line_t    s_ring[TXT_RING];
+static volatile int      s_ring_head, s_ring_tail;
 static TaskHandle_t      s_task;
 static volatile bool     s_stop;
 static int               s_sock = -1;
@@ -45,16 +49,29 @@ static char              s_tx_txt[8];
 
 static uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 
-static void notify(void)
+static void push_line(const char *from, const char *txt)
 {
-    if (s_evt) s_evt(&s_st, s_user);
+    int tail = s_ring_tail;
+    int next = (tail + 1) % TXT_RING;
+    if (next == s_ring_head) return;          /* 满了，丢新的 */
+    snprintf(s_ring[tail].from, sizeof s_ring[tail].from, "%s", from ? from : "");
+    snprintf(s_ring[tail].txt, sizeof s_ring[tail].txt, "%s", txt ? txt : "");
+    s_ring_tail = next;                       /* 内容写完再挪 tail */
+}
+
+bool kob_net_pop_line(kob_net_line_t *out)
+{
+    int head = s_ring_head;
+    if (head == s_ring_tail) return false;
+    *out = s_ring[head];
+    s_ring_head = (head + 1) % TXT_RING;
+    return true;
 }
 
 static void set_state(kob_net_state_t st)
 {
     if (s_st.state == st) return;
     s_st.state = st;
-    notify();
 }
 
 /* ------------------------------------------------------------------ 收报 */
@@ -71,8 +88,7 @@ static void on_code(const char *from, const int32_t *code, int32_t n,
     snprintf(s_st.sender, sizeof s_st.sender, "%s", from);
 
     kob_rxbuf_push(&s_rxbuf, code, n, now_ms());
-    if (txt && txt[0] && s_text) s_text(from, txt, s_user);
-    notify();
+    if (txt && txt[0]) push_line(from, txt);
 }
 
 static void on_peer(const char *id, void *user)
@@ -84,7 +100,6 @@ static void on_peer(const char *id, void *user)
     if (s_st.peer_n < KOB_NET_PEER_MAX) {
         snprintf(s_st.peers[s_st.peer_n], sizeof s_st.peers[0], "%s", id);
         s_st.peer_n++;
-        notify();
     }
 }
 
@@ -204,7 +219,7 @@ static void flush_tx(void)
     snprintf(txt, sizeof txt, "%s", s_tx_txt);
 
     if (kob_client_send_code(&s_client, elems, n, txt, now_ms())) {
-        if (s_text) s_text(NULL, txt, s_user);
+        push_line("", txt);
     }
 }
 
@@ -293,7 +308,6 @@ static void task(void *arg)
             (uint32_t)(t - last_online_check) > 1500) {
             s_st.sender[0] = '\0';
             s_st.broken = false;
-            notify();
         }
         if (out.key_down) last_online_check = t;
 
@@ -313,14 +327,12 @@ static void task(void *arg)
 
 /* ------------------------------------------------------------------ 公开 */
 
-esp_err_t kob_net_start(kob_net_evt_cb_t evt, kob_net_text_cb_t text, void *user)
+esp_err_t kob_net_start(void)
 {
     if (s_task) return ESP_ERR_INVALID_STATE;
 
     memset(&s_st, 0, sizeof s_st);
-    s_evt = evt;
-    s_text = text;
-    s_user = user;
+    s_ring_head = s_ring_tail = 0;
     s_stop = false;
 
     esp_err_t err = wifi_net_init();
@@ -344,6 +356,10 @@ void kob_net_stop(void)
         return;
     }
     s_stop = true;
+    /* 等 socket 任务自己收尾（关 socket、摘电键回调）再关射频。
+       这个等待现在是安全的：kob_net 不再回调进 UI，socket 任务不会去取
+       ui_lock()，因此不会和持有该锁的 LVGL 线程互等。任务循环 5ms 一拍、
+       recv 超时 20ms，正常几十毫秒内就退出。 */
     for (int i = 0; i < 100 && s_task; i++) vTaskDelay(pdMS_TO_TICKS(10));
     wifi_net_stop();
 }

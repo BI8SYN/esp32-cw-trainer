@@ -5,6 +5,7 @@
 #include "ui_preview.h"
 #include "ui_practice.h"
 #include "ui_keyer.h"
+#include "ui_net.h"
 #include "ui_settings.h"
 #include "cw_settings.h"
 #include "koch_engine.h"
@@ -105,6 +106,8 @@ static void go_koch(lv_event_t *e)     { (void)e; if (wake_swallow()) return; ui
 static void go_call(lv_event_t *e)     { (void)e; if (wake_swallow()) return; ui_practice_open(TRAINER_MODE_CALLSIGN); }
 static void go_qso(lv_event_t *e)      { (void)e; if (wake_swallow()) return; ui_practice_open(TRAINER_MODE_QSO); }
 static void go_keyer(lv_event_t *e)    { (void)e; if (wake_swallow()) return; ui_nav_show(ui_keyer_create); }
+/* ui_net_create() 自己会在没配过网时改跳配网页，这里不用判断。 */
+static void go_net(lv_event_t *e)      { (void)e; if (wake_swallow()) return; ui_nav_show(ui_net_create); }
 static void go_settings(lv_event_t *e) { (void)e; if (wake_swallow()) return; ui_nav_show(ui_settings_create); }
 
 lv_obj_t *ui_home_create(void)
@@ -187,15 +190,15 @@ lv_obj_t *ui_home_create(void)
     lv_label_set_text(l4, last == 0xFF ? "开始练习 >" : "继续练习 >");
     lv_obj_align(l4, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
 
-    /* 右：三个入口 */
-    const char *names[3] = { "呼号抄收 >", "模拟 QSO >", "电键 >" };
-    lv_event_cb_t cbs[3] = { go_call, go_qso, go_keyer };
-    int h = (240 - top) / 3;
-    for (int i = 0; i < 3; i++) {
+    /* 右：四个入口 */
+    const char *names[4] = { "呼号抄收 >", "模拟 QSO >", "电键 >", "联网对练 >" };
+    lv_event_cb_t cbs[4] = { go_call, go_qso, go_keyer, go_net };
+    int h = (240 - top) / 4;
+    for (int i = 0; i < 4; i++) {
         lv_obj_t *c = ui_cell(s_scr, names[i], UI_FONT_CN, cbs[i], NULL);
         lv_obj_set_pos(c, 200, top + i * h);
         lv_obj_set_size(c, 120, h);
-        lv_obj_set_style_border_side(c, i < 2 ? LV_BORDER_SIDE_BOTTOM : LV_BORDER_SIDE_NONE, 0);
+        lv_obj_set_style_border_side(c, i < 3 ? LV_BORDER_SIDE_BOTTOM : LV_BORDER_SIDE_NONE, 0);
     }
 
     s_dimmed = false;

@@ -1,0 +1,213 @@
+#include "ui_wifi.h"
+#include <stdio.h>
+#include <string.h>
+#include "ui_common.h"
+#include "ui_home.h"
+#include "ui_async.h"
+#include "net_store.h"
+#include "wifi_net.h"
+
+/*
+ * 配网页。整个联网对练里唯一需要用户在电阻屏上敲字的地方，体验成败在这里。
+ *
+ * 4 个槽位的取舍见 net_store.h：存储不是约束，输入痛苦才是。所以这一页最
+ * 重要的功能其实是「从 FMO 伴侣导入」——两个固件刷在同一块板上、共享 NVS
+ * 分区，对方配过的 WiFi 可以直接搬过来，绝大多数情况下一个字都不用敲。
+ *
+ * 横屏 320x240 下键盘弹出会占掉大半屏，所以编辑态是独立一屏（不是弹层），
+ * textarea 放在键盘上方——fmo-companion 那边是竖屏布局，不能照搬。
+ */
+
+#define SCAN_MAX 20
+
+static lv_obj_t *s_scr;
+static lv_obj_t *s_list;
+static lv_obj_t *s_ta_ssid, *s_ta_pass, *s_kb;
+static int       s_edit_idx = -1;
+static char      s_scanned[SCAN_MAX][33];
+static int       s_scan_n;
+
+static lv_obj_t *build_list(void);
+
+static void show(lv_obj_t *(*builder)(void)) { ui_nav_show(builder); }
+
+/* ---------------------------------------------------------------- 编辑态 */
+
+static void save_cb(lv_event_t *e)
+{
+    (void)e;
+    if (s_edit_idx < 0) return;
+    cw_net_cfg_t *cfg = net_store_get();
+    cw_wifi_profile_t *p = &cfg->profiles[s_edit_idx];
+    const char *ssid = lv_textarea_get_text(s_ta_ssid);
+    const char *pass = lv_textarea_get_text(s_ta_pass);
+
+    memset(p, 0, sizeof *p);
+    if (ssid && ssid[0]) {
+        snprintf(p->ssid, sizeof p->ssid, "%s", ssid);
+        snprintf(p->password, sizeof p->password, "%s", pass ? pass : "");
+        p->used = 1;
+    }
+    /* SSID 留空 = 清空该槽位，这是删除一个网络的唯一入口 */
+    net_store_save();
+    show(build_list);
+}
+
+static void clear_cb(lv_event_t *e)
+{
+    (void)e;
+    lv_textarea_set_text(s_ta_ssid, "");
+    lv_textarea_set_text(s_ta_pass, "");
+}
+
+static void ta_focus(lv_event_t *e)
+{
+    lv_obj_t *ta = lv_event_get_target(e);
+    lv_keyboard_set_textarea(s_kb, ta);
+    /* SSID 多为英文数字，密码同理；统一小写字母键盘，用户可自己切大写。 */
+    lv_keyboard_set_mode(s_kb, LV_KEYBOARD_MODE_TEXT_LOWER);
+}
+
+/* 从扫描列表选中一个 SSID 后回填。若该 SSID 已存在于某个槽位，连密码一起
+   回填——省掉重复输入，也让「改密码」变成「重选一次再改」。 */
+static void pick_ssid(lv_event_t *e)
+{
+    int idx = (int)(intptr_t)lv_event_get_user_data(e);
+    if (idx < 0 || idx >= s_scan_n) return;
+    lv_textarea_set_text(s_ta_ssid, s_scanned[idx]);
+
+    const cw_net_cfg_t *cfg = net_store_get();
+    for (int i = 0; i < CW_WIFI_PROFILE_MAX; i++) {
+        if (cfg->profiles[i].used && strcmp(cfg->profiles[i].ssid, s_scanned[idx]) == 0) {
+            lv_textarea_set_text(s_ta_pass, cfg->profiles[i].password);
+            return;
+        }
+    }
+}
+
+static void back_to_list(lv_event_t *e) { (void)e; show(build_list); }
+
+static void edit_on_delete(lv_event_t *e)
+{
+    (void)e;
+    s_scr = NULL; s_ta_ssid = s_ta_pass = s_kb = NULL;
+}
+
+static lv_obj_t *build_edit(void)
+{
+    s_scr = ui_screen_create();
+    lv_obj_add_event_cb(s_scr, edit_on_delete, LV_EVENT_DELETE, NULL);
+
+    char title[24];
+    snprintf(title, sizeof title, "网络 %d", s_edit_idx + 1);
+    lv_obj_t *bar = ui_topbar(s_scr, title, back_to_list);
+    lv_obj_t *sv = ui_button(bar, "保存", save_cb, NULL);
+    lv_obj_set_size(sv, 56, 24);
+    lv_obj_align(sv, LV_ALIGN_RIGHT_MID, -4, 0);
+    lv_obj_t *cl = ui_button(bar, "清空", clear_cb, NULL);
+    lv_obj_set_size(cl, 56, 24);
+    lv_obj_align(cl, LV_ALIGN_RIGHT_MID, -64, 0);
+
+    const cw_net_cfg_t *cfg = net_store_get();
+
+    s_ta_ssid = lv_textarea_create(s_scr);
+    lv_textarea_set_one_line(s_ta_ssid, true);
+    lv_obj_set_pos(s_ta_ssid, 4, UI_TOPBAR_H + 2);
+    lv_obj_set_size(s_ta_ssid, 312, 28);
+    lv_textarea_set_placeholder_text(s_ta_ssid, "SSID");
+    lv_textarea_set_text(s_ta_ssid, cfg->profiles[s_edit_idx].ssid);
+    lv_obj_add_event_cb(s_ta_ssid, ta_focus, LV_EVENT_FOCUSED, NULL);
+
+    s_ta_pass = lv_textarea_create(s_scr);
+    lv_textarea_set_one_line(s_ta_pass, true);
+    lv_obj_set_pos(s_ta_pass, 4, UI_TOPBAR_H + 32);
+    lv_obj_set_size(s_ta_pass, 312, 28);
+    lv_textarea_set_placeholder_text(s_ta_pass, "密码");
+    lv_textarea_set_text(s_ta_pass, cfg->profiles[s_edit_idx].password);
+    lv_obj_add_event_cb(s_ta_pass, ta_focus, LV_EVENT_FOCUSED, NULL);
+
+    /* 键盘占下半屏。横屏下 textarea 必须在它上方，否则输入时看不见自己在打什么。 */
+    s_kb = lv_keyboard_create(s_scr);
+    lv_obj_set_pos(s_kb, 0, UI_TOPBAR_H + 62);
+    lv_obj_set_size(s_kb, 320, 240 - UI_TOPBAR_H - 62);
+    lv_keyboard_set_textarea(s_kb, s_ta_ssid);
+    lv_keyboard_set_mode(s_kb, LV_KEYBOARD_MODE_TEXT_LOWER);
+
+    /* 扫描结果作为 SSID 的快捷输入。扫描要开射频且会阻塞几秒，所以只在
+       进入编辑页时做一次，不做实时刷新。 */
+    s_scan_n = wifi_net_scan(s_scanned, SCAN_MAX);
+    if (s_scan_n > 0) {
+        lv_obj_t *dd = lv_dropdown_create(s_scr);
+        char opts[SCAN_MAX * 34] = "";
+        for (int i = 0; i < s_scan_n; i++) {
+            strncat(opts, s_scanned[i], sizeof opts - strlen(opts) - 2);
+            if (i < s_scan_n - 1) strncat(opts, "\n", sizeof opts - strlen(opts) - 1);
+        }
+        lv_dropdown_set_options(dd, opts);
+        lv_obj_set_pos(dd, 4, UI_TOPBAR_H + 2);
+        lv_obj_set_size(dd, 96, 28);
+        lv_obj_add_event_cb(dd, pick_ssid, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)0);
+    }
+    return s_scr;
+}
+
+/* ---------------------------------------------------------------- 列表态 */
+
+static void slot_cb(lv_event_t *e)
+{
+    s_edit_idx = (int)(intptr_t)lv_event_get_user_data(e);
+    show(build_edit);
+}
+
+static void import_cb(lv_event_t *e)
+{
+    (void)e;
+    int n = net_store_import_from_fmo();
+    if (n > 0) show(build_list);
+}
+
+static void back_home(lv_event_t *e) { (void)e; ui_nav_show(ui_home_create); }
+
+static void list_on_delete(lv_event_t *e) { (void)e; s_scr = NULL; s_list = NULL; }
+
+static lv_obj_t *build_list(void)
+{
+    s_scr = ui_screen_create();
+    lv_obj_add_event_cb(s_scr, list_on_delete, LV_EVENT_DELETE, NULL);
+    ui_topbar(s_scr, "WiFi 配网", back_home);
+
+    const cw_net_cfg_t *cfg = net_store_get();
+    int y = UI_TOPBAR_H;
+    int row_h = 42;
+
+    for (int i = 0; i < CW_WIFI_PROFILE_MAX; i++) {
+        char txt[64];
+        if (cfg->profiles[i].used && cfg->profiles[i].ssid[0])
+            snprintf(txt, sizeof txt, "%d  %s", i + 1, cfg->profiles[i].ssid);
+        else
+            snprintf(txt, sizeof txt, "%d  (空)", i + 1);
+        lv_obj_t *cell = ui_cell(s_scr, txt, UI_FONT_CN, slot_cb, (void *)(intptr_t)i);
+        lv_obj_set_pos(cell, 0, y);
+        lv_obj_set_size(cell, 320, row_h);
+        y += row_h;
+    }
+
+    /* 只在本机一个都没配、而 fmo-companion 那边确实有的时候才提供导入。
+       两个条件都要满足——否则这个按钮对已经配好的用户就是个误触陷阱。 */
+    if (!net_store_has_wifi() && net_store_fmo_available()) {
+        lv_obj_t *b = ui_button(s_scr, "从 FMO 伴侣导入", import_cb, NULL);
+        lv_obj_set_size(b, 200, 30);
+        lv_obj_align(b, LV_ALIGN_BOTTOM_MID, 0, -6);
+    }
+
+    s_list = s_scr;
+    return s_scr;
+}
+
+lv_obj_t *ui_wifi_create(void)
+{
+    /* 扫描和连接都要射频。进这一页就开着，退出时由对练页或主页负责关。 */
+    wifi_net_init();
+    wifi_net_start(NULL, NULL);
+    return build_list();
+}
