@@ -137,18 +137,20 @@ lv_obj_t *ui_home_create(void)
      * 图标全部用 LVGL 图元现画：font20 不含 LVGL 符号所在的 0xF000+ 私有区，
      * LV_SYMBOL_* 会是豆腐块（配网页键盘就栽在这上面）。见 ui_icons.h。
      */
+    /* 数字在电池图标右边，电池图标在它左边——读起来是"电池 78"，
+       符号省掉：旁边就是电池图标，百分号是冗余的。 */
     s_bat_icon = ui_icon_battery(bar);
-    lv_obj_align(s_bat_icon, LV_ALIGN_RIGHT_MID, -6, 0);
+    lv_obj_align(s_bat_icon, LV_ALIGN_RIGHT_MID, -30, 0);
 
     s_wifi_icon = ui_icon_wifi(bar);
-    lv_obj_align(s_wifi_icon, LV_ALIGN_RIGHT_MID, -82, 0);
+    lv_obj_align(s_wifi_icon, LV_ALIGN_RIGHT_MID, -56, 0);
     ui_icon_wifi_set(s_wifi_icon, wifi_net_level());
 
-    /* 百分比数字用 font28 的小号？不行——font28 是纯 ASCII 没有"电"字，
-       而且行高 37 装不进 28px 的顶栏。这里去掉"电"字只留数字，靠旁边的
-       电池图标表意，视觉重量就降下来了。 */
+    /* 用 Montserrat 12 而不是 UI_FONT_CN：后者行高 26，在 28px 的顶栏里
+       和 16px 的图标并排显得头重脚轻。见 ui_common.h 的 UI_FONT_TINY。 */
     s_bat = lv_label_create(bar);
-    lv_obj_align(s_bat, LV_ALIGN_RIGHT_MID, -30, 0);
+    lv_obj_set_style_text_font(s_bat, UI_FONT_TINY, 0);
+    lv_obj_align(s_bat, LV_ALIGN_RIGHT_MID, -6, 0);
     ui_home_set_battery(battery_percent());
 
     int top = UI_TOPBAR_H;
@@ -230,5 +232,5 @@ void ui_home_set_battery(uint8_t percent)
 {
     if (!s_scr || !s_bat) return;
     ui_icon_battery_set(s_bat_icon, percent);
-    lv_label_set_text_fmt(s_bat, "%u%%", percent);
+    lv_label_set_text_fmt(s_bat, "%u", percent);
 }

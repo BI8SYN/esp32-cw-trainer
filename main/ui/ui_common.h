@@ -8,6 +8,17 @@ LV_FONT_DECLARE(EN_BIG);
 #define UI_FONT_CN   (&font20)
 #define UI_FONT_MID  (&font28)
 #define UI_FONT_BIG  (&EN_BIG)
+/*
+ * 顶栏状态用的小号数字（行高 17）。项目自带的三个字体行高分别是 26/37/82，
+ * 在 28px 的顶栏里和 16px 的图标并排都显得头重脚轻。
+ *
+ * 用 14 而不是更小的 12：components/lvgl/lv_conf.h 里虽然把 8/10/12/16 都
+ * 置 1 了，但实际编译进来的只有 14（12 会报 undeclared），说明那份 lv_conf
+ * 没有生效、走的是 LVGL 默认配置。14 是唯一确定可用的。
+ *
+ * 只有 ASCII，不能拿去显示中文。
+ */
+#define UI_FONT_TINY (&lv_font_montserrat_14)
 #define UI_TOPBAR_H  28
 #define UI_GRAY_BG   lv_color_hex(0xEEEEEE)
 #define UI_GRAY_DOWN lv_color_hex(0x999999)
