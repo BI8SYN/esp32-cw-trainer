@@ -44,29 +44,41 @@ static lv_obj_t *build(void)
     lv_label_set_text_fmt(cnt, "%u / %u 正确", s_t->correct_rounds, TRAINER_ROUNDS);
     lv_obj_align(cnt, LV_ALIGN_TOP_LEFT, 16, 130);
 
+    /*
+     * 右栏是**固定分区**：提示占上面 52px（两行），错字占下面 96px，按钮从 196 起。
+     *
+     * 原来两个 label 都是 LONG_WRAP、只给宽不给高，错字于是往下无限长——错得多
+     * 的时候（一轮十组，错字可以有二十个）它从 y=40 一路画到 222，把 110 的提示
+     * 和 196 的按钮全压在底下，三层字叠在一起。
+     *
+     * 提示排在上面：它是要照着做的那句话（还差多少能解锁），比错字明细更该先
+     * 被看见。错字用 LONG_DOT——装不下就打省略号，而不是顶开别人。省略号丢掉的
+     * 信息由标题里的总数补回来。
+     */
+    if (koch) {
+        lv_obj_t *pl = lv_label_create(s);
+        if (pass) lv_label_set_text_fmt(pl, "达标，可进第 %u 课", (unsigned)(s_t->lesson + 1));
+        else lv_label_set_text(pl, "再练练，90% 以上解锁下一课");
+        lv_obj_set_size(pl, 160, 52);
+        lv_label_set_long_mode(pl, LV_LABEL_LONG_DOT);
+        lv_obj_align(pl, LV_ALIGN_TOP_LEFT, 150, 40);
+    }
+
     char err[96] = "";
     if (s_t->error_count == 0) strcpy(err, "全对");
     else {
-        strcpy(err, "错字: ");
+        /* 带上总数：省略号会截掉后面的明细，数量得留住。 */
+        snprintf(err, sizeof err, "错字 %d: ", s_t->error_count);
         for (int i = 0; i < s_t->error_count && strlen(err) < 80; i++) {
             char one[8]; snprintf(one, sizeof one, "%c>%c ", s_t->errors[i].expected, s_t->errors[i].got);
             strcat(err, one);
         }
     }
     lv_obj_t *el = lv_label_create(s);
-    lv_obj_set_width(el, 160);
-    lv_label_set_long_mode(el, LV_LABEL_LONG_WRAP);
+    lv_obj_set_size(el, 160, koch ? 96 : 148);
+    lv_label_set_long_mode(el, LV_LABEL_LONG_DOT);
     lv_label_set_text(el, err);
-    lv_obj_align(el, LV_ALIGN_TOP_LEFT, 150, 40);
-
-    if (koch) {
-        lv_obj_t *pl = lv_label_create(s);
-        if (pass) lv_label_set_text_fmt(pl, "达标，可进第 %u 课", (unsigned)(s_t->lesson + 1));
-        else lv_label_set_text(pl, "再练练，90% 以上解锁下一课");
-        lv_obj_set_width(pl, 160);
-        lv_label_set_long_mode(pl, LV_LABEL_LONG_WRAP);
-        lv_obj_align(pl, LV_ALIGN_TOP_LEFT, 150, 110);
-    }
+    lv_obj_align(el, LV_ALIGN_TOP_LEFT, 150, koch ? 96 : 40);
 
     int n = (pass && s_t->lesson < KOCH_LESSON_MAX) ? 3 : 2;
     int w = (320 - 12 * (n + 1)) / n, x = 12;
