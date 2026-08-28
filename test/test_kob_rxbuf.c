@@ -145,6 +145,85 @@ TEST(millis_wraparound_still_plays) {
     ASSERT_TRUE(o.key_down);
 }
 
+TEST(char_boundary_reported_when_its_audio_finishes) {
+    /*
+     * 文字必须跟着声音走。原来 on_code() 收到包就把文字推给界面，而音频要等
+     * 抖动缓冲的 500ms 再播、还要花掉字符本身的时长——文字恒定领先声音
+     * 0.5~1 秒。缓冲在每个字符尾部埋一个边界，播完最后一个码元才计数，
+     * 界面据此吐字。
+     */
+    kob_rxbuf_t b; kob_rxbuf_init(&b, 500);
+    kob_rx_out_t o;
+    const int32_t a[] = { 60, -60, 180 };      /* 共 300ms */
+    kob_rxbuf_push(&b, a, 3, 1000);
+
+    ASSERT_EQ_INT((int)kob_rxbuf_chars_done(&b), 0);
+    kob_rxbuf_poll(&b, 1500, &o);              /* 刚开播 */
+    ASSERT_EQ_INT((int)kob_rxbuf_chars_done(&b), 0);
+    kob_rxbuf_poll(&b, 1799, &o);              /* 还差 1ms */
+    ASSERT_EQ_INT((int)kob_rxbuf_chars_done(&b), 0);
+    kob_rxbuf_poll(&b, 1800, &o);              /* 300ms 播完 */
+    ASSERT_EQ_INT((int)kob_rxbuf_chars_done(&b), 1);
+}
+
+TEST(char_boundaries_counted_per_packet) {
+    /* 一个包一个字符，两个包必须分别计数，不能合成一次。 */
+    kob_rxbuf_t b; kob_rxbuf_init(&b, 0);
+    kob_rx_out_t o;
+    const int32_t a[] = { 100 };
+    kob_rxbuf_push(&b, a, 1, 0);
+    kob_rxbuf_push(&b, a, 1, 0);
+
+    kob_rxbuf_poll(&b, 0, &o);
+    kob_rxbuf_poll(&b, 100, &o);
+    ASSERT_EQ_INT((int)kob_rxbuf_chars_done(&b), 1);
+    kob_rxbuf_poll(&b, 200, &o);
+    ASSERT_EQ_INT((int)kob_rxbuf_chars_done(&b), 2);
+}
+
+TEST(hold_freezes_playback_instead_of_dropping_it) {
+    /*
+     * 本机发报时侧音只有一路，对方的音频不能同时响——但也**不能丢**。
+     * 原来的做法是照常推进时钟、只是不出声，等松手时那几个字已经流过去，
+     * 永远听不到。改成冻住时间基准，松手后整体后移接着播。
+     */
+    kob_rxbuf_t b; kob_rxbuf_init(&b, 0);
+    kob_rx_out_t o;
+    const int32_t a[] = { 100, -100, 100 };
+    kob_rxbuf_push(&b, a, 3, 0);
+
+    kob_rxbuf_poll(&b, 0, &o);
+    ASSERT_TRUE(o.key_down);                   /* 第一个 mark 正在响 */
+
+    kob_rxbuf_hold(&b, 50);                    /* 我开始发报 */
+    kob_rxbuf_resume(&b, 5050);                /* 按了 5 秒 */
+
+    /* 冻结期间不该有任何推进：mark 还剩 50ms */
+    kob_rxbuf_poll(&b, 5099, &o);
+    ASSERT_TRUE(o.key_down);
+    kob_rxbuf_poll(&b, 5101, &o);
+    ASSERT_TRUE(!o.key_down);                  /* 进入 -100 的静音 */
+    ASSERT_EQ_INT((int)kob_rxbuf_chars_done(&b), 0);
+    kob_rxbuf_poll(&b, 5301, &o);              /* 三个元素共 300ms 播完 */
+    ASSERT_EQ_INT((int)kob_rxbuf_chars_done(&b), 1);
+}
+
+TEST(hold_before_playback_defers_the_start) {
+    /* 还没开播就被冻住：起播时刻也要跟着后移，否则一松手就「跳过一段」。 */
+    kob_rxbuf_t b; kob_rxbuf_init(&b, 500);
+    kob_rx_out_t o;
+    const int32_t a[] = { 100 };
+    kob_rxbuf_push(&b, a, 1, 0);               /* 本该 500ms 起播 */
+
+    kob_rxbuf_hold(&b, 100);
+    kob_rxbuf_resume(&b, 2100);                /* 冻了 2 秒 */
+
+    kob_rxbuf_poll(&b, 2400, &o);
+    ASSERT_TRUE(!o.key_down);                  /* 起播推到了 2500 */
+    kob_rxbuf_poll(&b, 2500, &o);
+    ASSERT_TRUE(o.key_down);
+}
+
 int main(void) {
     RUN(elements_play_after_delay_not_before);
     RUN(negative_leading_gap_is_honored);
@@ -156,6 +235,10 @@ int main(void) {
     RUN(two_packets_queue_in_order);
     RUN(zero_elements_push_is_noop);
     RUN(overflow_drops_oldest_not_crash);
+    RUN(char_boundary_reported_when_its_audio_finishes);
+    RUN(char_boundaries_counted_per_packet);
+    RUN(hold_freezes_playback_instead_of_dropping_it);
+    RUN(hold_before_playback_defers_the_start);
     RUN(millis_wraparound_still_plays);
     TEST_MAIN_END();
 }
