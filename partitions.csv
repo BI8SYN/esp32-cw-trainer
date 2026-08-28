@@ -1,5 +1,16 @@
-# Name,   Type, SubType, Offset,   Size,     Flags
-nvs,      data, nvs,     0x9000,   0x6000,
-phy_init, data, phy,     0xf000,   0x1000,
-factory,  app,  factory, 0x10000,  0x300000,
-spiffs,   data, spiffs,  0x310000, 0xF0000,
+# 双槽 OTA 布局。4MB flash。
+#
+# 原来是单个 3MB factory + 960KB spiffs。spiffs 从来没人用过
+# （grep spiffs 在 main/ 下零命中），整块收回来给第二个 app 槽。
+#
+# 每槽 1.7MB，而裁剪字库后固件是 1.26MB（裁剪前 2.2MB，双槽根本放不下
+# ——这就是为什么必须先裁字库）。留下的余量够后续功能长一阵子。
+#
+# otadata 记录当前从哪个槽启动，必须有，且必须是 0x2000（两份 4KB 副本）。
+#
+# Name,     Type, SubType, Offset,   Size,     Flags
+nvs,        data, nvs,     0x9000,   0x6000,
+phy_init,   data, phy,     0xf000,   0x1000,
+otadata,    data, ota,     0x10000,  0x2000,
+ota_0,      app,  ota_0,   0x20000,  0x1B0000,
+ota_1,      app,  ota_1,   0x1D0000, 0x1B0000,

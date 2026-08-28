@@ -3,6 +3,7 @@
 #include <string.h>
 #include "ui_common.h"
 #include "ui_home.h"
+#include "ui_fist.h"
 #include "ui_async.h"
 #include "key_input.h"
 #include "cw_settings.h"
@@ -12,6 +13,8 @@
 #define TEXT_MAX 40   /* 2 行 × 20 字符（等宽 font28 约 16px/字） */
 
 static lv_obj_t *s_scr, *s_text, *s_seq, *s_pad[2];
+/* 电键归属令牌。取本文件某个静态变量的地址即可，只要全局唯一。 */
+static const char KEYER_OWNER;
 static char s_buf[TEXT_MAX + 1];
 static lv_timer_t *s_timer;
 
@@ -48,9 +51,23 @@ static void pad_cb(lv_event_t *e)
     else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) key_input_touch(paddle, false);
 }
 
+void ui_keyer_paddles(lv_obj_t *parent, int y, int h, lv_obj_t *out[2])
+{
+    for (int i = 0; i < 2; i++) {
+        /* 字体必须是 UI_FONT_CN(font20, 3888 字形)。UI_FONT_MID(font28) 和
+         * EN_BIG 都只有 96 个 ASCII 字形、不含中文，"点""划"会变成豆腐块。 */
+        out[i] = ui_cell(parent, i == 0 ? "点" : "划", UI_FONT_CN, NULL, NULL);
+        lv_obj_set_pos(out[i], i * 160, y);
+        lv_obj_set_size(out[i], 160, h);
+        lv_obj_add_event_cb(out[i], pad_cb, LV_EVENT_ALL, (void *)(intptr_t)i);
+    }
+}
+
 static void clear_cb(lv_event_t *e) { (void)e; s_buf[0] = 0; lv_label_set_text(s_text, ""); }
+/* 手法分析从电键页进：它讲的是你发出去的时序，走到这一页的人正好在发报。 */
+static void go_fist(lv_event_t *e) { (void)e; ui_nav_show(ui_fist_create); }
 static void back(lv_event_t *e) { (void)e; ui_nav_show(ui_home_create); }
-static void on_delete(lv_event_t *e) { (void)e; key_input_stop(); lv_timer_del(s_timer); s_timer = NULL; s_scr = NULL; s_pad[0] = s_pad[1] = NULL; }
+static void on_delete(lv_event_t *e) { (void)e; key_input_stop_if((void *)&KEYER_OWNER); lv_timer_del(s_timer); s_timer = NULL; s_scr = NULL; s_pad[0] = s_pad[1] = NULL; }
 
 lv_obj_t *ui_keyer_create(void)
 {
@@ -62,21 +79,34 @@ lv_obj_t *ui_keyer_create(void)
     lv_obj_t *clr = ui_button(bar, "清屏", clear_cb, NULL);
     lv_obj_set_size(clr, 60, 24);
     lv_obj_align(clr, LV_ALIGN_RIGHT_MID, -4, 0);
+    lv_obj_t *fst = ui_button(bar, "手法", go_fist, NULL);
+    lv_obj_set_size(fst, 60, 24);
+    lv_obj_align(fst, LV_ALIGN_RIGHT_MID, -68, 0);
 
     int top = UI_TOPBAR_H;
     if (!tone_gen_is_ok()) { ui_notice(s_scr, "音频异常，侧音不可用"); top += 22; }
 
+    /*
+     * 纵向预算（顶栏之下 212px）：解码文本 74 / 点划 26 / 电键 108。
+     *
+     * 文本高度必须是 74 = 2 行 x UI_FONT_MID 的行高 37。原来只给了 60，
+     * 第二行的下缘被裁掉 14px——Q 的尾巴正好在那里，看起来就成了 O。
+     * 和配网页输入框、对练页状态带是同一类问题：容器高度必须 >= 内容高度。
+     */
     s_text = lv_label_create(s_scr);
     lv_obj_set_style_text_font(s_text, UI_FONT_MID, 0);
-    lv_obj_set_pos(s_text, 8, top + 4);
-    lv_obj_set_size(s_text, 304, 60);
+    lv_obj_set_pos(s_text, 8, top + 2);
+    lv_obj_set_size(s_text, 304, 74);
     lv_label_set_long_mode(s_text, LV_LABEL_LONG_WRAP);
     lv_label_set_text(s_text, "");
     s_buf[0] = 0;
 
+    /* 点划行改用 UI_FONT_CN（行高 26）：文本要 74、电键要留够 108，
+       三者加起来必须 <= 212，点划这行只能用小的。它是转瞬即逝的提示，
+       让位给要读的解码文本是对的。 */
     s_seq = lv_label_create(s_scr);
-    lv_obj_set_style_text_font(s_seq, UI_FONT_MID, 0);
-    lv_obj_align(s_seq, LV_ALIGN_TOP_MID, 0, top + 66);
+    lv_obj_set_style_text_font(s_seq, UI_FONT_CN, 0);
+    lv_obj_align(s_seq, LV_ALIGN_TOP_MID, 0, top + 78);
     lv_label_set_text(s_seq, "");
 
     /* s_pad[] 是跨页面存活的文件级 static；下面三条布局分支里，仅"外接+直键"
@@ -89,7 +119,9 @@ lv_obj_t *ui_keyer_create(void)
      * 残留值。 */
     s_pad[0] = s_pad[1] = NULL;
 
-    int py = 120, ph = 240 - py;
+    /* 132 起，剩 108px 给电键——远超 44px 触控下限，同时给上面的解码文本
+       腾出完整的两行高度。 */
+    int py = 132, ph = 240 - py;
     bool straight = cfg->keyer_mode == KEYER_MODE_STRAIGHT;
     bool ext = cfg->key_input == CW_KEY_INPUT_EXT;
     if (ext) {
@@ -106,14 +138,10 @@ lv_obj_t *ui_keyer_create(void)
         lv_obj_add_event_cb(s_pad[0], pad_cb, LV_EVENT_ALL, (void *)0);
         s_pad[1] = NULL;
     } else {
-        for (int i = 0; i < 2; i++) {
-            s_pad[i] = ui_cell(s_scr, i == 0 ? "点" : "划", UI_FONT_CN, NULL, NULL);
-            lv_obj_set_pos(s_pad[i], i * 160, py); lv_obj_set_size(s_pad[i], 160, ph);
-            lv_obj_add_event_cb(s_pad[i], pad_cb, LV_EVENT_ALL, (void *)(intptr_t)i);
-        }
+        ui_keyer_paddles(s_scr, py, ph, s_pad);
     }
 
-    key_input_start(char_cb, NULL);
+    key_input_start(char_cb, (void *)&KEYER_OWNER);
     s_timer = lv_timer_create(poll, 50, NULL);
     return s_scr;
 }

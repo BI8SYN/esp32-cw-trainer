@@ -5,6 +5,12 @@
 #include "ui_preview.h"
 #include "ui_practice.h"
 #include "ui_keyer.h"
+#include "ui_net.h"
+#include "ui_stats.h"
+#include "ui_icons.h"
+#include "ui_more.h"
+#include "wifi_net.h"
+#include "ota.h"
 #include "ui_settings.h"
 #include "cw_settings.h"
 #include "koch_engine.h"
@@ -41,11 +47,12 @@ static const lv_style_transition_dsc_t *no_fade_transition(void)
     return &dsc;
 }
 
-static lv_obj_t *s_scr, *s_clock, *s_bat;
+static lv_obj_t *s_scr, *s_clock, *s_bat, *s_bat_icon, *s_wifi_icon;
 static lv_timer_t *s_timer;
 static bool s_dimmed;
 static uint32_t s_last_idle;
 static bool s_reset_notice_shown;
+static bool s_ota_notice_shown;
 
 /* 灭屏期间显示和触摸层其实一直是活的：只是背光被设成 0，控件树、点击事件都
  * 照常工作。这意味着"把屏幕点亮的那一下"本身就会被当成一次普通点击送到
@@ -65,6 +72,7 @@ static bool wake_swallow(void)
 
 static void tick(lv_timer_t *t)
 {
+    if (s_wifi_icon) ui_icon_wifi_set(s_wifi_icon, wifi_net_level());
     (void)t;
     time_t now = time(NULL);
     struct tm tm;
@@ -102,9 +110,12 @@ static void on_delete(lv_event_t *e)
 }
 
 static void go_koch(lv_event_t *e)     { (void)e; if (wake_swallow()) return; ui_preview_open(cw_settings_get()->koch_lesson, false); }
-static void go_call(lv_event_t *e)     { (void)e; if (wake_swallow()) return; ui_practice_open(TRAINER_MODE_CALLSIGN); }
-static void go_qso(lv_event_t *e)      { (void)e; if (wake_swallow()) return; ui_practice_open(TRAINER_MODE_QSO); }
-static void go_keyer(lv_event_t *e)    { (void)e; if (wake_swallow()) return; ui_nav_show(ui_keyer_create); }
+/* 呼号抄收 / 模拟 QSO / 电键 都收进了「更多练习」子页面，见 ui_more.c：
+   它们是次要场景，五项挤在右列时每项只有 42px，低于 44px 触控下限。 */
+static void go_more(lv_event_t *e)     { (void)e; if (wake_swallow()) return; ui_nav_show(ui_more_create); }
+/* ui_net_create() 自己会在没配过网时改跳配网页，这里不用判断。 */
+static void go_net(lv_event_t *e)      { (void)e; if (wake_swallow()) return; ui_nav_show(ui_net_create); }
+static void go_stats(lv_event_t *e)    { (void)e; if (wake_swallow()) return; ui_nav_show(ui_stats_create); }
 static void go_settings(lv_event_t *e) { (void)e; if (wake_swallow()) return; ui_nav_show(ui_settings_create); }
 
 lv_obj_t *ui_home_create(void)
@@ -118,20 +129,43 @@ lv_obj_t *ui_home_create(void)
     lv_label_set_text(s_clock, "--:--");
     lv_obj_align(s_clock, LV_ALIGN_LEFT_MID, 6, 0);
 
-    lv_obj_t *gear = lv_label_create(bar);
-    lv_label_set_text(gear, "设置");
-    lv_obj_align(gear, LV_ALIGN_RIGHT_MID, -8, 0);
-    lv_obj_add_flag(gear, LV_OBJ_FLAG_CLICKABLE);
-    /* 电阻屏漏点比电容屏更常见；扩大到短边 >=48px（视觉文字大小不变，只是可点区域向外扩）。
-       "设置" 只在主页出现，主页没有返回箭头，两者不会在同一页重叠 */
-    lv_obj_set_ext_click_area(gear, 14);
-    lv_obj_add_event_cb(gear, go_settings, LV_EVENT_CLICKED, NULL);
+    /*
+     * 顶栏右侧从右到左：电量图标、电量百分比、WiFi 图标。
+     *
+     * 设置的齿轮已经移到下面的菜单里——16px 的图标在电阻屏上既难认也难点，
+     * 而按工艺规则低频操作本来就该进菜单、不该占主界面的固定位置。腾出来的
+     * 空间正好给这几个状态图标。
+     *
+     * 图标全部用 LVGL 图元现画：font20 不含 LVGL 符号所在的 0xF000+ 私有区，
+     * LV_SYMBOL_* 会是豆腐块（配网页键盘就栽在这上面）。见 ui_icons.h。
+     */
+    /* 数字在电池图标右边，电池图标在它左边——读起来是"电池 78"，
+       符号省掉：旁边就是电池图标，百分号是冗余的。 */
+    s_bat_icon = ui_icon_battery(bar);
+    lv_obj_align(s_bat_icon, LV_ALIGN_RIGHT_MID, -30, 0);
 
+    s_wifi_icon = ui_icon_wifi(bar);
+    lv_obj_align(s_wifi_icon, LV_ALIGN_RIGHT_MID, -56, 0);
+    ui_icon_wifi_set(s_wifi_icon, wifi_net_level());
+
+    /* 用 Montserrat 12 而不是 UI_FONT_CN：后者行高 26，在 28px 的顶栏里
+       和 16px 的图标并排显得头重脚轻。见 ui_common.h 的 UI_FONT_TINY。 */
     s_bat = lv_label_create(bar);
-    lv_obj_align(s_bat, LV_ALIGN_RIGHT_MID, -60, 0);
+    lv_obj_set_style_text_font(s_bat, UI_FONT_TINY, 0);
+    lv_obj_align(s_bat, LV_ALIGN_RIGHT_MID, -6, 0);
     ui_home_set_battery(battery_percent());
 
     int top = UI_TOPBAR_H;
+    /* 开机检查发现新版本就提示一次。不弹对话框拦路——用户开机多半是想
+       练一课，不是来升级的；一行提示够了，去设置里升级。 */
+    const ota_check_t *ck = ota_check_result();
+    if (ck->checked && ck->available && !s_ota_notice_shown) {
+        char m[64];
+        snprintf(m, sizeof m, "有新版本 %s，可在设置里升级", ck->latest);
+        ui_notice(s_scr, m);
+        s_ota_notice_shown = true;
+        top += 22;
+    }
     if (cw_settings_was_reset() && !s_reset_notice_shown) {
         ui_notice(s_scr, "进度已重置（数据损坏或版本不符）");
         s_reset_notice_shown = true;
@@ -187,15 +221,17 @@ lv_obj_t *ui_home_create(void)
     lv_label_set_text(l4, last == 0xFF ? "开始练习 >" : "继续练习 >");
     lv_obj_align(l4, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
 
-    /* 右：三个入口 */
-    const char *names[3] = { "呼号抄收 >", "模拟 QSO >", "电键 >" };
-    lv_event_cb_t cbs[3] = { go_call, go_qso, go_keyer };
-    int h = (240 - top) / 3;
-    for (int i = 0; i < 3; i++) {
+    /* 右：四个入口 */
+    /* 四项各 (240-28)/4 = 53px，达到 44px 触控下限；原来五项只有 42px。
+       设置排在最末，符合"设置永远在最后"的惯例。 */
+    const char *names[4] = { "更多练习 >", "联网对练 >", "训练统计 >", "设置 >" };
+    lv_event_cb_t cbs[4] = { go_more, go_net, go_stats, go_settings };
+    int h = (240 - top) / 4;
+    for (int i = 0; i < 4; i++) {
         lv_obj_t *c = ui_cell(s_scr, names[i], UI_FONT_CN, cbs[i], NULL);
         lv_obj_set_pos(c, 200, top + i * h);
         lv_obj_set_size(c, 120, h);
-        lv_obj_set_style_border_side(c, i < 2 ? LV_BORDER_SIDE_BOTTOM : LV_BORDER_SIDE_NONE, 0);
+        lv_obj_set_style_border_side(c, i < 3 ? LV_BORDER_SIDE_BOTTOM : LV_BORDER_SIDE_NONE, 0);
     }
 
     s_dimmed = false;
@@ -207,6 +243,6 @@ lv_obj_t *ui_home_create(void)
 void ui_home_set_battery(uint8_t percent)
 {
     if (!s_scr || !s_bat) return;
-    if (percent < 15) lv_label_set_text_fmt(s_bat, "电 %u%% !", percent);
-    else lv_label_set_text_fmt(s_bat, "电 %u%%", percent);
+    ui_icon_battery_set(s_bat_icon, percent);
+    lv_label_set_text_fmt(s_bat, "%u", percent);
 }

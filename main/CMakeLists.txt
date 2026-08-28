@@ -12,19 +12,42 @@ idf_component_register(
         "core/koch_engine.c"
         "core/callsign_gen.c"
         "core/trainer.c"
+        "core/kob_packet.c"
+        "core/kob_client.c"
+        "core/kob_rxbuf.c"
+        "core/cw_stats.c"
+        "net_store.c"
+        "stats_store.c"
+        "wifi_net.c"
+        "kob_net.c"
+        "ota.c"
         "ui_async.c"
         "backlight.c"
         "battery.c"
         "ui/ui_common.c"
+        "ui/ui_icons.c"
         "ui/ui_home.c"
         "ui/ui_preview.c"
         "ui/ui_practice.c"
         "ui/ui_result.c"
         "ui/ui_keyer.c"
         "ui/ui_settings.c"
+        "ui/ui_wifi.c"
+        "ui/ui_net.c"
+        "ui/ui_ota.c"
+        "ui/ui_more.c"
+        "ui/ui_stats.c"
+        "ui/ui_fist.c"
     INCLUDE_DIRS "." "core" "ui"
     REQUIRES
         esp_app_format
+        esp_wifi
+        esp_netif
+        esp_event
+        lwip
+        app_update
+        esp_http_client
+        esp_https_ota
         driver
         esp_driver_i2s
         esp_timer

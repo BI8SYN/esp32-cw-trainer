@@ -5,6 +5,12 @@
 #include "ui_home.h"
 #include "esp_app_desc.h"
 #include "cw_settings.h"
+#include "net_store.h"
+#include "stats_store.h"
+#include "wifi_net.h"
+#include "ui_ota.h"
+#include "ui_wifi.h"
+#include "ota.h"
 #include "cw_player.h"
 #include "tone_gen.h"
 #include "backlight.h"
@@ -14,7 +20,7 @@
 /* 版本号不再硬编码：info 为 NULL 的 IT_INFO 行显示固件真正嵌入的版本
  * （来自 CMakeLists 的 PROJECT_VER），显示值与固件值不可能对不上。 */
 
-typedef enum { IT_NUM, IT_CHOICE, IT_TOGGLE, IT_CALLSIGN, IT_RESET, IT_INFO } item_type_t;
+typedef enum { IT_NUM, IT_CHOICE, IT_TOGGLE, IT_CALLSIGN, IT_RESET, IT_INFO, IT_OTA, IT_WIFI } item_type_t;
 typedef struct {
     const char *name; item_type_t type;
     int min, max, step; const char *unit;
@@ -30,6 +36,31 @@ static const char *const KEYER_MODES[] = { "直键", "Iambic A", "Iambic B" };
  * 的字形表里没有 `unicode = 0x00b0` 这一项），会静默渲染成空白——正是 README
  * 「界面里的中文字体」一节描述的那类只有对着真屏幕才看得出来的坑。 */
 static const char *const SCREEN_ROTS[] = { "正常", "上下翻转" };
+static const char *const PRACTICE_MODES[] = { "机器人 QSO", "回声" };
+/*
+ * 「连接网络」的选项在运行时按已保存的槽位生成：自动 + 每个非空槽位的
+ * SSID。IT_CHOICE 的 choices 是 const char* 数组，所以这里备一份可写的
+ * 缓冲，进设置页时填。
+ */
+#define NET_PICK_MAX (CW_WIFI_PROFILE_MAX + 1)
+static char        s_net_pick_buf[NET_PICK_MAX][34];
+static const char *s_net_pick[NET_PICK_MAX];
+static int         s_net_pick_n = 1;
+
+static void rebuild_net_picks(void)
+{
+    const cw_net_cfg_t *nc = net_store_get();
+    snprintf(s_net_pick_buf[0], sizeof s_net_pick_buf[0], "自动（最强）");
+    s_net_pick[0] = s_net_pick_buf[0];
+    int n = 1;
+    for (int i = 0; i < CW_WIFI_PROFILE_MAX; i++) {
+        if (!nc->profiles[i].used || !nc->profiles[i].ssid[0]) continue;
+        snprintf(s_net_pick_buf[n], sizeof s_net_pick_buf[n], "%s", nc->profiles[i].ssid);
+        s_net_pick[n] = s_net_pick_buf[n];
+        n++;
+    }
+    s_net_pick_n = n;
+}
 
 /* 下面三张表里的 name 字符串同时也是 get_val()/set_val() 的分派键（按
  * strcmp 匹配）。改这里的 name 必须同步改那两个函数里对应的字符串——两边
@@ -51,17 +82,58 @@ static const item_t GEN[] = {
     { "Koch 课次", IT_NUM, 1, 39, 1, "", NULL, 0, false, NULL },
     { "屏幕亮度", IT_NUM, 10, 100, 10, "%", NULL, 0, false, NULL },
     { "屏幕旋转", IT_CHOICE, 0, 0, 0, "", SCREEN_ROTS, 2, false, NULL },
-    { "恢复出厂设置", IT_RESET, 0, 0, 0, "", NULL, 0, false, NULL },
+    /*
+     * 作者 / 版本 / 固件升级 是一个"我在跑哪个版本、怎么换一个"的小集群，
+     * 用户想的是同一件事，不该按实现方式拆开（升级走 HTTP 不代表它属于
+     * 网络设置）。iOS 设置→通用 就是「关于 / 软件更新 / 还原」挨在一起。
+     *
+     * 没有独立的「关于」页签：左侧竖排页签从 4 个变 5 个会让每个从 53px
+     * 掉到 42px，低于 44px 触控下限——主页刚为同一条规则做过调整，设置页
+     * 不能反着来。而且只有三行、其中两行还不可点，撑不起一个页签。
+     */
     { "作者", IT_INFO, 0, 0, 0, "", NULL, 0, false, "BI8SYN" },
     { "版本", IT_INFO, 0, 0, 0, "", NULL, 0, false, NULL },
+    { "固件升级", IT_OTA, 0, 0, 0, "", NULL, 0, false, NULL },
+    { "开机检查更新", IT_TOGGLE, 0, 0, 0, "", NULL, 0, false, NULL },
+    /* 危险操作按惯例压在最末 */
+    { "恢复出厂设置", IT_RESET, 0, 0, 0, "", NULL, 0, false, NULL },
 };
-static const item_t *const GROUPS[3] = { AUDIO, KEY, GEN };
-static const int GROUP_N[3] = { 4, 3, 7 };
-static const char *const GROUP_NAMES[3] = { "音频", "电键", "常规" };
+/*
+ * 网络组的字段存在 net_store（独立 NVS key），不在 cw_settings_t 里——往
+ * 后者加字段会清空 Koch 进度，见 net_store.h。所以 get_val/set_val 里这几
+ * 条要走 net_store_get() 并调 net_store_save()。
+ */
+static item_t NET[] = {
+    /*
+     * 「WiFi 网络」是**添加/删除/改密码**的唯一入口。
+     *
+     * 在这之前配网页只在「首次进对练页且一个网络都没存」时才会自动跳出来，
+     * 也就是说存过一个之后就再也进不去了——换个地方、存的网络都不在范围内，
+     * 对练页只会显示"连不上"，然后就没有然后了。功能不可达是结构缺陷，
+     * 优先级高于任何分组问题。
+     *
+     * 它和下面的「连接网络」不是一回事：这个管有哪些网络，那个管用哪一个。
+     */
+    { "WiFi 网络", IT_WIFI, 0, 0, 0, "", NULL, 0, false, NULL },
+    { "连接网络", IT_CHOICE, 0, 0, 0, "", NULL, 0, false, NULL },
+    { "陪练模式", IT_CHOICE, 0, 0, 0, "", PRACTICE_MODES, 2, false, NULL },
+    { "收报缓冲", IT_NUM, 200, 1000, 100, " ms", NULL, 0, false, NULL },
+    /*
+     * 「对练服务器」那一行删了：只读、改不了，而连不上时对练页会直接显示
+     * 「连不上服务器 <地址>」，设置页再摆一遍是纯噪音。
+     * 「固件升级」移到了常规组，和版本挨着——见那边的说明。
+     */
+    { "wire 号",  IT_NUM, 1, 999, 1, "", NULL, 0, false, NULL },
+};
+
+static const item_t *const GROUPS[4] = { AUDIO, KEY, GEN, NET };
+static const int GROUP_N[4] = { 4, 3, 9, 5 };
+static const char *const GROUP_NAMES[4] = { "音频", "电键", "常规", "网络" };
+#define GROUP_COUNT 4
 
 static int s_group = 0;
 static const item_t *s_item;
-static lv_obj_t *s_list, *s_tabs[3];
+static lv_obj_t *s_list, *s_tabs[GROUP_COUNT];
 static lv_obj_t *s_val_label;
 static char s_call_buf[12];
 static lv_obj_t *s_call_hint;
@@ -72,6 +144,23 @@ static lv_obj_t *s_call_hint;
 static int get_val(const item_t *it)
 {
     cw_settings_t *c = cw_settings_get();
+    cw_net_cfg_t *nc = net_store_get();
+    if (!strcmp(it->name, "连接网络")) {
+        /* wifi_net 里 -1 表示自动，这里 0 是"自动"、1.. 对应槽位顺序 */
+        int p = wifi_net_preferred();
+        if (p < 0) return 0;
+        int n = 1;
+        for (int i = 0; i < CW_WIFI_PROFILE_MAX; i++) {
+            if (!nc->profiles[i].used || !nc->profiles[i].ssid[0]) continue;
+            if (i == p) return n;
+            n++;
+        }
+        return 0;
+    }
+    if (!strcmp(it->name, "开机检查更新")) return nc->boot_check ? 1 : 0;
+    if (!strcmp(it->name, "陪练模式")) return nc->echo_mode ? 1 : 0;
+    if (!strcmp(it->name, "收报缓冲")) return nc->rx_delay_ms;
+    if (!strcmp(it->name, "wire 号")) return nc->wire;
     if (!strcmp(it->name, "字符速度")) return c->char_wpm;
     if (!strcmp(it->name, "有效速度")) return c->eff_wpm;
     if (!strcmp(it->name, "音调")) return c->tone_hz;
@@ -114,6 +203,23 @@ static void apply_rotation(uint8_t rotate_180)
 /* 同 get_val()：it->name 是分派键，改名字必须两边一起改。 */
 static void set_val(const item_t *it, int v)
 {
+    cw_net_cfg_t *nc = net_store_get();
+    if (!strcmp(it->name, "连接网络")) {
+        if (v <= 0) { wifi_net_prefer(-1); return; }
+        int n = 1;
+        for (int i = 0; i < CW_WIFI_PROFILE_MAX; i++) {
+            if (!nc->profiles[i].used || !nc->profiles[i].ssid[0]) continue;
+            if (n == v) { wifi_net_prefer(i); return; }
+            n++;
+        }
+        wifi_net_prefer(-1);
+        return;
+    }
+    if (!strcmp(it->name, "开机检查更新")) { nc->boot_check = (uint8_t)(v ? 1 : 0); net_store_save(); return; }
+    if (!strcmp(it->name, "陪练模式")) { nc->echo_mode = (uint8_t)(v ? 1 : 0); net_store_save(); return; }
+    if (!strcmp(it->name, "收报缓冲")) { nc->rx_delay_ms = (uint16_t)v; net_store_save(); return; }
+    if (!strcmp(it->name, "wire 号")) { nc->wire = (int16_t)v; net_store_save(); return; }
+
     cw_settings_t *c = cw_settings_get();
     if (!strcmp(it->name, "字符速度")) { c->char_wpm = (uint8_t)v; if (c->eff_wpm > c->char_wpm) c->eff_wpm = c->char_wpm; }
     else if (!strcmp(it->name, "有效速度")) { if (v > c->char_wpm) v = c->char_wpm; c->eff_wpm = (uint8_t)v; }
@@ -134,11 +240,42 @@ static void fmt_val(const item_t *it, char *out, size_t n)
     cw_settings_t *c = cw_settings_get();
     switch (it->type) {
     case IT_NUM: snprintf(out, n, "%d%s", get_val(it), it->unit); break;
-    case IT_CHOICE: snprintf(out, n, "%s", it->choices[get_val(it)]); break;
+    case IT_CHOICE: {
+        /* choices 为空或下标越界不该崩——这一整套是按 name 做 strcmp 分派的，
+           表和分派函数不同步时本来就容易出错，不能让它以空指针解引用收场。 */
+        int v = get_val(it);
+        if (!it->choices || it->nchoices <= 0 || v < 0 || v >= it->nchoices)
+            snprintf(out, n, "-");
+        else
+            snprintf(out, n, "%s", it->choices[v]);
+        break;
+    }
     case IT_TOGGLE: snprintf(out, n, "%s", get_val(it) ? "开" : "关"); break;
     case IT_CALLSIGN: snprintf(out, n, "%s", c->callsign); break;
-    case IT_INFO: snprintf(out, n, "%s", it->info ? it->info
-                                              : esp_app_get_description()->version); break;
+    case IT_OTA: {
+        /* 显示"有没有新的"，不显示分区标签——ota_0/ota_1 是实现细节，
+           用户既不关心也看不懂。 */
+        const ota_check_t *ck = ota_check_result();
+        if (ota_check_busy())   snprintf(out, n, "检查中");
+        else if (!ck->checked)  snprintf(out, n, "未检查");
+        else if (ck->err[0])    snprintf(out, n, "检查失败");
+        else if (ck->available) snprintf(out, n, "有 %s", ck->latest);
+        else                    snprintf(out, n, "已最新");
+        break;
+    }
+    case IT_WIFI: {
+        /* 值显示已存几个——是 0 的话，"联网对练连不上"的原因一眼可见 */
+        const cw_net_cfg_t *nc = net_store_get();
+        int k = 0;
+        for (int i = 0; i < CW_WIFI_PROFILE_MAX; i++)
+            if (nc->profiles[i].used && nc->profiles[i].ssid[0]) k++;
+        snprintf(out, n, "%d 个", k);
+        break;
+    }
+    case IT_INFO:
+        snprintf(out, n, "%s", it->info ? it->info
+                                        : esp_app_get_description()->version);
+        break;
     default: out[0] = 0;
     }
 }
@@ -283,6 +420,12 @@ static void item_cb(lv_event_t *e)
     case IT_TOGGLE: set_val(s_item, !get_val(s_item)); ui_nav_show(ui_settings_create); break;
     case IT_CALLSIGN: ui_nav_show(build_callsign); break;
     case IT_RESET: ui_nav_show(build_reset); break;
+    case IT_OTA: ui_nav_show(ui_ota_create); break;
+    case IT_WIFI:
+        /* 改完 WiFi 回到设置，而不是被弹回主页 */
+        ui_wifi_set_return(ui_settings_create);
+        ui_nav_show(ui_wifi_create);
+        break;
     default: break;
     }
 }
@@ -304,7 +447,7 @@ static void fill_list(void)
         else lv_label_set_text_fmt(vl, "%s >", v);
         lv_obj_align(vl, LV_ALIGN_RIGHT_MID, -8, 0);
     }
-    for (int g = 0; g < 3; g++) lv_obj_set_style_bg_color(s_tabs[g], g == s_group ? UI_GRAY_DOWN : UI_WHITE, 0);
+    for (int g = 0; g < GROUP_COUNT; g++) lv_obj_set_style_bg_color(s_tabs[g], g == s_group ? UI_GRAY_DOWN : UI_WHITE, 0);
 }
 
 static void tab_cb(lv_event_t *e) { s_group = (int)(intptr_t)lv_event_get_user_data(e); fill_list(); }
@@ -312,10 +455,26 @@ static void back_home(lv_event_t *e) { (void)e; ui_nav_show(ui_home_create); }
 
 lv_obj_t *ui_settings_create(void)
 {
+    rebuild_net_picks();
+    /*
+     * 按名字找那一行，不要写死下标。
+     *
+     * 之前这里是 NET[0]，而后来在表头插了「WiFi 网络」——choices 就挂到了
+     * 那个 IT_WIFI 行上，真正的「连接网络」拿到的是 NULL，fmt_val 里
+     * it->choices[...] 直接空指针解引用，点一下网络页签就崩溃重启（表现
+     * 为"跳回首页"）。下标会随插行静默错位，而且不会有编译错误。
+     */
+    for (int i = 0; i < GROUP_N[3]; i++) {
+        if (strcmp(NET[i].name, "连接网络") == 0) {
+            NET[i].choices = s_net_pick;
+            NET[i].nchoices = s_net_pick_n;
+            break;
+        }
+    }
     lv_obj_t *scr = ui_screen_create();
     ui_topbar(scr, "设置", back_home);
-    int h = (240 - UI_TOPBAR_H) / 3;
-    for (int g = 0; g < 3; g++) {
+    int h = (240 - UI_TOPBAR_H) / GROUP_COUNT;
+    for (int g = 0; g < GROUP_COUNT; g++) {
         s_tabs[g] = ui_cell(scr, GROUP_NAMES[g], UI_FONT_CN, tab_cb, (void *)(intptr_t)g);
         lv_obj_set_pos(s_tabs[g], 0, UI_TOPBAR_H + g * h); lv_obj_set_size(s_tabs[g], 60, h);
     }

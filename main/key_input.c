@@ -25,6 +25,8 @@ static bool s_ext_last[2], s_ext_stable[2];
 static key_input_char_cb_t volatile s_cb;
 static void *s_user;
 static bool s_last_out;
+static key_input_edge_cb_t volatile s_edge_cb;
+static void *s_edge_user;
 
 static uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 
@@ -94,6 +96,10 @@ static void task(void *arg)
             tone_gen_set(out);
             cw_decoder_key(&s_dec, out, t);
             s_last_out = out;
+            /* 同 s_cb 的写法：先拷到局部再判空再调用。另一个任务可能正在把它
+             * 清成 NULL，分两次求值会在中间那一小段窗口里经空指针跳转崩掉。 */
+            key_input_edge_cb_t ecb = s_edge_cb;
+            if (ecb) ecb(out, t, s_edge_user);
         }
         char c;
         /* 先把 s_cb 拷到局部变量再判断、再调用：key_input_stop() 会从另一个任务
@@ -134,6 +140,14 @@ void key_input_start(key_input_char_cb_t cb, void *user)
     s_last_out = false;
     s_cb = cb;
     s_user = user;
+    /* 接管电键的人从一张白纸开始：上一个页面挂的边沿回调在这里清掉，
+       免得它继续往一个已经不可见的页面的缓冲里写。要边沿的页面在
+       start 之后自己再挂。 */
+    s_edge_cb = NULL;
+    s_edge_user = NULL;
+    /* 提前给功放上电：等用户真按下键时它已经稳定，第一声才不会破音。
+       见 tone_gen_amp_hold() 的说明。 */
+    tone_gen_amp_hold(true);
     if (c->key_input == CW_KEY_INPUT_EXT) {
         /* 启动自检，只在选中外接口模式时做：引脚已经在 key_input_init() 里配置
          * 成输入+内部上拉，这里立即采样一次原始电平——不经过去抖（去抖要两个
@@ -154,6 +168,15 @@ void key_input_start(key_input_char_cb_t cb, void *user)
     xTaskNotifyGive(s_task);
 }
 
+bool key_input_stop_if(void *owner)
+{
+    /* 归属不对说明电键已经被后建的页面接管了，这次 stop 请求属于正在被
+       删除的旧页面——什么都不做才是对的。见头文件里的说明。 */
+    if (!s_running || s_user != owner) return false;
+    key_input_stop();
+    return true;
+}
+
 void key_input_stop(void)
 {
     /* 不在这里调用 tone_gen_set：tone_gen_set 只应该来自 key_input 自己的任务
@@ -161,12 +184,29 @@ void key_input_stop(void)
      * 最迟在下一个 tick（至多 TICK_MS）之内会自己发现并关掉侧音。 */
     s_running = false;
     s_cb = NULL;
+    s_edge_cb = NULL;
+    s_edge_user = NULL;
+    /* 释放后由 tone_gen 自己的 200ms 延迟关断功放，不用精确配对 */
+    tone_gen_amp_hold(false);
 }
 
 void key_input_touch(int paddle, bool pressed)
 {
     if (paddle < 0 || paddle > 1) return;
     s_touch[paddle] = pressed;
+}
+
+void key_input_set_edge_cb(key_input_edge_cb_t cb, void *user)
+{
+    /* 先挂 user 再挂 cb，先摘 cb 再摘 user：这样 5ms 任务那边无论在哪一拍
+     * 读到非空的 cb，配套的 user 都已经是有效值。 */
+    if (cb) {
+        s_edge_user = user;
+        s_edge_cb = cb;
+    } else {
+        s_edge_cb = NULL;
+        s_edge_user = NULL;
+    }
 }
 
 const char *key_input_pattern(void) { return cw_decoder_pattern(&s_dec); }

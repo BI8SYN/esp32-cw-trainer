@@ -7,6 +7,10 @@
 #include "lv_port_disp.h"
 #include "lv_port_indev.h"
 #include "cw_settings.h"
+#include "net_store.h"
+#include "stats_store.h"
+#include "ota.h"
+#include "wifi_net.h"
 #include "tone_gen.h"
 #include "cw_player.h"
 #include "key_input.h"
@@ -43,6 +47,10 @@ void app_main(void)
      * 回调也都会走这条路径。见 ui_async.h/ui_async.c 里的说明。 */
     ui_async_init();
     nvs_init();
+    /* 必须尽早调用：如果本次是升级后第一次启动，不标记为可用的话
+     * bootloader 会在下次复位时回滚到旧槽。放在 nvs 之后、UI 之前——
+     * 能走到这里就说明基本功能是好的。 */
+    ota_mark_valid();
     /* 不能用 ESP_ERROR_CHECK：NVS 分区与 fmo-companion 共享（见 docs/build-setup.md
      * 与本项目 README），对方写满时这里的读/写会失败。set_defaults() 已经在
      * cw_settings_init() 的每条失败分支里把整个结构体填成默认值，固件仍能正常
@@ -59,6 +67,23 @@ void app_main(void)
     ESP_LOGI(TAG, "cfg: wpm=%u/%u tone=%u lesson=%u rot180=%u reset=%d",
              cfg->char_wpm, cfg->eff_wpm, cfg->tone_hz, cfg->koch_lesson,
              cfg->rotate_180, cw_settings_was_reset());
+
+    /* 网络配置存在独立的 NVS key，与 cw_settings 互不影响——往 cw_settings_t
+     * 里加字段会清空用户的 Koch 进度，详见 net_store.h 顶部的说明。
+     * 同样不能用 ESP_ERROR_CHECK：NVS 与 fmo-companion 共享，写满时这里会失败，
+     * 而 net_store_init() 的每条失败分支都已把结构体填成默认值，固件照常运行。 */
+    esp_err_t net_err = net_store_init();
+    if (net_err != ESP_OK) {
+        ESP_LOGE(TAG, "net_store_init failed: %s - network settings will NOT persist",
+                 esp_err_to_name(net_err));
+    }
+    /* 训练统计同样是独立 key。丢了只是少看几张图，不影响任何功能，
+     * 所以失败只记日志。 */
+    esp_err_t stats_err = stats_store_init();
+    if (stats_err != ESP_OK) {
+        ESP_LOGE(TAG, "stats_store_init failed: %s - stats will NOT persist",
+                 esp_err_to_name(stats_err));
+    }
 
     /* 音频 */
     if (tone_gen_init() == ESP_OK) {
@@ -89,6 +114,19 @@ void app_main(void)
 
     ui_nav_show(ui_home_create);
     ESP_ERROR_CHECK(battery_start(battery_cb));
+
+    /*
+     * 开机检查一次更新（可在设置里关掉）。
+     *
+     * 这**不是**"WiFi 常连"——只开一小会儿射频、拉一份几百字节的清单就
+     * 关掉，代价远小于一直连着。但射频毕竟开了几秒，如果你在开机头几秒
+     * 就开始 Koch 听写、并且听得出侧音底噪，把「开机检查更新」关掉即可。
+     */
+    if (net_store_get()->boot_check) {
+        wifi_net_init();
+        wifi_net_start(NULL, NULL);
+        ota_check_start_auto(true);
+    }
     ESP_LOGI(TAG, "ui ready");
 
     while (true) {

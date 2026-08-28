@@ -22,6 +22,7 @@ static volatile bool s_on = false;
 static volatile uint32_t s_phase_inc = 0;   /* Q16.16 表索引步进 */
 static volatile uint16_t s_amp = 0;         /* 0..32767 */
 static bool s_ok = false;
+static volatile bool s_amp_hold = false;
 
 static void amp_enable(bool en)
 {
@@ -52,7 +53,9 @@ static void tone_task(void *arg)
             buf[i * 2] = w;
             buf[i * 2 + 1] = w;
         }
-        bool active = on || env > 0;
+        /* s_amp_hold：页面提前要求功放待命，见 tone_gen_amp_hold()。
+           它让功放在用户按键之前就完成上电稳定，第一声才不会破。 */
+        bool active = on || env > 0 || s_amp_hold;
         if (active) { off_blocks = 0; if (!amp_on) { amp_enable(true); amp_on = true; } }
         else if (amp_on && ++off_blocks >= AMP_OFF_DELAY_BLOCKS) { amp_enable(false); amp_on = false; }
 
@@ -60,6 +63,8 @@ static void tone_task(void *arg)
         i2s_write(I2S_NUM_0, buf, sizeof buf, &written, portMAX_DELAY);
     }
 }
+
+void tone_gen_amp_hold(bool hold) { s_amp_hold = hold; }
 
 esp_err_t tone_gen_init(void)
 {
