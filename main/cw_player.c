@@ -188,6 +188,10 @@ void cw_player_set_timing(const morse_timing_t *t)
 
 esp_err_t cw_player_play(const char *text, cw_player_cb_t cb, void *user)
 {
+    /* 播放前先让功放上电。和电键那边同一个问题：功放平时是关断的，等第一个
+       字符要出声时才打开的话，它还在上电稳定的过程中，第一声就破了。
+       见 tone_gen_amp_hold()。 */
+    tone_gen_amp_hold(true);
     /* 注意：不能调用 cw_player_stop()——那样会在同一个任务里对同一把非递归
      * 互斥量取两次锁，自己把自己锁死。这里直接调用无锁的 stop_locked()，
      * 全程只取一次锁。 */
@@ -215,6 +219,9 @@ esp_err_t cw_player_play(const char *text, cw_player_cb_t cb, void *user)
  * 函数。 */
 void cw_player_stop(void)
 {
+    /* 释放功放的保持；实际关断由 tone_gen 的 200ms 延迟处理，
+       所以连播多个字符之间不会反复开关。 */
+    tone_gen_amp_hold(false);
     pending_cb_t pending = { .fire = false };
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     stop_locked(&pending);

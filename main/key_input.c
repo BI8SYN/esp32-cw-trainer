@@ -145,6 +145,9 @@ void key_input_start(key_input_char_cb_t cb, void *user)
        start 之后自己再挂。 */
     s_edge_cb = NULL;
     s_edge_user = NULL;
+    /* 提前给功放上电：等用户真按下键时它已经稳定，第一声才不会破音。
+       见 tone_gen_amp_hold() 的说明。 */
+    tone_gen_amp_hold(true);
     if (c->key_input == CW_KEY_INPUT_EXT) {
         /* 启动自检，只在选中外接口模式时做：引脚已经在 key_input_init() 里配置
          * 成输入+内部上拉，这里立即采样一次原始电平——不经过去抖（去抖要两个
@@ -183,6 +186,8 @@ void key_input_stop(void)
     s_cb = NULL;
     s_edge_cb = NULL;
     s_edge_user = NULL;
+    /* 释放后由 tone_gen 自己的 200ms 延迟关断功放，不用精确配对 */
+    tone_gen_amp_hold(false);
 }
 
 void key_input_touch(int paddle, bool pressed)
