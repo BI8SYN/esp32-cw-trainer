@@ -11,6 +11,7 @@
 #include "ui_more.h"
 #include "wifi_net.h"
 #include "ota.h"
+#include "ui_ota.h"
 #include "ui_settings.h"
 #include "cw_settings.h"
 #include "koch_engine.h"
@@ -116,6 +117,7 @@ static void go_more(lv_event_t *e)     { (void)e; if (wake_swallow()) return; ui
 /* ui_net_create() 自己会在没配过网时改跳配网页，这里不用判断。 */
 static void go_net(lv_event_t *e)      { (void)e; if (wake_swallow()) return; ui_nav_show(ui_net_create); }
 static void go_stats(lv_event_t *e)    { (void)e; if (wake_swallow()) return; ui_nav_show(ui_stats_create); }
+static void go_ota(lv_event_t *e)      { (void)e; if (wake_swallow()) return; ui_nav_show(ui_ota_create); }
 static void go_settings(lv_event_t *e) { (void)e; if (wake_swallow()) return; ui_nav_show(ui_settings_create); }
 
 lv_obj_t *ui_home_create(void)
@@ -161,15 +163,22 @@ lv_obj_t *ui_home_create(void)
     const ota_check_t *ck = ota_check_result();
     if (ck->checked && ck->available && !s_ota_notice_shown) {
         char m[64];
-        snprintf(m, sizeof m, "有新版本 %s，可在设置里升级", ck->latest);
-        ui_notice(s_scr, m);
+        snprintf(m, sizeof m, "有新版本 %s，点击更新", ck->latest);
+        lv_obj_t *n = ui_notice(s_scr, m);
+        /* 提示条直接可点，省掉"自己去设置里翻"这一步。
+           28px 不到 44px 的触控下限，用 ext_click_area 补到 52px——向下会
+           盖住 Koch 卡片顶部 12px，但那张卡片有 190px 高，损失可忽略，而且
+           这条提示只在真有新版本时才出现。 */
+        lv_obj_add_flag(n, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_ext_click_area(n, 12);
+        lv_obj_add_event_cb(n, go_ota, LV_EVENT_CLICKED, NULL);
         s_ota_notice_shown = true;
-        top += 22;
+        top += UI_NOTICE_H;
     }
     if (cw_settings_was_reset() && !s_reset_notice_shown) {
         ui_notice(s_scr, "进度已重置（数据损坏或版本不符）");
         s_reset_notice_shown = true;
-        top += 22;
+        top += UI_NOTICE_H;
     }
 
     /* 左：Koch 卡片 */

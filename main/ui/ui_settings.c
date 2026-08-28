@@ -36,7 +36,6 @@ static const char *const KEYER_MODES[] = { "直键", "Iambic A", "Iambic B" };
  * 的字形表里没有 `unicode = 0x00b0` 这一项），会静默渲染成空白——正是 README
  * 「界面里的中文字体」一节描述的那类只有对着真屏幕才看得出来的坑。 */
 static const char *const SCREEN_ROTS[] = { "正常", "上下翻转" };
-static const char *const PRACTICE_MODES[] = { "机器人 QSO", "回声" };
 /*
  * 「连接网络」的选项在运行时按已保存的槽位生成：自动 + 每个非空槽位的
  * SSID。IT_CHOICE 的 choices 是 const char* 数组，所以这里备一份可写的
@@ -116,7 +115,6 @@ static item_t NET[] = {
      */
     { "WiFi 网络", IT_WIFI, 0, 0, 0, "", NULL, 0, false, NULL },
     { "连接网络", IT_CHOICE, 0, 0, 0, "", NULL, 0, false, NULL },
-    { "陪练模式", IT_CHOICE, 0, 0, 0, "", PRACTICE_MODES, 2, false, NULL },
     { "收报缓冲", IT_NUM, 200, 1000, 100, " ms", NULL, 0, false, NULL },
     /*
      * 「对练服务器」那一行删了：只读、改不了，而连不上时对练页会直接显示
@@ -127,7 +125,7 @@ static item_t NET[] = {
 };
 
 static const item_t *const GROUPS[4] = { AUDIO, KEY, GEN, NET };
-static const int GROUP_N[4] = { 4, 3, 9, 5 };
+static const int GROUP_N[4] = { 4, 3, 9, 4 };
 static const char *const GROUP_NAMES[4] = { "音频", "电键", "常规", "网络" };
 #define GROUP_COUNT 4
 
@@ -135,6 +133,8 @@ static int s_group = 0;
 static const item_t *s_item;
 static lv_obj_t *s_list, *s_tabs[GROUP_COUNT];
 static lv_obj_t *s_val_label;
+static lv_obj_t *s_val_hint;   /* 数值下方的补充说明，目前只有 wire 号用 */
+static void update_hint(void);
 static char s_call_buf[12];
 static lv_obj_t *s_call_hint;
 
@@ -158,7 +158,6 @@ static int get_val(const item_t *it)
         return 0;
     }
     if (!strcmp(it->name, "开机检查更新")) return nc->boot_check ? 1 : 0;
-    if (!strcmp(it->name, "陪练模式")) return nc->echo_mode ? 1 : 0;
     if (!strcmp(it->name, "收报缓冲")) return nc->rx_delay_ms;
     if (!strcmp(it->name, "wire 号")) return nc->wire;
     if (!strcmp(it->name, "字符速度")) return c->char_wpm;
@@ -216,7 +215,6 @@ static void set_val(const item_t *it, int v)
         return;
     }
     if (!strcmp(it->name, "开机检查更新")) { nc->boot_check = (uint8_t)(v ? 1 : 0); net_store_save(); return; }
-    if (!strcmp(it->name, "陪练模式")) { nc->echo_mode = (uint8_t)(v ? 1 : 0); net_store_save(); return; }
     if (!strcmp(it->name, "收报缓冲")) { nc->rx_delay_ms = (uint16_t)v; net_store_save(); return; }
     if (!strcmp(it->name, "wire 号")) { nc->wire = (int16_t)v; net_store_save(); return; }
 
@@ -292,6 +290,7 @@ static void adj_cb(lv_event_t *e)
     set_val(s_item, v);
     char b[16]; fmt_val(s_item, b, sizeof b);
     lv_label_set_text(s_val_label, b);
+    update_hint();
 }
 
 /* 数值调整页里的"试听"用 cw_player 全局单例播放 PARIS。&s_adj_scr 取本
@@ -302,8 +301,20 @@ static void adj_cb(lv_event_t *e)
  * 起播的音频，而不是本页自己那一段——ui_preview/ui_practice 已经踩过这个
  * 坑，这里沿用同一套令牌机制。 */
 static lv_obj_t *s_adj_scr;
-static void adj_on_delete(lv_event_t *e) { (void)e; cw_player_stop_if(&s_adj_scr); s_adj_scr = NULL; }
+static void adj_on_delete(lv_event_t *e) { (void)e; cw_player_stop_if(&s_adj_scr); s_adj_scr = NULL; s_val_hint = NULL; }
 static void listen_cb(lv_event_t *e) { (void)e; cw_player_play("PARIS", NULL, &s_adj_scr); }
+
+/* 数值页下方的补充说明。目前只有 wire 号有内容。 */
+static void update_hint(void)
+{
+    if (!s_val_hint || !s_item) return;
+    if (strcmp(s_item->name, "wire 号") == 0) {
+        const char *n = cw_net_wire_label((int16_t)get_val(s_item));
+        lv_label_set_text(s_val_hint, n ? n : "");
+    } else {
+        lv_label_set_text(s_val_hint, "");
+    }
+}
 
 static lv_obj_t *build_adjust(void)
 {
@@ -320,6 +331,15 @@ static lv_obj_t *build_adjust(void)
     char b[16]; fmt_val(s_item, b, sizeof b);
     lv_label_set_text(s_val_label, b);
     lv_obj_align(s_val_label, LV_ALIGN_TOP_MID, 0, 88);
+
+    /* wire 号下面显示这条 wire 上跑着哪个陪练。号码本身对用户没有意义，
+       知道"上面是谁"才谈得上选。没有陪练的 wire 就不显示——留白比显示
+       一句"无"更干净，也不会让人以为出了什么问题。 */
+    s_val_hint = lv_label_create(s);
+    lv_obj_set_style_text_font(s_val_hint, UI_FONT_CN, 0);
+    lv_obj_align(s_val_hint, LV_ALIGN_TOP_MID, 0, 132);
+    lv_label_set_text(s_val_hint, "");
+    update_hint();
     if (s_item->listen) {
         lv_obj_t *l = ui_button(s, "试听", listen_cb, NULL);
         lv_obj_set_width(l, 120); lv_obj_align(l, LV_ALIGN_TOP_MID, 0, 170);

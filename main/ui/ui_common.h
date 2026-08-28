@@ -20,6 +20,14 @@ LV_FONT_DECLARE(EN_BIG);
  */
 #define UI_FONT_TINY (&lv_font_montserrat_14)
 #define UI_TOPBAR_H  28
+/*
+ * 提示条高度。必须 >= UI_FONT_CN 的行高 26——原来写的是 22，比行高还矮，
+ * 文字上下各被裁掉 2px。这个坑在本项目里反复出现（配网页输入框、对练页
+ * 状态带、电键页第二行），共享组件里修一次，所有调用方都受益。
+ *
+ * 调用方在 ui_notice() 之后把 top 加上这个值，不要再写死 22。
+ */
+#define UI_NOTICE_H  28
 #define UI_GRAY_BG   lv_color_hex(0xEEEEEE)
 #define UI_GRAY_DOWN lv_color_hex(0x999999)
 #define UI_BLACK     lv_color_hex(0x000000)

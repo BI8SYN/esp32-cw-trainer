@@ -84,7 +84,7 @@ lv_obj_t *ui_keyer_create(void)
     lv_obj_align(fst, LV_ALIGN_RIGHT_MID, -68, 0);
 
     int top = UI_TOPBAR_H;
-    if (!tone_gen_is_ok()) { ui_notice(s_scr, "音频异常，侧音不可用"); top += 22; }
+    if (!tone_gen_is_ok()) { ui_notice(s_scr, "音频异常，侧音不可用"); top += UI_NOTICE_H; }
 
     /*
      * 纵向预算（顶栏之下 212px）：解码文本 74 / 点划 26 / 电键 108。

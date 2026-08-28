@@ -44,7 +44,19 @@ typedef struct {
     int16_t           wire;
     char              office[16];
     uint16_t          rx_delay_ms;
-    uint8_t           echo_mode;            /* 0 = 机器人 QSO(wire)，1 = 回声(CW_NET_ECHO_WIRE) */
+    /*
+     * 已废弃，不再读写。
+     *
+     * 它曾经表示"陪练模式"，选回声时强制走 CW_NET_ECHO_WIRE——于是 wire 被
+     * 两个设置控制着，而这个覆盖关系在界面上完全看不出来（你设了 wire 5，
+     * 选回声却跑到了 12）。现在 wire 是唯一的控制项，"陪练模式"本来也只是
+     * "换哪条 wire"的别名。
+     *
+     * 保留这个字节而不是删掉：删了结构体就变短，又要提版本号写迁移，而每
+     * 一次改这个 blob 都是一次冲掉用户 WiFi 密码的机会（v1->v2 那次就冲了）。
+     * 留着不用，代价是一个字节。
+     */
+    uint8_t           echo_mode_deprecated;
     uint8_t           noise_notice_shown;   /* 侧音底噪提示是否已展示过 */
     char              ota_url[96];          /* 版本清单（JSON）地址 */
     uint8_t           boot_check;          /* 开机联网检查一次更新 */
@@ -62,13 +74,17 @@ typedef struct {
 #define CW_NET_DEFAULT_PORT  7890
 #define CW_NET_DEFAULT_WIRE  11
 /*
- * 回声陪练单独占一条 wire。
+ * 陪练机器人各占一条 wire。机器人跑在服务端、是 wire 上的普通客户端，
+ * 读不到设备里的任何设置，所以用协议自己的频道机制区分行为，不扩协议。
  *
- * 机器人跑在服务端、是 wire 上一个普通客户端，读不到本机的 echo_mode。
- * 与其为此扩协议，不如直接用协议自己的频道机制：wire 11 上跑 QSO 陪练，
- * wire 12 上跑回声，echo_mode 只是决定接哪条。零额外状态。
+ * wire 号对用户没有意义，**上面有什么才有意义**——界面上一律显示
+ * cw_net_wire_label() 给出的名字。
  */
-#define CW_NET_ECHO_WIRE     12
+#define CW_NET_QSO_WIRE      11    /* cwbot-qso，身份 BOT */
+#define CW_NET_ECHO_WIRE     12    /* cwbot-echo，身份 ECHO */
+
+/* 返回这条 wire 上是什么。未知的 wire 返回 NULL，由调用方显示 "wire N"。 */
+const char *cw_net_wire_label(int16_t wire);
 /* 默认固件地址：wire 服务器那台机器上的静态页（morsekob-web 单元，端口 7891）。
    把固件放进 /opt/morsekob/www/ 即可。 */
 /* 指向版本清单而不是固件本身：设备要先知道服务器上是什么版本，才谈得上

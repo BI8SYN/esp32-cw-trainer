@@ -54,6 +54,16 @@ tools/publish_ota.sh firmware/cw-trainer
 固件文件名带版本号是有意的：能同时保留多个版本以便回退，出问题时看文件名
 就知道设备装的是哪个。
 
+## 每个版本都要打 tag
+
+```bash
+git tag -a v1.4.2 -m "cw-trainer v1.4.2"
+git push origin v1.4.2
+```
+
+tag 名就是 `PROJECT_VER` 的值。打在**把版本号改成该值的那个提交**上——那才是
+这一版真正的代码状态。
+
 ## 只有明确要求时才打分发包
 
 分发包是给**没有网、或者第一次刷机**的人用的——完整的 bootloader + 分区表 +
@@ -63,7 +73,14 @@ app，加一份烧录说明，压成 zip。
 tools/package_release.sh firmware/cw-trainer
 ```
 
-输出到 `~/Desktop/cw-trainer-<版本>/` 并压成同名 zip。
+输出到仓库的 `dist/cw-trainer-<版本>/` 并压成同名 zip。
+
+**zip 随版本库一起提交**，展开的目录由 `.gitignore` 排除（提交两份等于体积
+翻倍）。这样包和产出它的源码绑在一起，别人 clone 下来就有，不依赖外部托管。
+
+代价是每发一个分发包，仓库就永久多约 1MB——git 不会忘记删掉的文件。如果以后
+版本多到觉得重了，改用 GitHub Releases 把二进制挂在 tag 上是标准做法，本仓库
+已经在打 tag，切换成本很低。
 
 **不要默认打分发包。** 日常迭代一律走 OTA——分发包要对方手工烧录，成本高得多。
 
