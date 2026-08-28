@@ -7,6 +7,8 @@
 #include "ui_keyer.h"
 #include "ui_net.h"
 #include "ui_stats.h"
+#include "ui_icons.h"
+#include "wifi_net.h"
 #include "ui_settings.h"
 #include "cw_settings.h"
 #include "koch_engine.h"
@@ -43,7 +45,7 @@ static const lv_style_transition_dsc_t *no_fade_transition(void)
     return &dsc;
 }
 
-static lv_obj_t *s_scr, *s_clock, *s_bat;
+static lv_obj_t *s_scr, *s_clock, *s_bat, *s_bat_icon, *s_wifi_icon;
 static lv_timer_t *s_timer;
 static bool s_dimmed;
 static uint32_t s_last_idle;
@@ -67,6 +69,7 @@ static bool wake_swallow(void)
 
 static void tick(lv_timer_t *t)
 {
+    if (s_wifi_icon) ui_icon_wifi_set(s_wifi_icon, wifi_net_level());
     (void)t;
     time_t now = time(NULL);
     struct tm tm;
@@ -123,17 +126,31 @@ lv_obj_t *ui_home_create(void)
     lv_label_set_text(s_clock, "--:--");
     lv_obj_align(s_clock, LV_ALIGN_LEFT_MID, 6, 0);
 
-    lv_obj_t *gear = lv_label_create(bar);
-    lv_label_set_text(gear, "设置");
-    lv_obj_align(gear, LV_ALIGN_RIGHT_MID, -8, 0);
+    /*
+     * 顶栏右侧从右到左：齿轮、电量图标、电量百分比、WiFi 图标。
+     * 图标全部用 LVGL 图元现画——font20 不含 LVGL 符号所在的 0xF000+ 私有区，
+     * LV_SYMBOL_* 会是豆腐块（配网页键盘就栽在这上面）。见 ui_icons.h。
+     */
+    lv_obj_t *gear = ui_icon_gear(bar);
+    lv_obj_align(gear, LV_ALIGN_RIGHT_MID, -6, 0);
     lv_obj_add_flag(gear, LV_OBJ_FLAG_CLICKABLE);
-    /* 电阻屏漏点比电容屏更常见；扩大到短边 >=48px（视觉文字大小不变，只是可点区域向外扩）。
-       "设置" 只在主页出现，主页没有返回箭头，两者不会在同一页重叠 */
-    lv_obj_set_ext_click_area(gear, 14);
+    /* 电阻屏漏点比电容屏更常见；扩大到短边 >=48px（视觉大小不变，只是可点
+       区域向外扩）。设置图标只在主页出现，主页没有返回箭头，不会重叠。 */
+    lv_obj_set_ext_click_area(gear, 16);
     lv_obj_add_event_cb(gear, go_settings, LV_EVENT_CLICKED, NULL);
 
+    s_bat_icon = ui_icon_battery(bar);
+    lv_obj_align(s_bat_icon, LV_ALIGN_RIGHT_MID, -28, 0);
+
+    s_wifi_icon = ui_icon_wifi(bar);
+    lv_obj_align(s_wifi_icon, LV_ALIGN_RIGHT_MID, -104, 0);
+    ui_icon_wifi_set(s_wifi_icon, wifi_net_level());
+
+    /* 百分比数字用 font28 的小号？不行——font28 是纯 ASCII 没有"电"字，
+       而且行高 37 装不进 28px 的顶栏。这里去掉"电"字只留数字，靠旁边的
+       电池图标表意，视觉重量就降下来了。 */
     s_bat = lv_label_create(bar);
-    lv_obj_align(s_bat, LV_ALIGN_RIGHT_MID, -60, 0);
+    lv_obj_align(s_bat, LV_ALIGN_RIGHT_MID, -52, 0);
     ui_home_set_battery(battery_percent());
 
     int top = UI_TOPBAR_H;
@@ -212,6 +229,6 @@ lv_obj_t *ui_home_create(void)
 void ui_home_set_battery(uint8_t percent)
 {
     if (!s_scr || !s_bat) return;
-    if (percent < 15) lv_label_set_text_fmt(s_bat, "电 %u%% !", percent);
-    else lv_label_set_text_fmt(s_bat, "电 %u%%", percent);
+    ui_icon_battery_set(s_bat_icon, percent);
+    lv_label_set_text_fmt(s_bat, "%u%%", percent);
 }

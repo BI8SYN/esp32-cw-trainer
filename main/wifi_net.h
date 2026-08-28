@@ -47,6 +47,17 @@ bool             wifi_net_is_connected(void);
 wifi_net_state_t wifi_net_state(void);
 /* 已连接时返回 SSID，否则空串。 */
 const char      *wifi_net_ssid(void);
+/* 信号格数 0~3；未连接返回 -1。顶栏图标用。 */
+int              wifi_net_level(void);
+
+/*
+ * 指定接下来要连哪个槽位。传 -1 恢复默认行为（扫描后选信号最强的已存槽位）。
+ *
+ * 加这个是因为原来只能自动选最强的，而"最强"未必是你想用的——比如手机
+ * 热点信号弱但流量自由，家里的路由强却在跑别的事。设置页据此提供切换。
+ */
+void             wifi_net_prefer(int slot);
+int              wifi_net_preferred(void);
 
 /*
  * 配网页用：同步扫描一次，把 SSID 去重后写进 out。返回条数。

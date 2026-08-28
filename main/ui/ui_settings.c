@@ -7,6 +7,9 @@
 #include "cw_settings.h"
 #include "net_store.h"
 #include "stats_store.h"
+#include "wifi_net.h"
+#include "ui_ota.h"
+#include "ota.h"
 #include "cw_player.h"
 #include "tone_gen.h"
 #include "backlight.h"
@@ -16,7 +19,7 @@
 /* 版本号不再硬编码：info 为 NULL 的 IT_INFO 行显示固件真正嵌入的版本
  * （来自 CMakeLists 的 PROJECT_VER），显示值与固件值不可能对不上。 */
 
-typedef enum { IT_NUM, IT_CHOICE, IT_TOGGLE, IT_CALLSIGN, IT_RESET, IT_INFO } item_type_t;
+typedef enum { IT_NUM, IT_CHOICE, IT_TOGGLE, IT_CALLSIGN, IT_RESET, IT_INFO, IT_OTA } item_type_t;
 typedef struct {
     const char *name; item_type_t type;
     int min, max, step; const char *unit;
@@ -33,6 +36,30 @@ static const char *const KEYER_MODES[] = { "直键", "Iambic A", "Iambic B" };
  * 「界面里的中文字体」一节描述的那类只有对着真屏幕才看得出来的坑。 */
 static const char *const SCREEN_ROTS[] = { "正常", "上下翻转" };
 static const char *const PRACTICE_MODES[] = { "机器人 QSO", "回声" };
+/*
+ * 「连接网络」的选项在运行时按已保存的槽位生成：自动 + 每个非空槽位的
+ * SSID。IT_CHOICE 的 choices 是 const char* 数组，所以这里备一份可写的
+ * 缓冲，进设置页时填。
+ */
+#define NET_PICK_MAX (CW_WIFI_PROFILE_MAX + 1)
+static char        s_net_pick_buf[NET_PICK_MAX][34];
+static const char *s_net_pick[NET_PICK_MAX];
+static int         s_net_pick_n = 1;
+
+static void rebuild_net_picks(void)
+{
+    const cw_net_cfg_t *nc = net_store_get();
+    snprintf(s_net_pick_buf[0], sizeof s_net_pick_buf[0], "自动（最强）");
+    s_net_pick[0] = s_net_pick_buf[0];
+    int n = 1;
+    for (int i = 0; i < CW_WIFI_PROFILE_MAX; i++) {
+        if (!nc->profiles[i].used || !nc->profiles[i].ssid[0]) continue;
+        snprintf(s_net_pick_buf[n], sizeof s_net_pick_buf[n], "%s", nc->profiles[i].ssid);
+        s_net_pick[n] = s_net_pick_buf[n];
+        n++;
+    }
+    s_net_pick_n = n;
+}
 
 /* 下面三张表里的 name 字符串同时也是 get_val()/set_val() 的分派键（按
  * strcmp 匹配）。改这里的 name 必须同步改那两个函数里对应的字符串——两边
@@ -63,15 +90,17 @@ static const item_t GEN[] = {
  * 后者加字段会清空 Koch 进度，见 net_store.h。所以 get_val/set_val 里这几
  * 条要走 net_store_get() 并调 net_store_save()。
  */
-static const item_t NET[] = {
+static item_t NET[] = {
+    { "连接网络", IT_CHOICE, 0, 0, 0, "", NULL, 0, false, NULL },
     { "陪练模式", IT_CHOICE, 0, 0, 0, "", PRACTICE_MODES, 2, false, NULL },
     { "收报缓冲", IT_NUM, 200, 1000, 100, " ms", NULL, 0, false, NULL },
     { "wire 号",  IT_NUM, 1, 999, 1, "", NULL, 0, false, NULL },
     { "服务器",   IT_INFO, 0, 0, 0, "", NULL, 0, false, NULL },
+    { "固件升级", IT_OTA, 0, 0, 0, "", NULL, 0, false, NULL },
 };
 
 static const item_t *const GROUPS[4] = { AUDIO, KEY, GEN, NET };
-static const int GROUP_N[4] = { 4, 3, 7, 4 };
+static const int GROUP_N[4] = { 4, 3, 7, 6 };
 static const char *const GROUP_NAMES[4] = { "音频", "电键", "常规", "网络" };
 #define GROUP_COUNT 4
 
@@ -89,6 +118,18 @@ static int get_val(const item_t *it)
 {
     cw_settings_t *c = cw_settings_get();
     cw_net_cfg_t *nc = net_store_get();
+    if (!strcmp(it->name, "连接网络")) {
+        /* wifi_net 里 -1 表示自动，这里 0 是"自动"、1.. 对应槽位顺序 */
+        int p = wifi_net_preferred();
+        if (p < 0) return 0;
+        int n = 1;
+        for (int i = 0; i < CW_WIFI_PROFILE_MAX; i++) {
+            if (!nc->profiles[i].used || !nc->profiles[i].ssid[0]) continue;
+            if (i == p) return n;
+            n++;
+        }
+        return 0;
+    }
     if (!strcmp(it->name, "陪练模式")) return nc->echo_mode ? 1 : 0;
     if (!strcmp(it->name, "收报缓冲")) return nc->rx_delay_ms;
     if (!strcmp(it->name, "wire 号")) return nc->wire;
@@ -135,6 +176,17 @@ static void apply_rotation(uint8_t rotate_180)
 static void set_val(const item_t *it, int v)
 {
     cw_net_cfg_t *nc = net_store_get();
+    if (!strcmp(it->name, "连接网络")) {
+        if (v <= 0) { wifi_net_prefer(-1); return; }
+        int n = 1;
+        for (int i = 0; i < CW_WIFI_PROFILE_MAX; i++) {
+            if (!nc->profiles[i].used || !nc->profiles[i].ssid[0]) continue;
+            if (n == v) { wifi_net_prefer(i); return; }
+            n++;
+        }
+        wifi_net_prefer(-1);
+        return;
+    }
     if (!strcmp(it->name, "陪练模式")) { nc->echo_mode = (uint8_t)(v ? 1 : 0); net_store_save(); return; }
     if (!strcmp(it->name, "收报缓冲")) { nc->rx_delay_ms = (uint16_t)v; net_store_save(); return; }
     if (!strcmp(it->name, "wire 号")) { nc->wire = (int16_t)v; net_store_save(); return; }
@@ -162,6 +214,7 @@ static void fmt_val(const item_t *it, char *out, size_t n)
     case IT_CHOICE: snprintf(out, n, "%s", it->choices[get_val(it)]); break;
     case IT_TOGGLE: snprintf(out, n, "%s", get_val(it) ? "开" : "关"); break;
     case IT_CALLSIGN: snprintf(out, n, "%s", c->callsign); break;
+    case IT_OTA: snprintf(out, n, "%s", ota_running_label()); break;
     case IT_INFO:
         if (!strcmp(it->name, "服务器")) snprintf(out, n, "%s", net_store_get()->host);
         else snprintf(out, n, "%s", it->info ? it->info
@@ -311,6 +364,7 @@ static void item_cb(lv_event_t *e)
     case IT_TOGGLE: set_val(s_item, !get_val(s_item)); ui_nav_show(ui_settings_create); break;
     case IT_CALLSIGN: ui_nav_show(build_callsign); break;
     case IT_RESET: ui_nav_show(build_reset); break;
+    case IT_OTA: ui_nav_show(ui_ota_create); break;
     default: break;
     }
 }
@@ -340,6 +394,9 @@ static void back_home(lv_event_t *e) { (void)e; ui_nav_show(ui_home_create); }
 
 lv_obj_t *ui_settings_create(void)
 {
+    rebuild_net_picks();
+    NET[0].choices = s_net_pick;
+    NET[0].nchoices = s_net_pick_n;
     lv_obj_t *scr = ui_screen_create();
     ui_topbar(scr, "设置", back_home);
     int h = (240 - UI_TOPBAR_H) / GROUP_COUNT;

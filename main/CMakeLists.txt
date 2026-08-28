@@ -20,10 +20,12 @@ idf_component_register(
         "stats_store.c"
         "wifi_net.c"
         "kob_net.c"
+        "ota.c"
         "ui_async.c"
         "backlight.c"
         "battery.c"
         "ui/ui_common.c"
+        "ui/ui_icons.c"
         "ui/ui_home.c"
         "ui/ui_preview.c"
         "ui/ui_practice.c"
@@ -32,6 +34,7 @@ idf_component_register(
         "ui/ui_settings.c"
         "ui/ui_wifi.c"
         "ui/ui_net.c"
+        "ui/ui_ota.c"
         "ui/ui_stats.c"
         "ui/ui_fist.c"
     INCLUDE_DIRS "." "core" "ui"
@@ -41,6 +44,9 @@ idf_component_register(
         esp_netif
         esp_event
         lwip
+        app_update
+        esp_http_client
+        esp_https_ota
         driver
         esp_driver_i2s
         esp_timer

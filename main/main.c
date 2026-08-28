@@ -9,6 +9,7 @@
 #include "cw_settings.h"
 #include "net_store.h"
 #include "stats_store.h"
+#include "ota.h"
 #include "tone_gen.h"
 #include "cw_player.h"
 #include "key_input.h"
@@ -45,6 +46,10 @@ void app_main(void)
      * 回调也都会走这条路径。见 ui_async.h/ui_async.c 里的说明。 */
     ui_async_init();
     nvs_init();
+    /* 必须尽早调用：如果本次是升级后第一次启动，不标记为可用的话
+     * bootloader 会在下次复位时回滚到旧槽。放在 nvs 之后、UI 之前——
+     * 能走到这里就说明基本功能是好的。 */
+    ota_mark_valid();
     /* 不能用 ESP_ERROR_CHECK：NVS 分区与 fmo-companion 共享（见 docs/build-setup.md
      * 与本项目 README），对方写满时这里的读/写会失败。set_defaults() 已经在
      * cw_settings_init() 的每条失败分支里把整个结构体填成默认值，固件仍能正常

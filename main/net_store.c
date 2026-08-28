@@ -59,6 +59,7 @@ static void set_defaults(cw_net_cfg_t *c)
     c->port = CW_NET_DEFAULT_PORT;
     c->wire = CW_NET_DEFAULT_WIRE;
     c->rx_delay_ms = 500;
+    snprintf(c->ota_url, sizeof c->ota_url, "%s", CW_NET_DEFAULT_OTA);
     c->echo_mode = 0;
     /* office ID 跟随呼号。cw_settings_init() 必须先于本函数调用过。 */
     const cw_settings_t *s = cw_settings_get();

@@ -25,6 +25,9 @@ static bool             s_got_ip;
 static bool             s_disconnected;
 static TaskHandle_t     s_task;
 static esp_netif_t     *s_netif;
+static int              s_rssi;
+/* -1 = 自动选最强的；>=0 = 用户在设置里指定的槽位 */
+static int              s_prefer = -1;
 /*
  * 串行化所有 esp_wifi_* 操作序列。配网页会同时存在两个使用者：
  * wifi_net_start() 拉起的连接任务，和 ui_wifi 的扫描任务。两者都要
@@ -140,6 +143,8 @@ static int pick_profile(const wifi_ap_record_t *recs, uint16_t n)
 
     for (int i = 0; i < CW_WIFI_PROFILE_MAX; i++) {
         if (!cfg->profiles[i].used || !cfg->profiles[i].ssid[0]) continue;
+        /* 用户在设置里指定了槽位就只认它——"信号最强"未必是想用的那个。 */
+        if (s_prefer >= 0 && i != s_prefer) continue;
         for (uint16_t j = 0; j < n; j++) {
             char s[33];
             ssid_of(&recs[j], s);
@@ -150,6 +155,7 @@ static int pick_profile(const wifi_ap_record_t *recs, uint16_t n)
             }
         }
     }
+    s_rssi = best >= 0 ? best_rssi : 0;
     return best;
 }
 
@@ -263,6 +269,19 @@ void wifi_net_stop(void)
 }
 
 bool             wifi_net_is_connected(void) { return s_got_ip; }
+
+/* RSSI 分三格。-60 以上算满格，-75 以下算一格——这两条线是 2.4G 常用的
+   经验值，不必精确，够区分"能用/勉强/快断了"即可。 */
+int wifi_net_level(void)
+{
+    if (!s_got_ip) return -1;
+    if (s_rssi >= -60) return 3;
+    if (s_rssi >= -75) return 2;
+    return 1;
+}
+
+void wifi_net_prefer(int slot) { s_prefer = slot; }
+int  wifi_net_preferred(void) { return s_prefer; }
 wifi_net_state_t wifi_net_state(void)        { return s_state; }
 const char      *wifi_net_ssid(void)         { return s_ssid; }
 
