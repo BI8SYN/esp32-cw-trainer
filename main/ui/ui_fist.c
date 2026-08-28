@@ -5,19 +5,31 @@
 #include "ui_keyer.h"
 #include "key_input.h"
 #include "cw_settings.h"
+#include "keyer.h"
 
 /*
- * 时序分析图：把你刚才发报的每一个点划按实际毫秒长度画出来。
+ * 时序分析图：把你刚才发报的每一段按实际毫秒长度画出来。
  *
  * 为什么这一页有存在的必要：**自己听侧音是听不出手法问题的**。发报的时候
- * 大脑知道自己"想"打什么，会把点划长短不匀自动脑补掉。只有把时长画成图，
- * 或者隔几秒听回放（那是回声陪练干的事），问题才暴露得出来。
+ * 大脑知道自己"想"打什么，会把不匀自动脑补掉。只有把时长画成图，或者隔
+ * 几秒听回放（那是回声陪练干的事），问题才暴露得出来。
  *
- * 判据来自标准时序：点 = 1 单位，划 = 3 单位，符号间隔 = 1 单位。单位长度
- * 由字符速度决定（1200 / wpm 毫秒）。图上两条参考线就是 1 和 3 单位。
+ * **量什么取决于电键类型，这一点是本页的核心。**
+ *
+ *   直键   —— keyer.c 里那条 `k->key_out = k->dit_in` 分支是原样透传，
+ *              每一段的时长都是人控制的。量点和划：标准是 1 : 3。
+ *
+ *   自动键 —— keyer.c 用 `dit_ms` / `dit_ms * 3` 生成点划，符号间隔也是
+ *              定长。这些全是机器算的，画出来是一排一模一样的条，量它
+ *              没有任何意义。
+ *
+ *              但**字与字之间的间隔完全由人控制**——这恰恰是电键手最常
+ *              被批评的地方：点划再标准，字间距忽长忽短一样难抄。所以
+ *              自动键下量的是间隔：字间隔标准 3 单位，词间隔 7 单位。
  *
  * 数据从 key_input 的键控边沿回调来——那是发报时序的唯一权威来源，和联网
- * 对练打包发出去的是同一批数据。
+ * 对练打包发出去的是同一批数据。负数元素里约 1 单位的是机器插的符号间隔，
+ * 大于 2 单位的才是人停顿出来的。
  */
 
 #define ELEM_MAX 64
@@ -65,7 +77,9 @@ static void draw(void)
     int n = s_elem_n;
     if (n < 3) {
         lv_obj_t *l = lv_label_create(s_canvas);
-        lv_label_set_text(l, "用下面的电键打几个字\n这里会画出每一段的实际长度");
+        lv_label_set_text(l, cw_settings_get()->keyer_mode == KEYER_MODE_STRAIGHT
+                          ? "用下面的电键打几个字\n看点和划的长度是否匀"
+                          : "用下面的电键打几个字\n自动键点划由机器生成，这里看字间隔");
         lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_center(l);
         lv_label_set_text(s_summary, "");
@@ -73,13 +87,24 @@ static void draw(void)
     }
 
     const cw_settings_t *cfg = cw_settings_get();
-    int unit = 1200 / (cfg->char_wpm ? cfg->char_wpm : 20);
+    bool straight = cfg->keyer_mode == KEYER_MODE_STRAIGHT;
 
-    const int H = 78;                 /* 画布高度 */
-    const int scale_ms = unit * 4;    /* 纵轴满量程 = 4 个单位 */
+    /*
+     * 基准单位取实际打出来的最短一段，而不是设置里的 wpm——你实际的速度
+     * 未必等于设置值，拿设置值去判会把"整体偏快但很匀"误判成全错。
+     */
+    int32_t unit = 0;
+    for (int i = 0; i < n; i++) {
+        if (s_elem[i] > 2 && (unit == 0 || s_elem[i] < unit)) unit = s_elem[i];
+    }
+    if (unit <= 0) unit = 1200 / (cfg->char_wpm ? cfg->char_wpm : 20);
 
-    /* 两条参考线：1 单位（点）和 3 单位（划） */
-    const int refs[2] = { unit, unit * 3 };
+    const int H = 78;
+    /* 直键关心 1~3 单位的点划，自动键关心 3~7 单位的间隔，量程不同 */
+    const int scale_ms = straight ? unit * 4 : unit * 8;
+
+    /* 参考线：直键画 1 和 3 单位（点、划），自动键画 3 和 7 单位（字、词间隔） */
+    const int refs[2] = { straight ? unit : unit * 3, straight ? unit * 3 : unit * 7 };
     for (int r = 0; r < 2; r++) {
         int y = H - refs[r] * H / scale_ms;
         if (y < 0) y = 0;
@@ -91,7 +116,6 @@ static void draw(void)
         lv_obj_set_style_bg_opa(ln, LV_OPA_COVER, 0);
     }
 
-    /* 只画最近能画得下的那些 */
     int bw = 5;
     int max_bars = 320 / bw;
     int start = n > max_bars ? n - max_bars : 0;
@@ -108,7 +132,7 @@ static void draw(void)
         lv_obj_remove_style_all(b);
         lv_obj_set_pos(b, (i - start) * bw, H - bh);
         lv_obj_set_size(b, bw - 1, bh);
-        /* 键闭合（点划）画实心，断开（间隔）只画边框——一眼能分开 */
+        /* 键闭合画实心、断开画空心。自动键下要看的是空心那些。 */
         if (down) {
             lv_obj_set_style_bg_color(b, UI_BLACK, 0);
             lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
@@ -118,35 +142,60 @@ static void draw(void)
         }
     }
 
-    /*
-     * 统计只看键闭合的段：点和划各自的平均长度对不对。
-     * 用最短的那一段当"点"的基准来分类，而不是用设置里的 wpm——你实际打的
-     * 速度未必等于设置值，拿设置值去判会把"整体偏快但很匀"误判成全错。
-     */
-    int32_t dit_sum = 0, dah_sum = 0;
-    int dit_n = 0, dah_n = 0, min_mark = 0;
-    for (int i = 0; i < n; i++) {
-        if (s_elem[i] > 2 && (min_mark == 0 || s_elem[i] < min_mark)) min_mark = s_elem[i];
-    }
-    if (min_mark > 0) {
+    if (straight) {
+        /* 直键：点和划的平均长度与比值。用比值而不是绝对毫秒——比值不受
+           你打多快影响。 */
+        int32_t dit_sum = 0, dah_sum = 0;
+        int dit_n = 0, dah_n = 0;
         for (int i = 0; i < n; i++) {
             if (s_elem[i] <= 2) continue;
-            if (s_elem[i] >= min_mark * 2) { dah_sum += s_elem[i]; dah_n++; }
+            if (s_elem[i] >= unit * 2) { dah_sum += s_elem[i]; dah_n++; }
             else { dit_sum += s_elem[i]; dit_n++; }
         }
+        if (dit_n && dah_n) {
+            int dit_avg = (int)(dit_sum / dit_n);
+            int dah_avg = (int)(dah_sum / dah_n);
+            int ratio10 = dit_avg ? dah_avg * 10 / dit_avg : 0;
+            lv_label_set_text_fmt(s_summary, "点 %dms 划 %dms 比 %d.%d（标准 3.0）",
+                                  dit_avg, dah_avg, ratio10 / 10, ratio10 % 10);
+        } else if (dit_n) {
+            lv_label_set_text_fmt(s_summary, "点 %dms   还没打出划", (int)(dit_sum / dit_n));
+        } else {
+            lv_label_set_text(s_summary, "");
+        }
+        return;
     }
 
-    if (dit_n && dah_n) {
-        int dit_avg = (int)(dit_sum / dit_n);
-        int dah_avg = (int)(dah_sum / dah_n);
-        /* 划应该是点的 3 倍。用比值而不是绝对毫秒——比值不受你打多快影响。 */
-        int ratio10 = dit_avg ? dah_avg * 10 / dit_avg : 0;
-        lv_label_set_text_fmt(s_summary, "点 %dms  划 %dms  比 %d.%d（标准 3.0）",
-                              dit_avg, dah_avg, ratio10 / 10, ratio10 % 10);
-    } else if (dit_n) {
-        lv_label_set_text_fmt(s_summary, "点 %dms   还没打出划", (int)(dit_sum / dit_n));
+    /*
+     * 自动键：点划是机器生成的定长，量它没意义。量间隔。
+     *
+     * 负数元素里约 1 单位的是 keyer 自己插的符号间隔（机器的，跳过），
+     * 大于 2 单位的才是人松开按键停顿出来的——那才是字间隔和词间隔。
+     * 字间隔标准 3 单位，词间隔 7 单位；用 5 单位作为两者的分界。
+     */
+    int32_t gap_sum = 0, gmin = 0, gmax = 0;
+    int gap_n = 0;
+    for (int i = 0; i < n; i++) {
+        if (s_elem[i] >= 0) continue;
+        int32_t g = -s_elem[i];
+        if (g < unit * 2) continue;            /* 机器插的符号间隔 */
+        if (g >= unit * 5) continue;           /* 词间隔，另算 */
+        gap_sum += g;
+        gap_n++;
+        if (gmin == 0 || g < gmin) gmin = g;
+        if (g > gmax) gmax = g;
+    }
+
+    if (gap_n >= 2) {
+        /* 用「多少个单位」而不是毫秒：单位数直接对标准，毫秒还得心算。 */
+        int avg10 = (int)(gap_sum * 10 / gap_n / unit);
+        int min10 = (int)(gmin * 10 / unit);
+        int max10 = (int)(gmax * 10 / unit);
+        lv_label_set_text_fmt(s_summary, "字间隔 %d.%d 单位（标准 3.0） 最短 %d.%d 最长 %d.%d",
+                              avg10 / 10, avg10 % 10, min10 / 10, min10 % 10,
+                              max10 / 10, max10 % 10);
     } else {
-        lv_label_set_text(s_summary, "");
+        lv_label_set_text(s_summary, "自动键量的是字间隔，多打几个字");
     }
 }
 
