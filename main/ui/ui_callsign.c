@@ -42,7 +42,7 @@ static void key_cb(lv_event_t *e)
         s_buf[l] = k[0]; s_buf[l + 1] = 0;
         lv_label_set_text(s_hint, "");
     }
-    lv_label_set_text(s_label, s_buf[0] ? s_buf : "—");
+    lv_label_set_text(s_label, s_buf[0] ? s_buf : "-");
 }
 
 lv_obj_t *ui_callsign_create(void)
@@ -54,7 +54,7 @@ lv_obj_t *ui_callsign_create(void)
 
     s_label = lv_label_create(s);
     lv_obj_set_style_text_font(s_label, UI_FONT_MID, 0);
-    lv_label_set_text(s_label, s_buf[0] ? s_buf : "—");
+    lv_label_set_text(s_label, s_buf[0] ? s_buf : "-");
     lv_obj_align(s_label, LV_ALIGN_TOP_MID, 0, UI_TOPBAR_H + 2);
 
     /* 这一行平时是空的，只在「确定」被按下而长度不够时才出声。 */

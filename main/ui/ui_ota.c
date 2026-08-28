@@ -94,11 +94,8 @@ static void on_delete(lv_event_t *e)
 {
     (void)e;
     if (s_timer) { lv_timer_del(s_timer); s_timer = NULL; }
-    /* 下载进行中不关射频，否则会把自己的连接掐断。用户返回只是不看了，
-       任务还在后台跑完；下次进来还能看到结果。 */
-    if (ota_status()->state != OTA_DOWNLOADING && ota_status()->state != OTA_CONNECTING
-        && !ota_check_busy())
-        wifi_net_stop();
+    /* 射频常连，离开本页不用关。原来这里要小心「下载进行中别把自己掐断」，
+       现在根本不存在这个问题。后台任务照常跑完，下次进来还能看到结果。 */
     s_scr = NULL; s_msg = s_bar = s_btn = s_url = s_latest = NULL;
 }
 

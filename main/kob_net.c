@@ -444,10 +444,9 @@ esp_err_t kob_net_rewire(void)
 
 void kob_net_stop(void)
 {
+    /* 只停 socket 任务。射频是常连的，离开对练页不关——进来时也就不用再等
+       一遍握手。换 wire 走 kob_net_rewire()，根本不到这里。 */
     stop_task();
-    /* 离开对练功能才关射频——那几十 KB 的驱动要还回堆里。换 wire 走
-       kob_net_rewire()，不到这里。 */
-    wifi_net_stop();
 }
 
 const kob_net_status_t *kob_net_status(void) { return &s_st; }

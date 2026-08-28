@@ -84,7 +84,7 @@ static void migrate_v1(const cw_net_cfg_v1_t *old, cw_net_cfg_t *dst)
     /* 旧的 office 不搬：那 16 字节现在是 callsign_ok 标记，搬过来反而会让
        老设备错误地跳过呼号准入。留成 set_defaults() 给的全零。 */
     dst->rx_delay_ms = old->rx_delay_ms;
-    dst->echo_mode_deprecated = 0;
+    dst->unused_byte = 0;
     /* noise_notice_shown 不搬：那条底噪提示已经去掉，字段作废。 */
     /* ota_url / boot_check 保持 set_defaults() 给的默认值 */
 }
@@ -117,7 +117,7 @@ static void set_defaults(cw_net_cfg_t *c)
     c->wire = CW_NET_DEFAULT_WIRE;
     c->rx_delay_ms = 500;
     snprintf(c->ota_url, sizeof c->ota_url, "%s", CW_NET_DEFAULT_OTA);
-    c->echo_mode_deprecated = 0;
+    c->unused_byte = 0;
     c->boot_check = 1;
     /* 这里曾经把呼号拷进 c->office 当站点 ID。不能拷：set_defaults() 只在首次
        初始化时跑，那一刻呼号还是出厂默认，之后用户改呼号这份副本不会变。
@@ -165,7 +165,7 @@ static void clear_factory_callsign(void)
     cw_settings_t *st = cw_settings_get();
     if (!st || strcmp(st->callsign, FACTORY_CALLSIGN) != 0) return;
 
-    ESP_LOGI(TAG, "清掉遗留的出厂呼号 %s，联网对练会要求重新定一个", FACTORY_CALLSIGN);
+    ESP_LOGI(TAG, "clearing legacy factory callsign %s", FACTORY_CALLSIGN);
     st->callsign[0] = '\0';
     cw_settings_save();
 }

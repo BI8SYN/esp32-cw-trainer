@@ -1,6 +1,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
 #include "lvgl.h"
@@ -11,6 +12,7 @@
 #include "stats_store.h"
 #include "ota.h"
 #include "wifi_net.h"
+#include "time_sync.h"
 #include "tone_gen.h"
 #include "cw_player.h"
 #include "key_input.h"
@@ -22,6 +24,22 @@
 #include "morse_timing.h"
 
 static const char *TAG = "main";
+
+/*
+ * 开机提示音的速度，以及播完之后要还回去的用户速度。
+ *
+ * 提示音是用 20 WPM 播的，播完必须把播放器的节奏还原成用户设的速度，否则
+ * 之后所有的听写、收报回放都会按 20 WPM 走——那是用户完全没要求过的改变。
+ */
+#define BOOT_CHIME_WPM 20
+static morse_timing_t s_user_timing;
+
+static void boot_chime_done(cw_player_event_t ev, char c, void *user)
+{
+    (void)c; (void)user;
+    if (ev == CW_PLAYER_EV_CHAR_START) return;   /* 只关心播完/被打断 */
+    cw_player_set_timing(&s_user_timing);
+}
 
 static void lv_tick_task(void *arg) { (void)arg; lv_tick_inc(1); }
 
@@ -116,12 +134,47 @@ void app_main(void)
     ESP_ERROR_CHECK(battery_start(battery_cb));
 
     /*
-     * 开机检查一次更新（可在设置里关掉）。
+     * 开机提示音：一个 V（...-）。
      *
-     * 这**不是**"WiFi 常连"——只开一小会儿射频、拉一份几百字节的清单就
-     * 关掉，代价远小于一直连着。但射频毕竟开了几秒，如果你在开机头几秒
-     * 就开始 Koch 听写、并且听得出侧音底噪，把「开机检查更新」关掉即可。
+     * 选 V 是因为它在 CW 里就是**试机信号**——历史上调谐、试设备发的就是
+     * VVV，含义正是「设备开着、工作正常」，和开机提示音要表达的东西完全
+     * 一致。这台机器是训练器，它发出的每个声音都是教材，不能拿一个语义不对
+     * 的信号天天教人：CQ 是「呼叫任意电台寻求通联」，开机时并没有在呼叫谁；
+     * 73 是告别、AR/SK 是结束，放在开机更是反的。
+     *
+     * 速度固定 20 WPM，不跟用户的 char_wpm 走：把速度设成 5 WPM 的人开机要
+     * 干等好几秒，而这一下本来就该是「一响」而不是「一段」。
+     *
+     * 音量走现有的音量设置（tone_gen_set_volume 上面已经设过）——设成静音的
+     * 人就该是静音，不需要再多一个开关。
      */
+    s_user_timing = tm;
+    morse_timing_t chime;
+    morse_timing_compute(BOOT_CHIME_WPM, BOOT_CHIME_WPM, &chime);
+    cw_player_set_timing(&chime);
+    cw_player_play("V", boot_chime_done, NULL);
+
+    /*
+     * 开机就把 WiFi 连上并一直保持。
+     *
+     * 原来是按需开关的，为的是不让射频的电流尖峰窜进内置 DAC 的侧音——但那条
+     * 2026-08-28 实测否掉了：联网对练全程听不出可闻底噪，而那正是发射最密集的
+     * 场景。代价换回来的是进对练页不用再干等几秒握手。
+     *
+     * 没存过任何 WiFi 就别开射频：连不上任何东西，纯耗电。
+     */
+    if (net_store_has_wifi()) {
+        ESP_LOGI(TAG, "free heap before wifi: %lu", (unsigned long)esp_get_free_heap_size());
+        wifi_net_init();
+        wifi_net_start(NULL, NULL);
+        /* 主页左上角那个时钟在这之前永远是 --:--，因为系统时间从没被设过。
+           放在 wifi_net_start() 之后但不等它连上：SNTP 客户端每次请求才解析
+           主机名，网络没通就是失败重试，通了自己会对上。 */
+        time_sync_start();
+    }
+
+    /* 开机检查一次更新（可在设置里关掉）。已经连着的话 wifi_net_start() 是
+       空操作。 */
     if (net_store_get()->boot_check) {
         wifi_net_init();
         wifi_net_start(NULL, NULL);

@@ -73,10 +73,16 @@ typedef struct {
      * 一次改这个 blob 都是一次冲掉用户 WiFi 密码的机会（v1->v2 那次就冲了）。
      * 留着不用，代价是一个字节。
      */
-    uint8_t           echo_mode_deprecated;
+    /*
+     * 已废弃，不再读写。曾经是「陪练模式」，后来短暂做过「保持联网」开关。
+     * 射频现在无条件常连，没有开关了。字节保留不删，理由同其他废弃字段：
+     * 改结构体长度就要提版本号写迁移，而每改一次这个 blob 都是一次冲掉用户
+     * WiFi 密码的机会（v1->v2 那次就冲了）。
+     */
+    uint8_t           unused_byte;
     /* 已废弃，不再读写。它曾经记「侧音底噪的提示是否展示过」，那条提示占着
        收报记录的第一行，而绝大多数人第一次进来看到的就是它——想练的东西被
-       一句注意事项挡在前面。字节保留不删，理由同下面的 echo_mode_deprecated。 */
+       一句注意事项挡在前面。字节保留不删，理由同上面那几个废弃字段。 */
     uint8_t           noise_notice_deprecated;
     char              ota_url[96];          /* 版本清单（JSON）地址 */
     uint8_t           boot_check;          /* 开机联网检查一次更新 */
@@ -122,6 +128,7 @@ const char *cw_net_office(void);
  * 开机清掉一次，所以这里不需要再对它做特判。
  */
 bool cw_net_callsign_ok(void);
+
 /*
  * 用户在呼号编辑框里按下确定时调用，写下 callsign_ok 标记并落盘。
  *

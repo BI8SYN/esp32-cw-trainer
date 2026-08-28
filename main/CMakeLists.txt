@@ -19,6 +19,7 @@ idf_component_register(
         "net_store.c"
         "stats_store.c"
         "wifi_net.c"
+        "time_sync.c"
         "kob_net.c"
         "ota.c"
         "ui_async.c"

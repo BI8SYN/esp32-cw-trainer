@@ -171,7 +171,7 @@ static void apply_status(void)
      */
     for (int i = 0; i < st->peer_n; i++) {
         if (strcmp(st->peers[i], cw_net_office()) == 0) {
-            snprintf(peers, sizeof peers, "%d 人·重名", st->peer_n);
+            snprintf(peers, sizeof peers, "%d 人 呼号重复", st->peer_n);
             break;
         }
     }
