@@ -222,13 +222,22 @@ lv_obj_t *ui_home_create(void)
     lv_label_set_text_fmt(l1, "KOCH 第 %u 课", cfg->koch_lesson);
     lv_obj_align(l1, LV_ALIGN_TOP_LEFT, 0, 0);
 
-    char cs[48]; koch_charset(cfg->koch_lesson, cs);
+    /*
+     * 字符表限高两行，装不下打省略号。
+     *
+     * 原来是 LONG_WRAP 只给宽不给高：课次靠后时字符集有四十个字符，184 宽要排
+     * 三行、画到 y=118，把固定在 96 的「上次 xx%」压在底下。
+     *
+     * 文案先报数量再列字符：列不全的时候，「解锁了多少个」比「解锁了哪几个」
+     * 更有用——具体哪些字，进练习页的键盘上一目了然。
+     */
+    char cs[48]; int csn = koch_charset(cfg->koch_lesson, cs);
     lv_obj_t *l2 = lv_label_create(card);
     lv_obj_set_style_text_color(l2, UI_BLACK, 0);
-    lv_obj_set_width(l2, 184);
-    lv_label_set_long_mode(l2, LV_LABEL_LONG_WRAP);
+    lv_obj_set_size(l2, 184, 52);
+    lv_label_set_long_mode(l2, LV_LABEL_LONG_DOT);
     if (cfg->koch_lesson == 1 && cfg->koch_last_pct[1] == 0xFF) lv_label_set_text_fmt(l2, "%s", cs);
-    else lv_label_set_text_fmt(l2, "已解锁 %s", cs);
+    else lv_label_set_text_fmt(l2, "已解锁 %d 字  %s", csn, cs);
     lv_obj_align(l2, LV_ALIGN_TOP_LEFT, 0, 40);
 
     lv_obj_t *l3 = lv_label_create(card);

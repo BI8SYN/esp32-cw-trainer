@@ -98,12 +98,26 @@ static void play(void)
 {
     s_phase = PH_PLAYING;
     set_hint("正在播放中");
-    set_keys_enabled(false);
+    /*
+     * 播放期间**不禁用**输入。老手听两三个字符就知道是什么了，没道理按着不让
+     * 答完。作答时 submit() 会把播放掐掉（cw_player_stop_if），不会出现「答案
+     * 都判完了声音还在响」。
+     *
+     * 「重播」也不再禁：想从头听一遍是随时该能做的事。
+     */
+    set_keys_enabled(true);
     /* &s_tr 作为本页在 cw_player 里的会话归属令牌——见 on_delete 的注释 */
     cw_player_play(s_tr.play_text, player_cb, &s_tr);
 }
 
-static void replay_cb(lv_event_t *e) { (void)e; if (s_phase == PH_INPUT) play(); }
+static void replay_cb(lv_event_t *e)
+{
+    (void)e;
+    if (s_phase == PH_FEEDBACK) return;
+    /* 正在放就先掐掉，否则两遍会叠在一起响。 */
+    cw_player_stop_if(&s_tr);
+    play();
+}
 
 /* ---- 判分 ---- */
 static void after_feedback(lv_timer_t *t)
@@ -117,7 +131,10 @@ static void after_feedback(lv_timer_t *t)
 
 static void submit(const char *answer)
 {
-    if (s_phase != PH_INPUT) return;
+    if (s_phase != PH_INPUT && s_phase != PH_PLAYING) return;
+    /* 答完就别再响了。播放是异步的（esp_timer 驱动），不掐的话反馈都显示完了
+       声音还在放。 */
+    cw_player_stop_if(&s_tr);
     bool ok = trainer_submit(&s_tr, answer);
     s_phase = PH_FEEDBACK;
     set_keys_enabled(false);
@@ -150,7 +167,8 @@ static void submit(const char *answer)
 /* ---- Koch 键盘 ---- */
 static void key_cb(lv_event_t *e)
 {
-    if (s_phase != PH_INPUT) return;
+    /* 播放期间也收键：判分阶段才拦。 */
+    if (s_phase != PH_INPUT && s_phase != PH_PLAYING) return;
     const char *k = lv_label_get_text(lv_obj_get_child(lv_event_get_target(e), 0));
     if (strcmp(k, "退格") == 0) { size_t l = strlen(s_buf); if (l) s_buf[l - 1] = 0; }
     else if (strcmp(k, "确定") == 0) { if (strlen(s_buf) == KOCH_GROUP_LEN) submit(s_buf); return; }
@@ -158,23 +176,134 @@ static void key_cb(lv_event_t *e)
     render_input();
 }
 
+/*
+ * 键盘分页。
+ *
+ * 课次靠后时字符集有四十个，加上退格/确定就是四十二个键。可用区是 320x176
+ * （顶栏 28 + 提示行 36 之下的全部），按项目一贯守的 44px 触控下限，最多排
+ * 8 列 x 4 行 = 32 格——四十二个键根本装不下。原来的做法是继续加列加行，
+ * 结果单键被压到 40x29，既点不准又把整块屏幕吃光，上面只剩 36px。
+ * 这不是调参能解决的，只能分页。
+ *
+ * 按**字符类别**切，不按数量硬切：字母一页、数字和符号一页。手不用每次去
+ * 找某个字在第几页，而按数量切的话同一个字会随着课次推进换页。
+ *
+ * 第 40 课字母 26 个 + 三个控制键 = 29，正好在 32 格之内，所以最多两页。
+ */
+#define KBD_COLS_MAX  8     /* 320 / 8 = 40，再多列就窄到点不准了 */
+#define KBD_ROWS_MAX  4     /* 176 / 44：再多一行单键就低于触控下限了 */
+#define KBD_KEY_W_MIN 40
+#define KBD_KEY_H_MAX 64    /* 行数少时不让单键被拉成横条 */
+
+static char s_pg[2][48];    /* 每页的字符 */
+static int  s_pg_n[2];
+static int  s_pages, s_page;
+
+static void build_keys(void);
+
+static void page_cb(lv_event_t *e)
+{
+    (void)e;
+    if (s_phase == PH_FEEDBACK) return;
+    s_page = (s_page + 1) % s_pages;
+    build_keys();
+}
+
+/* 按 s_page 铺当前这一页。切换时整块重建——一次点击的事，不值得为它维护
+   两套键的显示/隐藏和各自的坐标。 */
+static void build_keys(void)
+{
+    if (!s_scr) return;
+    for (int i = 0; i < s_nkeys; i++) if (s_keys[i]) lv_obj_del(s_keys[i]);
+    s_nkeys = 0;
+
+    const char *cs = s_pg[s_page];
+    int n = s_pg_n[s_page];
+    int ctrl = 2 + (s_pages > 1 ? 1 : 0);          /* 退格 确定 [页码] */
+    int total = n + ctrl;
+
+    int ky = UI_TOPBAR_H + 36, kh = 240 - ky;
+
+    /*
+     * 列数按键数选，不写死。
+     *
+     * 写死 8 列的话，键少时会排成一行 40x176 的细高条，右边空一截、下面整片
+     * 空白——第 4 课只有 5 个字符（加退格确定共 7 个键），就是这个样子。
+     *
+     * 挑法是「让单键最接近正方形」：从「行数不超过 4 所需的最少列数」试到
+     * 上限，取宽高差最小的那个。行数上限保证键高不低于 44px 的触控下限，
+     * 列数上限保证键宽不低于 40。
+     */
+    int lo = (total + KBD_ROWS_MAX - 1) / KBD_ROWS_MAX;
+    if (lo < 1) lo = 1;
+    if (lo > KBD_COLS_MAX) lo = KBD_COLS_MAX;
+
+    int cols = KBD_COLS_MAX, bestd = 1 << 30;
+    for (int c = lo; c <= KBD_COLS_MAX; c++) {
+        int r = (total + c - 1) / c;
+        int w = 320 / c;
+        int h = kh / r;
+        if (w < KBD_KEY_W_MIN) continue;
+        if (h > KBD_KEY_H_MAX) h = KBD_KEY_H_MAX;
+        int d = w > h ? w - h : h - w;
+        if (d < bestd) { bestd = d; cols = c; }
+    }
+
+    int rows = (total + cols - 1) / cols;
+    if (rows > KBD_ROWS_MAX) rows = KBD_ROWS_MAX;
+    int cw = 320 / cols, ch = kh / rows;
+    /* 封顶之后整块在剩余高度里居中，而不是贴顶把空白全留在下面。 */
+    if (ch > KBD_KEY_H_MAX) { ch = KBD_KEY_H_MAX; ky += (kh - rows * ch) / 2; }
+
+    for (int i = 0; i < total && s_nkeys < (int)(sizeof s_keys / sizeof s_keys[0]); i++) {
+        /* 24 而不是 8：页码是 "%d/%d"，GCC 按 int 最长 11 位算最坏情况，
+           给 8 会被 -Werror=format-truncation 拦下。 */
+        char t[24];
+        const lv_font_t *f = UI_FONT_CN;
+        lv_event_cb_t cb = key_cb;
+        if (i < n)            { t[0] = cs[i]; t[1] = 0; f = UI_FONT_MID; }
+        else if (i == n)      { strcpy(t, "退格"); }
+        else if (i == n + 1)  { strcpy(t, "确定"); }
+        else { snprintf(t, sizeof t, "%d/%d", s_page + 1, s_pages); cb = page_cb; }
+
+        lv_obj_t *k = ui_cell(s_scr, t, f, cb, NULL);
+        lv_obj_set_pos(k, (i % cols) * cw, ky + (i / cols) * ch);
+        lv_obj_set_size(k, cw, ch);
+        s_keys[s_nkeys++] = k;
+    }
+}
+
 static void build_koch(lv_obj_t *s)
 {
     char cs[48]; int n = koch_charset(s_tr.lesson, cs);
-    int total = n + 2;
-    bool split = total <= SMALL_KBD_MAX;
-    /* 列数按键数选，不再固定 4 列——否则键少时列宽被拆得很细。 */
-    int cols = split ? (total <= 4 ? 2 : 3) : (total <= 12 ? 4 : (total <= 24 ? 6 : 8));
-    int rows = (total + cols - 1) / cols;
-    int kx = split ? 170 : 0, ky = split ? UI_TOPBAR_H : UI_TOPBAR_H + 36;
-    int kw = split ? 150 : 320, kh = 240 - ky;
-    int cw = kw / cols, ch = kh / rows;
-    /* 分栏模式下行数少时（如 1~2 行）单键会被拉伸成竖条；封顶后把整块键盘
-       在剩余高度里居中，而不是贴顶留一大块空白在下方。 */
-    if (split && ch > SPLIT_KEY_H_MAX) {
-        ch = SPLIT_KEY_H_MAX;
-        ky += (kh - rows * ch) / 2;
+
+    /*
+     * 一页装得下就不分页。容量 = 8 列 x 4 行减去退格/确定 = 30 个字符，也就是
+     * 第 29 课以前都是一页，和以前一样；第 30 课起字符集到 31 个才开始翻页。
+     *
+     * 这条判断不能省：只按「有没有非字母」分页的话，第 13 课刚学到 "." 就会
+     * 为这一个字符单开一页，而那时十几个键一页绰绰有余——凭空多一次翻页。
+     */
+    s_pg_n[0] = s_pg_n[1] = 0;
+    if (n + 2 <= KBD_COLS_MAX * KBD_ROWS_MAX) {
+        memcpy(s_pg[0], cs, (size_t)n);
+        s_pg_n[0] = n;
+    } else {
+        /* 装不下才分：字母一页，数字和符号一页。按类别切而不是按数量硬切，
+           手不用每次去找某个字在第几页。 */
+        for (int i = 0; i < n; i++) {
+            int g = (cs[i] >= 'A' && cs[i] <= 'Z') ? 0 : 1;
+            if (s_pg_n[g] < (int)sizeof s_pg[0] - 1) s_pg[g][s_pg_n[g]++] = cs[i];
+        }
     }
+    s_pg[0][s_pg_n[0]] = '\0';
+    s_pg[1][s_pg_n[1]] = '\0';
+    s_pages = s_pg_n[1] > 0 ? 2 : 1;
+    s_page = 0;
+
+    /* 键少的时候仍然走左右分栏：全宽键盘会把几个键拉成一片空旷的大方块。 */
+    int total = n + 2;
+    bool split = (s_pages == 1 && total <= SMALL_KBD_MAX);
 
     if (split) {
         s_hint = lv_label_create(s); lv_obj_set_pos(s_hint, 8, UI_TOPBAR_H + 8); lv_obj_set_width(s_hint, 156);
@@ -195,12 +324,22 @@ static void build_koch(lv_obj_t *s)
     lv_obj_add_flag(s_fb, LV_OBJ_FLAG_HIDDEN);
 
     s_nkeys = 0;
+    if (!split) { build_keys(); return; }
+
+    /* 分栏模式：键盘挤在右边 150px 里，行数少时把整块在剩余高度里居中，
+       不然单键会被拉成竖条、下方留一大片空白。 */
+    int cols = total <= 4 ? 2 : 3;
+    int rows = (total + cols - 1) / cols;
+    int ky = UI_TOPBAR_H, kh = 240 - ky;
+    int cw = 150 / cols, ch = kh / rows;
+    if (ch > SPLIT_KEY_H_MAX) { ch = SPLIT_KEY_H_MAX; ky += (kh - rows * ch) / 2; }
+
     for (int i = 0; i < total; i++) {
         char t[8];
         if (i < n) { t[0] = cs[i]; t[1] = 0; }
         else strcpy(t, (i == n) ? "退格" : "确定");
         lv_obj_t *k = ui_cell(s, t, (i < n) ? UI_FONT_MID : UI_FONT_CN, key_cb, NULL);
-        lv_obj_set_pos(k, kx + (i % cols) * cw, ky + (i / cols) * ch);
+        lv_obj_set_pos(k, 170 + (i % cols) * cw, ky + (i / cols) * ch);
         lv_obj_set_size(k, cw, ch);
         s_keys[s_nkeys++] = k;
     }
@@ -209,7 +348,7 @@ static void build_koch(lv_obj_t *s)
 /* ---- 呼号 / QSO ---- */
 static void opt_cb(lv_event_t *e)
 {
-    if (s_phase != PH_INPUT) return;
+    if (s_phase != PH_INPUT && s_phase != PH_PLAYING) return;
     int i = (int)(intptr_t)lv_event_get_user_data(e);
     if (s_tr.mode == TRAINER_MODE_CALLSIGN) { submit(s_tr.options[i]); return; }
     s_sel_call = i;
@@ -217,7 +356,7 @@ static void opt_cb(lv_event_t *e)
 }
 static void rst_cb(lv_event_t *e)
 {
-    if (s_phase != PH_INPUT) return;
+    if (s_phase != PH_INPUT && s_phase != PH_PLAYING) return;
     int i = (int)(intptr_t)lv_event_get_user_data(e);
     s_sel_rst = i;
     for (int k = 0; k < 4; k++) lv_obj_set_style_bg_color(s_rst_opts[k], k == i ? UI_GRAY_DOWN : UI_WHITE, 0);

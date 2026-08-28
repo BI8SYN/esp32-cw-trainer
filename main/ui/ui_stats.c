@@ -18,6 +18,15 @@
  */
 
 #define TAB_H     (240 - UI_TOPBAR_H)
+/*
+ * 画布的实际可用宽度。
+ *
+ * 画布放在 x=56、宽 320-56=264，左边还画了一条 1px 的分隔线，所以子对象能用的
+ * 只有 263。两张图原来都是拿 320 去算坐标的——那是整屏的宽度，不是这个容器的
+ * ——于是参考线、柱子、百分比标签统统画到屏幕外面去了。
+ */
+#define TAB_X     56
+#define CANVAS_W  (320 - TAB_X - 1)
 #define WORST_MAX 8
 
 static lv_obj_t *s_scr, *s_canvas, *s_tabs[2];
@@ -56,10 +65,13 @@ static void draw_heat(lv_obj_t *p)
         lv_label_set_text_fmt(c, "%c", ch[i]);
         lv_obj_set_pos(c, 6, y);
 
-        /* 条形：最长 180px 对应 100% */
+        /* 条形从 x=30 起，右边给百分比留 48px，剩下的才是 100% 对应的长度。
+           原来写死 180，加上 x=30 是按整屏 320 估的，在 263 宽的画布里会顶到
+           百分比标签上。 */
         lv_obj_t *bar = lv_obj_create(p);
         lv_obj_remove_style_all(bar);
-        int w = 4 + pct[i] * 180 / 100;
+        const int bar_max = CANVAS_W - 30 - 52;
+        int w = 4 + pct[i] * bar_max / 100;
         lv_obj_set_pos(bar, 30, y + 4);
         lv_obj_set_size(bar, w, 16);
         lv_obj_set_style_bg_color(bar, UI_GRAY_DOWN, 0);
@@ -69,7 +81,7 @@ static void draw_heat(lv_obj_t *p)
 
         lv_obj_t *v = lv_label_create(p);
         lv_label_set_text_fmt(v, "%u%%", pct[i]);
-        lv_obj_set_pos(v, 220, y);
+        lv_obj_set_pos(v, CANVAS_W - 48, y);
     }
 }
 
@@ -78,8 +90,11 @@ static void draw_heat(lv_obj_t *p)
 static void draw_curve(lv_obj_t *p)
 {
     const cw_stats_t *st = stats_store_get();
+    /* lesson[] 现在没人读——说明行不再显示课次，见下面 tip 的注释。
+       但 cw_stats_history() 的签名要求这个出参，不能传 NULL。 */
     uint8_t pct[CW_STATS_HIST], lesson[CW_STATS_HIST];
     int n = cw_stats_history(st, pct, lesson, CW_STATS_HIST);
+    (void)lesson;
 
     if (n < 2) {
         lv_obj_t *l = lv_label_create(p);
@@ -88,8 +103,14 @@ static void draw_curve(lv_obj_t *p)
         return;
     }
 
-    /* 画布区域：左边留 30px 给刻度，底部留 20px 给说明 */
-    const int x0 = 32, y0 = 8, w = 320 - x0 - 8, h = TAB_H - y0 - 24;
+    /*
+     * 绘图区：左边 32px 给刻度，右边留 8px，底部留 32px 给说明那一行。
+     *
+     * 宽度按 CANVAS_W 算而不是 320——320 是整屏，这里是 263 宽的画布，按整屏算
+     * 会让参考线和最右几根柱子跑到屏幕外面。底部留 32 而不是 24：说明文字本身
+     * 26px 高，留 24 的话它的下缘会超出画布 6px。
+     */
+    const int x0 = 32, y0 = 8, w = CANVAS_W - x0 - 8, h = TAB_H - y0 - 32;
 
     /* 90% 达标线——Koch 解锁下一课的门槛，是这张图唯一有意义的参考线 */
     lv_obj_t *ref = lv_obj_create(p);
@@ -124,9 +145,15 @@ static void draw_curve(lv_obj_t *p)
         lv_obj_set_style_border_color(b, UI_BLACK, 0);
     }
 
+    /* 说明只留「多少次」和「最新多少」：原来还带着「（第 N 课）」，整句在
+       font20 下要三百多像素，而这里只有 w 这么宽，尾巴会甩出屏幕。课次在首页
+       和结算页都写着，不必在这里重复。宽度设死并用 DOT 兜底。 */
     lv_obj_t *tip = lv_label_create(p);
-    lv_label_set_text_fmt(tip, "最近 %d 次   最新 %u%%（第 %u 课）",
-                          n, pct[n - 1], lesson[n - 1]);
+    /* 分隔用中文逗号，不用「·」——那个字符不在裁剪字库里，上屏会是空白且
+       不报编译错，check_charset.py 才拦得住。 */
+    lv_label_set_text_fmt(tip, "最近 %d 次，最新 %u%%", n, pct[n - 1]);
+    lv_obj_set_size(tip, w, 26);
+    lv_label_set_long_mode(tip, LV_LABEL_LONG_DOT);
     lv_obj_set_pos(tip, x0, y0 + h + 4);
 }
 
