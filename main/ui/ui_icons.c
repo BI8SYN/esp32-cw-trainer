@@ -87,26 +87,3 @@ void ui_icon_battery_set(lv_obj_t *icon, uint8_t percent)
        而且旁边就有百分比数字，够用了。 */
     lv_obj_set_style_bg_color(bar, percent < 15 ? UI_GRAY_DOWN : UI_BLACK, 0);
 }
-
-/* ---------------------------------------------------------------- 设置 */
-
-/* 齿轮：中心一个方块 + 上下左右四个小块。16px 见方里画不出真齿轮，
-   这个轮廓已经足够被认出来，而且和扁平灰阶的整体风格一致。 */
-lv_obj_t *ui_icon_gear(lv_obj_t *parent)
-{
-    lv_obj_t *c = box(parent, ICON_H, ICON_H);
-
-    lv_obj_t *mid = box(c, 8, 8);
-    lv_obj_set_pos(mid, 4, 4);
-    lv_obj_set_style_bg_opa(mid, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(mid, 2, 0);
-    lv_obj_set_style_border_color(mid, UI_BLACK, 0);
-
-    const int pos[4][2] = { { 6, 0 }, { 6, 12 }, { 0, 6 }, { 12, 6 } };
-    for (int i = 0; i < 4; i++) {
-        lv_obj_t *t = box(c, 4, 4);
-        lv_obj_set_pos(t, pos[i][0], pos[i][1]);
-        fill(t, true);
-    }
-    return c;
-}

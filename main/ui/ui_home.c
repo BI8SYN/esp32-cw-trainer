@@ -8,6 +8,7 @@
 #include "ui_net.h"
 #include "ui_stats.h"
 #include "ui_icons.h"
+#include "ui_more.h"
 #include "wifi_net.h"
 #include "ui_settings.h"
 #include "cw_settings.h"
@@ -107,9 +108,9 @@ static void on_delete(lv_event_t *e)
 }
 
 static void go_koch(lv_event_t *e)     { (void)e; if (wake_swallow()) return; ui_preview_open(cw_settings_get()->koch_lesson, false); }
-static void go_call(lv_event_t *e)     { (void)e; if (wake_swallow()) return; ui_practice_open(TRAINER_MODE_CALLSIGN); }
-static void go_qso(lv_event_t *e)      { (void)e; if (wake_swallow()) return; ui_practice_open(TRAINER_MODE_QSO); }
-static void go_keyer(lv_event_t *e)    { (void)e; if (wake_swallow()) return; ui_nav_show(ui_keyer_create); }
+/* 呼号抄收 / 模拟 QSO / 电键 都收进了「更多练习」子页面，见 ui_more.c：
+   它们是次要场景，五项挤在右列时每项只有 42px，低于 44px 触控下限。 */
+static void go_more(lv_event_t *e)     { (void)e; if (wake_swallow()) return; ui_nav_show(ui_more_create); }
 /* ui_net_create() 自己会在没配过网时改跳配网页，这里不用判断。 */
 static void go_net(lv_event_t *e)      { (void)e; if (wake_swallow()) return; ui_nav_show(ui_net_create); }
 static void go_stats(lv_event_t *e)    { (void)e; if (wake_swallow()) return; ui_nav_show(ui_stats_create); }
@@ -127,30 +128,27 @@ lv_obj_t *ui_home_create(void)
     lv_obj_align(s_clock, LV_ALIGN_LEFT_MID, 6, 0);
 
     /*
-     * 顶栏右侧从右到左：齿轮、电量图标、电量百分比、WiFi 图标。
-     * 图标全部用 LVGL 图元现画——font20 不含 LVGL 符号所在的 0xF000+ 私有区，
+     * 顶栏右侧从右到左：电量图标、电量百分比、WiFi 图标。
+     *
+     * 设置的齿轮已经移到下面的菜单里——16px 的图标在电阻屏上既难认也难点，
+     * 而按工艺规则低频操作本来就该进菜单、不该占主界面的固定位置。腾出来的
+     * 空间正好给这几个状态图标。
+     *
+     * 图标全部用 LVGL 图元现画：font20 不含 LVGL 符号所在的 0xF000+ 私有区，
      * LV_SYMBOL_* 会是豆腐块（配网页键盘就栽在这上面）。见 ui_icons.h。
      */
-    lv_obj_t *gear = ui_icon_gear(bar);
-    lv_obj_align(gear, LV_ALIGN_RIGHT_MID, -6, 0);
-    lv_obj_add_flag(gear, LV_OBJ_FLAG_CLICKABLE);
-    /* 电阻屏漏点比电容屏更常见；扩大到短边 >=48px（视觉大小不变，只是可点
-       区域向外扩）。设置图标只在主页出现，主页没有返回箭头，不会重叠。 */
-    lv_obj_set_ext_click_area(gear, 16);
-    lv_obj_add_event_cb(gear, go_settings, LV_EVENT_CLICKED, NULL);
-
     s_bat_icon = ui_icon_battery(bar);
-    lv_obj_align(s_bat_icon, LV_ALIGN_RIGHT_MID, -28, 0);
+    lv_obj_align(s_bat_icon, LV_ALIGN_RIGHT_MID, -6, 0);
 
     s_wifi_icon = ui_icon_wifi(bar);
-    lv_obj_align(s_wifi_icon, LV_ALIGN_RIGHT_MID, -104, 0);
+    lv_obj_align(s_wifi_icon, LV_ALIGN_RIGHT_MID, -82, 0);
     ui_icon_wifi_set(s_wifi_icon, wifi_net_level());
 
     /* 百分比数字用 font28 的小号？不行——font28 是纯 ASCII 没有"电"字，
        而且行高 37 装不进 28px 的顶栏。这里去掉"电"字只留数字，靠旁边的
        电池图标表意，视觉重量就降下来了。 */
     s_bat = lv_label_create(bar);
-    lv_obj_align(s_bat, LV_ALIGN_RIGHT_MID, -52, 0);
+    lv_obj_align(s_bat, LV_ALIGN_RIGHT_MID, -30, 0);
     ui_home_set_battery(battery_percent());
 
     int top = UI_TOPBAR_H;
@@ -210,14 +208,16 @@ lv_obj_t *ui_home_create(void)
     lv_obj_align(l4, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
 
     /* 右：四个入口 */
-    const char *names[5] = { "呼号抄收 >", "模拟 QSO >", "电键 >", "联网对练 >", "训练统计 >" };
-    lv_event_cb_t cbs[5] = { go_call, go_qso, go_keyer, go_net, go_stats };
-    int h = (240 - top) / 5;
-    for (int i = 0; i < 5; i++) {
+    /* 四项各 (240-28)/4 = 53px，达到 44px 触控下限；原来五项只有 42px。
+       设置排在最末，符合"设置永远在最后"的惯例。 */
+    const char *names[4] = { "更多练习 >", "联网对练 >", "训练统计 >", "设置 >" };
+    lv_event_cb_t cbs[4] = { go_more, go_net, go_stats, go_settings };
+    int h = (240 - top) / 4;
+    for (int i = 0; i < 4; i++) {
         lv_obj_t *c = ui_cell(s_scr, names[i], UI_FONT_CN, cbs[i], NULL);
         lv_obj_set_pos(c, 200, top + i * h);
         lv_obj_set_size(c, 120, h);
-        lv_obj_set_style_border_side(c, i < 4 ? LV_BORDER_SIDE_BOTTOM : LV_BORDER_SIDE_NONE, 0);
+        lv_obj_set_style_border_side(c, i < 3 ? LV_BORDER_SIDE_BOTTOM : LV_BORDER_SIDE_NONE, 0);
     }
 
     s_dimmed = false;

@@ -35,6 +35,7 @@ idf_component_register(
         "ui/ui_wifi.c"
         "ui/ui_net.c"
         "ui/ui_ota.c"
+        "ui/ui_more.c"
         "ui/ui_stats.c"
         "ui/ui_fist.c"
     INCLUDE_DIRS "." "core" "ui"

@@ -24,7 +24,8 @@ void      ui_icon_wifi_set(lv_obj_t *icon, int level);
 lv_obj_t *ui_icon_battery(lv_obj_t *parent);
 void      ui_icon_battery_set(lv_obj_t *icon, uint8_t percent);
 
-/* 设置：齿轮（中心方块 + 四周四个小块）。 */
-lv_obj_t *ui_icon_gear(lv_obj_t *parent);
+/* 曾经有过一个 ui_icon_gear()：设置入口从顶栏移进主页菜单后就没人用了
+   （16px 图标在电阻屏上既难认也难点，而低频操作本来就该进菜单）。
+   已删除，不留死代码。 */
 
 #endif
