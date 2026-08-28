@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "ui_common.h"
+#include "stats_store.h"
 #include "ui_home.h"
 #include "ui_preview.h"
 #include "ui_practice.h"
@@ -84,6 +85,8 @@ static lv_obj_t *build(void)
 void ui_result_open(const trainer_t *t)
 {
     s_t = t;
+    /* 三种模式都记：错字热力图看的是字母，与练的是 Koch 还是呼号无关。 */
+    stats_store_record(t);
     if (t->mode == TRAINER_MODE_KOCH) {
         cw_settings_t *c = cw_settings_get();
         c->koch_last_pct[t->lesson] = trainer_percent(t);

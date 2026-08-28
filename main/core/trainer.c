@@ -98,9 +98,21 @@ void trainer_start(trainer_t *t, trainer_mode_t mode, uint8_t lesson, const char
     gen_round(t);
 }
 
+/* 把本轮的题目字符累加进 shown[]，满了就不再记（统计上少几个样本无伤大雅，
+   越界写才是灾难）。 */
+static void note_shown(trainer_t *t, const char *s)
+{
+    for (; s && *s; s++) {
+        if (t->shown_n >= TRAINER_SHOWN_MAX) return;
+        t->shown[t->shown_n++] = *s;
+        t->shown[t->shown_n] = '\0';
+    }
+}
+
 bool trainer_submit(trainer_t *t, const char *answer)
 {
     bool ok;
+    note_shown(t, t->target);
     if (t->mode == TRAINER_MODE_KOCH) {
         uint8_t mm = 0;
         int correct = koch_score_group(t->target, answer, &mm);

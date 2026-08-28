@@ -8,6 +8,7 @@
 #include "lv_port_indev.h"
 #include "cw_settings.h"
 #include "net_store.h"
+#include "stats_store.h"
 #include "tone_gen.h"
 #include "cw_player.h"
 #include "key_input.h"
@@ -69,6 +70,13 @@ void app_main(void)
     if (net_err != ESP_OK) {
         ESP_LOGE(TAG, "net_store_init failed: %s - network settings will NOT persist",
                  esp_err_to_name(net_err));
+    }
+    /* 训练统计同样是独立 key。丢了只是少看几张图，不影响任何功能，
+     * 所以失败只记日志。 */
+    esp_err_t stats_err = stats_store_init();
+    if (stats_err != ESP_OK) {
+        ESP_LOGE(TAG, "stats_store_init failed: %s - stats will NOT persist",
+                 esp_err_to_name(stats_err));
     }
 
     /* 音频 */

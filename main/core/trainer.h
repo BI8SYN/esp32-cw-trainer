@@ -9,6 +9,9 @@ typedef enum { TRAINER_MODE_KOCH = 0, TRAINER_MODE_CALLSIGN = 1, TRAINER_MODE_QS
 
 #define TRAINER_ROUNDS     10
 #define TRAINER_MAX_ERRORS 16
+/* 一轮里出现过的全部字符，供训练统计用。Koch 是 10 轮 x 5 字符，
+   呼号/QSO 略多，80 有富余。 */
+#define TRAINER_SHOWN_MAX  80
 
 typedef struct { char expected; char got; } trainer_error_t;
 
@@ -27,6 +30,11 @@ typedef struct {
     char play_text[64];
     trainer_error_t errors[TRAINER_MAX_ERRORS];
     uint8_t error_count;
+    /* 本轮出现过的全部字符（去重前的原始序列，截断到 TRAINER_SHOWN_MAX）。
+       统计每个字母的抄错率要用它做分母——只知道错了哪些字母没有意义，
+       得知道它被考过多少次。 */
+    char shown[TRAINER_SHOWN_MAX + 1];
+    uint8_t shown_n;
     bool finished;
 } trainer_t;
 

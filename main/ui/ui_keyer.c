@@ -3,6 +3,7 @@
 #include <string.h>
 #include "ui_common.h"
 #include "ui_home.h"
+#include "ui_fist.h"
 #include "ui_async.h"
 #include "key_input.h"
 #include "cw_settings.h"
@@ -61,6 +62,8 @@ void ui_keyer_paddles(lv_obj_t *parent, int y, int h, lv_obj_t *out[2])
 }
 
 static void clear_cb(lv_event_t *e) { (void)e; s_buf[0] = 0; lv_label_set_text(s_text, ""); }
+/* 手法分析从电键页进：它讲的是你发出去的时序，走到这一页的人正好在发报。 */
+static void go_fist(lv_event_t *e) { (void)e; ui_nav_show(ui_fist_create); }
 static void back(lv_event_t *e) { (void)e; ui_nav_show(ui_home_create); }
 static void on_delete(lv_event_t *e) { (void)e; key_input_stop(); lv_timer_del(s_timer); s_timer = NULL; s_scr = NULL; s_pad[0] = s_pad[1] = NULL; }
 
@@ -74,6 +77,9 @@ lv_obj_t *ui_keyer_create(void)
     lv_obj_t *clr = ui_button(bar, "清屏", clear_cb, NULL);
     lv_obj_set_size(clr, 60, 24);
     lv_obj_align(clr, LV_ALIGN_RIGHT_MID, -4, 0);
+    lv_obj_t *fst = ui_button(bar, "手法", go_fist, NULL);
+    lv_obj_set_size(fst, 60, 24);
+    lv_obj_align(fst, LV_ALIGN_RIGHT_MID, -68, 0);
 
     int top = UI_TOPBAR_H;
     if (!tone_gen_is_ok()) { ui_notice(s_scr, "音频异常，侧音不可用"); top += 22; }

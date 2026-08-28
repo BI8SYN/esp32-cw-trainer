@@ -15,7 +15,9 @@ idf_component_register(
         "core/kob_packet.c"
         "core/kob_client.c"
         "core/kob_rxbuf.c"
+        "core/cw_stats.c"
         "net_store.c"
+        "stats_store.c"
         "wifi_net.c"
         "kob_net.c"
         "ui_async.c"
@@ -30,6 +32,8 @@ idf_component_register(
         "ui/ui_settings.c"
         "ui/ui_wifi.c"
         "ui/ui_net.c"
+        "ui/ui_stats.c"
+        "ui/ui_fist.c"
     INCLUDE_DIRS "." "core" "ui"
     REQUIRES
         esp_app_format

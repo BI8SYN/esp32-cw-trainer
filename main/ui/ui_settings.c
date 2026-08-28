@@ -6,6 +6,7 @@
 #include "esp_app_desc.h"
 #include "cw_settings.h"
 #include "net_store.h"
+#include "stats_store.h"
 #include "cw_player.h"
 #include "tone_gen.h"
 #include "backlight.h"
