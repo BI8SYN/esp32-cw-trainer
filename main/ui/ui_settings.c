@@ -81,9 +81,20 @@ static const item_t GEN[] = {
     { "Koch 课次", IT_NUM, 1, 39, 1, "", NULL, 0, false, NULL },
     { "屏幕亮度", IT_NUM, 10, 100, 10, "%", NULL, 0, false, NULL },
     { "屏幕旋转", IT_CHOICE, 0, 0, 0, "", SCREEN_ROTS, 2, false, NULL },
-    { "恢复出厂设置", IT_RESET, 0, 0, 0, "", NULL, 0, false, NULL },
+    /*
+     * 作者 / 版本 / 固件升级 是一个"我在跑哪个版本、怎么换一个"的小集群，
+     * 用户想的是同一件事，不该按实现方式拆开（升级走 HTTP 不代表它属于
+     * 网络设置）。iOS 设置→通用 就是「关于 / 软件更新 / 还原」挨在一起。
+     *
+     * 没有独立的「关于」页签：左侧竖排页签从 4 个变 5 个会让每个从 53px
+     * 掉到 42px，低于 44px 触控下限——主页刚为同一条规则做过调整，设置页
+     * 不能反着来。而且只有三行、其中两行还不可点，撑不起一个页签。
+     */
     { "作者", IT_INFO, 0, 0, 0, "", NULL, 0, false, "BI8SYN" },
     { "版本", IT_INFO, 0, 0, 0, "", NULL, 0, false, NULL },
+    { "固件升级", IT_OTA, 0, 0, 0, "", NULL, 0, false, NULL },
+    /* 危险操作按惯例压在最末 */
+    { "恢复出厂设置", IT_RESET, 0, 0, 0, "", NULL, 0, false, NULL },
 };
 /*
  * 网络组的字段存在 net_store（独立 NVS key），不在 cw_settings_t 里——往
@@ -94,13 +105,16 @@ static item_t NET[] = {
     { "连接网络", IT_CHOICE, 0, 0, 0, "", NULL, 0, false, NULL },
     { "陪练模式", IT_CHOICE, 0, 0, 0, "", PRACTICE_MODES, 2, false, NULL },
     { "收报缓冲", IT_NUM, 200, 1000, 100, " ms", NULL, 0, false, NULL },
+    /*
+     * 「对练服务器」那一行删了：只读、改不了，而连不上时对练页会直接显示
+     * 「连不上服务器 <地址>」，设置页再摆一遍是纯噪音。
+     * 「固件升级」移到了常规组，和版本挨着——见那边的说明。
+     */
     { "wire 号",  IT_NUM, 1, 999, 1, "", NULL, 0, false, NULL },
-    { "服务器",   IT_INFO, 0, 0, 0, "", NULL, 0, false, NULL },
-    { "固件升级", IT_OTA, 0, 0, 0, "", NULL, 0, false, NULL },
 };
 
 static const item_t *const GROUPS[4] = { AUDIO, KEY, GEN, NET };
-static const int GROUP_N[4] = { 4, 3, 7, 6 };
+static const int GROUP_N[4] = { 4, 3, 8, 4 };
 static const char *const GROUP_NAMES[4] = { "音频", "电键", "常规", "网络" };
 #define GROUP_COUNT 4
 
@@ -216,9 +230,8 @@ static void fmt_val(const item_t *it, char *out, size_t n)
     case IT_CALLSIGN: snprintf(out, n, "%s", c->callsign); break;
     case IT_OTA: snprintf(out, n, "%s", ota_running_label()); break;
     case IT_INFO:
-        if (!strcmp(it->name, "服务器")) snprintf(out, n, "%s", net_store_get()->host);
-        else snprintf(out, n, "%s", it->info ? it->info
-                                             : esp_app_get_description()->version);
+        snprintf(out, n, "%s", it->info ? it->info
+                                        : esp_app_get_description()->version);
         break;
     default: out[0] = 0;
     }

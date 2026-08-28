@@ -43,6 +43,45 @@ static const char *TAG = "net_store";
 
 static cw_net_cfg_t s_cfg;
 
+static void set_defaults(cw_net_cfg_t *c);
+
+/*
+ * v1 布局：和 v2 一样，只是末尾没有 ota_url。
+ *
+ * 加 ota_url 时我直接把版本号从 1 提到 2 而没写迁移，结果整个 blob 回默认
+ * ——连同用户存的 WiFi 账号密码一起没了。在电阻屏上重敲一遍 WPA2 密码的
+ * 代价很实在，而这正是 cw_settings 那边专门写 migrate_v1() 要避免的事。
+ *
+ * 逐字段搬而不是 memcpy 整块：万一以后 v3 在中间插字段，逐字段会立刻编译
+ * 报错或写错位置被看出来，memcpy 会静默把后面所有字段错位。
+ */
+typedef struct {
+    uint32_t          version;
+    cw_wifi_profile_t profiles[CW_WIFI_PROFILE_MAX];
+    char              host[64];
+    uint16_t          port;
+    int16_t           wire;
+    char              office[16];
+    uint16_t          rx_delay_ms;
+    uint8_t           echo_mode;
+    uint8_t           noise_notice_shown;
+} cw_net_cfg_v1_t;
+
+static void migrate_v1(const cw_net_cfg_v1_t *old, cw_net_cfg_t *dst)
+{
+    set_defaults(dst);
+    dst->version = CW_NET_CFG_VERSION;
+    memcpy(dst->profiles, old->profiles, sizeof dst->profiles);
+    snprintf(dst->host, sizeof dst->host, "%s", old->host);
+    dst->port = old->port;
+    dst->wire = old->wire;
+    snprintf(dst->office, sizeof dst->office, "%s", old->office);
+    dst->rx_delay_ms = old->rx_delay_ms;
+    dst->echo_mode = old->echo_mode;
+    dst->noise_notice_shown = old->noise_notice_shown;
+    /* ota_url 保持 set_defaults() 给的默认地址 */
+}
+
 static void copy_field(char *dst, size_t dst_sz, const uint8_t *src, size_t src_len)
 {
     size_t n = 0;
@@ -88,9 +127,20 @@ esp_err_t net_store_init(void)
         return err;
     }
 
-    size_t len = sizeof s_cfg;
-    err = nvs_get_blob(h, NVS_KEY_NET_CFG, &s_cfg, &len);
+    union {
+        cw_net_cfg_t    v2;
+        cw_net_cfg_v1_t v1;
+    } raw;
+    size_t len = sizeof raw;
+    err = nvs_get_blob(h, NVS_KEY_NET_CFG, &raw, &len);
     nvs_close(h);
+
+    if (err == ESP_OK && len == sizeof(cw_net_cfg_v1_t) && raw.v1.version == 1) {
+        ESP_LOGI(TAG, "migrating net cfg v1 -> v%d（保住已存的 WiFi）", CW_NET_CFG_VERSION);
+        migrate_v1(&raw.v1, &s_cfg);
+        return write_blob();
+    }
+    if (err == ESP_OK && len == sizeof s_cfg) memcpy(&s_cfg, &raw.v2, sizeof s_cfg);
 
     if (err == ESP_ERR_NVS_NOT_FOUND) {
         ESP_LOGI(TAG, "no net cfg, first run");
@@ -98,6 +148,7 @@ esp_err_t net_store_init(void)
         return write_blob();
     }
     if (err != ESP_OK || len != sizeof s_cfg || s_cfg.version != CW_NET_CFG_VERSION) {
+        (void)0;
         /* 只重置本结构体。cw_settings 那边一个字节都不碰——用户的 Koch
            进度与这里无关，不能被网络配置的版本变更牵连。 */
         ESP_LOGW(TAG, "net cfg invalid (err=%s len=%u ver=%lu), reset",
