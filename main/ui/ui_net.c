@@ -249,7 +249,24 @@ lv_obj_t *ui_net_create(void)
     lv_label_set_long_mode(s_log, LV_LABEL_LONG_WRAP);
     s_text_buf[0] = '\0';
     s_last_who[0] = '\0';
-    lv_label_set_text(s_log, "");
+
+    /*
+     * 首次进入时把侧音底噪的提示作为记录的第一行。spec 6.2 要求这条必须告知、
+     * 不能藏着：联网期间 WiFi 的电流尖峰可能窜进内置 DAC，侧音出现底噪属正常，
+     * 离线练习不受影响。
+     *
+     * 用记录的第一行而不是 ui_notice()：本页垂直预算 28+74+28+110 已经把 240px
+     * 用满，ui_notice() 会占掉 22px 挤垮布局。放进记录里零成本，而且随着对话
+     * 往上滚自然消失，不需要用户去关它。
+     */
+    cw_net_cfg_t *ncfg = net_store_get();
+    if (!ncfg->noise_notice_shown) {
+        snprintf(s_text_buf, sizeof s_text_buf,
+                 "提示 联网时侧音可能有底噪，属正常。离线练习不受影响。");
+        ncfg->noise_notice_shown = 1;
+        net_store_save();
+    }
+    lv_label_set_text(s_log, s_text_buf);
 
     /* 状态带 28px：必须 >= UI_FONT_CN 的行高 26，否则文字上下被裁 */
     lv_obj_t *bandbg = lv_obj_create(s_scr);

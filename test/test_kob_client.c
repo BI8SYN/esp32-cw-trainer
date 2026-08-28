@@ -20,11 +20,15 @@ static void rec_send(const uint8_t *b, size_t l, void *u)
     }
 }
 
-static void rec_code(const char *f, const int32_t *c, int32_t n, const char *t, void *u)
+static int32_t g_lost;
+
+static void rec_code(const char *f, const int32_t *c, int32_t n, const char *t,
+                     int32_t lost, void *u)
 {
     (void)c; (void)u;
     snprintf(g_code_from, sizeof g_code_from, "%s", f);
     g_code_n = n;
+    g_lost = lost;
     snprintf(g_code_txt, sizeof g_code_txt, "%s", t);
 }
 
@@ -38,7 +42,7 @@ static void rec_state(kob_state_t s, void *u) { (void)u; g_state = s; }
 
 static void setup(kob_client_t *c)
 {
-    g_sent_n = 0; g_code_n = -1;
+    g_sent_n = 0; g_code_n = -1; g_lost = -1;
     g_code_from[0] = 0; g_code_txt[0] = 0; g_peer[0] = 0;
     g_state = KOB_ST_IDLE;
     kob_client_init(c, "BI8SYN", 11);
@@ -245,6 +249,60 @@ TEST(garbage_packet_does_not_change_state) {
     ASSERT_EQ_INT(g_code_n, -1);
 }
 
+TEST(seq_gap_is_reported_as_lost) {
+    /* UDP 会丢包，而协议是一个字符一个包——丢了就是丢了一个字。seq 跳变是
+       唯一能发现它的线索，界面据此显示 ? 而不是假装什么都没发生。 */
+    kob_client_t c; setup(&c);
+    bring_online(&c);
+    const int32_t v[] = { 60, -60, 180 };
+    uint8_t pkt[KOB_PKT_LONG];
+
+    kob_pkt_code(pkt, "BG7XXX", 5, v, 3, "A");
+    kob_client_rx(&c, pkt, sizeof pkt, 1500);
+    ASSERT_EQ_INT(g_lost, 0);
+
+    kob_pkt_code(pkt, "BG7XXX", 8, v, 3, "B");   /* 6、7 丢了 */
+    kob_client_rx(&c, pkt, sizeof pkt, 1600);
+    ASSERT_EQ_INT(g_lost, 2);
+}
+
+TEST(first_packet_from_sender_reports_no_loss) {
+    /* 首包没有"上一个 seq"可比，不能把对方的起始 seq 当成丢了一堆包 */
+    kob_client_t c; setup(&c);
+    bring_online(&c);
+    const int32_t v[] = { 60 };
+    uint8_t pkt[KOB_PKT_LONG];
+    kob_pkt_code(pkt, "BG7XXX", 900, v, 1, "E");
+    kob_client_rx(&c, pkt, sizeof pkt, 1500);
+    ASSERT_EQ_INT(g_lost, 0);
+}
+
+TEST(sender_change_resets_loss_tracking) {
+    /* seq 是每个发报方各自计数的。换人时拿旧序号去比会算出天文数字。 */
+    kob_client_t c; setup(&c);
+    bring_online(&c);
+    const int32_t v[] = { 60 };
+    uint8_t pkt[KOB_PKT_LONG];
+    kob_pkt_code(pkt, "BG7XXX", 500, v, 1, "E");
+    kob_client_rx(&c, pkt, sizeof pkt, 1500);
+    kob_pkt_code(pkt, "BD4YYY", 3, v, 1, "T");
+    kob_client_rx(&c, pkt, sizeof pkt, 1600);
+    ASSERT_EQ_INT(g_lost, 0);
+}
+
+TEST(absurd_gap_is_clamped) {
+    /* seq 回绕或对方重启时差值可能极大，不能据此塞几万个 ? */
+    kob_client_t c; setup(&c);
+    bring_online(&c);
+    const int32_t v[] = { 60 };
+    uint8_t pkt[KOB_PKT_LONG];
+    kob_pkt_code(pkt, "BG7XXX", 1, v, 1, "E");
+    kob_client_rx(&c, pkt, sizeof pkt, 1500);
+    kob_pkt_code(pkt, "BG7XXX", 100000, v, 1, "T");
+    kob_client_rx(&c, pkt, sizeof pkt, 1600);
+    ASSERT_TRUE(g_lost >= 0 && g_lost <= KOB_LOST_MAX);
+}
+
 int main(void) {
     RUN(start_sends_con_and_enters_connecting);
     RUN(ack_triggers_id_registration_then_online);
@@ -263,5 +321,9 @@ int main(void) {
     RUN(connecting_retries_con_on_tick);
     RUN(millis_wraparound_does_not_hang_keepalive);
     RUN(garbage_packet_does_not_change_state);
+    RUN(seq_gap_is_reported_as_lost);
+    RUN(first_packet_from_sender_reports_no_loss);
+    RUN(sender_change_resets_loss_tracking);
+    RUN(absurd_gap_is_clamped);
     TEST_MAIN_END();
 }

@@ -116,12 +116,31 @@ void kob_client_rx(kob_client_t *c, const uint8_t *buf, size_t len, uint32_t now
         return;
     }
 
+    /* 换发报方就重置计数基准：seq 是各发各的。 */
+    bool same_sender = c->have_rx_seq && strcmp(p.id, c->last_rx_from) == 0;
+
     /* UDP 会重传/乱序，同一个 seq 收到两次就会把同一个字符播两遍。 */
-    if (c->have_rx_seq && p.seq == c->last_rx_seq) return;
+    if (same_sender && p.seq == c->last_rx_seq) return;
+
+    /* seq 跳变 = 中间丢了包。协议一个字符一个包、UDP 无重传，丢了就是丢了
+       一个字，界面要如实显示 ? 而不是假装完整。 */
+    int32_t lost = 0;
+    if (same_sender && p.seq > c->last_rx_seq) {
+        lost = p.seq - c->last_rx_seq - 1;
+        if (lost < 0) lost = 0;
+        if (lost > KOB_LOST_MAX) lost = KOB_LOST_MAX;
+    }
+
     c->last_rx_seq = p.seq;
     c->have_rx_seq = true;
+    {
+        size_t n = strlen(p.id);
+        if (n > KOB_ID_MAX) n = KOB_ID_MAX;
+        memcpy(c->last_rx_from, p.id, n);
+        c->last_rx_from[n] = '\0';
+    }
 
-    if (c->on_code) c->on_code(p.id, p.code, p.n, p.txt, c->user);
+    if (c->on_code) c->on_code(p.id, p.code, p.n, p.txt, lost, c->user);
 }
 
 bool kob_client_send_code(kob_client_t *c, const int32_t *code, int32_t n,

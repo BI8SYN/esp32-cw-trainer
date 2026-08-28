@@ -77,7 +77,7 @@ static void set_state(kob_net_state_t st)
 /* ------------------------------------------------------------------ 收报 */
 
 static void on_code(const char *from, const int32_t *code, int32_t n,
-                    const char *txt, void *user)
+                    const char *txt, int32_t lost, void *user)
 {
     (void)user;
 
@@ -88,6 +88,17 @@ static void on_code(const char *from, const int32_t *code, int32_t n,
     snprintf(s_st.sender, sizeof s_st.sender, "%s", from);
 
     kob_rxbuf_push(&s_rxbuf, code, n, now_ms());
+
+    /* seq 跳变说明中间丢了包。协议一个字符一个包、UDP 无重传，丢了就是丢了
+       一个字——如实显示 ? 而不是把残缺的内容伪装成完整的。 */
+    if (lost > 0) {
+        char q[KOB_LOST_MAX + 1];
+        int k = lost > KOB_LOST_MAX ? KOB_LOST_MAX : (int)lost;
+        for (int i = 0; i < k; i++) q[i] = '?';
+        q[k] = '\0';
+        push_line(from, q);
+    }
+
     if (txt && txt[0]) push_line(from, txt);
 }
 

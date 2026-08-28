@@ -27,9 +27,14 @@ typedef enum {
 
 /* 发送由宿主实现：主机测试里记录到数组，设备上是 sendto()。 */
 typedef void (*kob_send_fn)(const uint8_t *buf, size_t len, void *user);
-/* 别人发来的码包。code/n 是对端的真实手法时序，txt 是可读文本。 */
+/*
+ * 别人发来的码包。code/n 是对端的真实手法时序，txt 是可读文本。
+ *
+ * lost 是本包之前**丢掉的包数**，由 seq 跳变推出。协议是一个字符一个包、
+ * UDP 无重传，丢了就是丢了一个字；界面据此显示 ? 而不是假装什么都没发生。
+ */
 typedef void (*kob_code_fn)(const char *from, const int32_t *code, int32_t n,
-                            const char *txt, void *user);
+                            const char *txt, int32_t lost, void *user);
 /* 别人的 ID 包（站点出现或更新）。 */
 typedef void (*kob_peer_fn)(const char *id, void *user);
 typedef void (*kob_state_fn)(kob_state_t st, void *user);
@@ -41,6 +46,9 @@ typedef struct {
     int32_t      tx_seq;
     int32_t      last_rx_seq;
     bool         have_rx_seq;
+    /* seq 是**每个发报方各自计数**的，换人必须重置，否则拿旧序号去比会算出
+       天文数字的丢包数。 */
+    char         last_rx_from[KOB_ID_MAX + 1];
     uint32_t     last_tx_ms;
     uint32_t     last_rx_ms;
     kob_send_fn  send;
@@ -53,6 +61,8 @@ typedef struct {
 #define KOB_KEEPALIVE_MS  10000u
 #define KOB_TIMEOUT_MS    30000u
 #define KOB_VERSION_STR   "CWTRN 1.0"
+/* 丢包数的上限。seq 回绕或对端重启时差值可能极大，不能据此塞几万个 ?。 */
+#define KOB_LOST_MAX      8
 
 void kob_client_init(kob_client_t *c, const char *office, int16_t wire);
 void kob_client_start(kob_client_t *c, uint32_t now_ms);
