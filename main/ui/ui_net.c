@@ -139,7 +139,9 @@ static void apply_status(void)
         pads_on = false;
         break;
     case KOB_NET_ERR_WIFI:
-        snprintf(band, sizeof band, "连不上 %.32s",
+        /* 连不上时最可能的情形是换了地方、这里的网络还没存过。让这行可点，
+           直接去配网——用户正卡在这儿，不该让他自己去设置里翻。 */
+        snprintf(band, sizeof band, "连不上 %.24s，点这里配网",
                  st->wifi_ssid[0] ? st->wifi_ssid : "WiFi");
         pads_on = false;
         break;
@@ -200,6 +202,15 @@ static void poll(lv_timer_t *t)
 /* ---------------------------------------------------------------- 交互 */
 
 static void back(lv_event_t *e) { (void)e; ui_nav_show(ui_home_create); }
+
+/* 只在 WiFi 连不上时有效——其他状态下点状态带没有意义，也不该有反应。 */
+static void band_cb(lv_event_t *e)
+{
+    (void)e;
+    if (kob_net_status()->state != KOB_NET_ERR_WIFI) return;
+    ui_wifi_set_return(ui_net_create);
+    ui_nav_show(ui_wifi_create);
+}
 
 static void on_delete(lv_event_t *e)
 {
@@ -278,6 +289,9 @@ lv_obj_t *ui_net_create(void)
     lv_obj_set_style_border_width(bandbg, 1, 0);
     lv_obj_set_style_border_color(bandbg, UI_BLACK, 0);
     lv_obj_set_style_border_side(bandbg, LV_BORDER_SIDE_BOTTOM, 0);
+
+    lv_obj_add_flag(bandbg, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(bandbg, band_cb, LV_EVENT_CLICKED, NULL);
 
     s_band = lv_label_create(bandbg);
     lv_obj_set_style_text_font(s_band, UI_FONT_CN, 0);

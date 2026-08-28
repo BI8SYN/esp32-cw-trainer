@@ -9,6 +9,7 @@
 #include "stats_store.h"
 #include "wifi_net.h"
 #include "ui_ota.h"
+#include "ui_wifi.h"
 #include "ota.h"
 #include "cw_player.h"
 #include "tone_gen.h"
@@ -19,7 +20,7 @@
 /* 版本号不再硬编码：info 为 NULL 的 IT_INFO 行显示固件真正嵌入的版本
  * （来自 CMakeLists 的 PROJECT_VER），显示值与固件值不可能对不上。 */
 
-typedef enum { IT_NUM, IT_CHOICE, IT_TOGGLE, IT_CALLSIGN, IT_RESET, IT_INFO, IT_OTA } item_type_t;
+typedef enum { IT_NUM, IT_CHOICE, IT_TOGGLE, IT_CALLSIGN, IT_RESET, IT_INFO, IT_OTA, IT_WIFI } item_type_t;
 typedef struct {
     const char *name; item_type_t type;
     int min, max, step; const char *unit;
@@ -102,6 +103,17 @@ static const item_t GEN[] = {
  * 条要走 net_store_get() 并调 net_store_save()。
  */
 static item_t NET[] = {
+    /*
+     * 「WiFi 网络」是**添加/删除/改密码**的唯一入口。
+     *
+     * 在这之前配网页只在「首次进对练页且一个网络都没存」时才会自动跳出来，
+     * 也就是说存过一个之后就再也进不去了——换个地方、存的网络都不在范围内，
+     * 对练页只会显示"连不上"，然后就没有然后了。功能不可达是结构缺陷，
+     * 优先级高于任何分组问题。
+     *
+     * 它和下面的「连接网络」不是一回事：这个管有哪些网络，那个管用哪一个。
+     */
+    { "WiFi 网络", IT_WIFI, 0, 0, 0, "", NULL, 0, false, NULL },
     { "连接网络", IT_CHOICE, 0, 0, 0, "", NULL, 0, false, NULL },
     { "陪练模式", IT_CHOICE, 0, 0, 0, "", PRACTICE_MODES, 2, false, NULL },
     { "收报缓冲", IT_NUM, 200, 1000, 100, " ms", NULL, 0, false, NULL },
@@ -114,7 +126,7 @@ static item_t NET[] = {
 };
 
 static const item_t *const GROUPS[4] = { AUDIO, KEY, GEN, NET };
-static const int GROUP_N[4] = { 4, 3, 8, 4 };
+static const int GROUP_N[4] = { 4, 3, 8, 5 };
 static const char *const GROUP_NAMES[4] = { "音频", "电键", "常规", "网络" };
 #define GROUP_COUNT 4
 
@@ -229,6 +241,15 @@ static void fmt_val(const item_t *it, char *out, size_t n)
     case IT_TOGGLE: snprintf(out, n, "%s", get_val(it) ? "开" : "关"); break;
     case IT_CALLSIGN: snprintf(out, n, "%s", c->callsign); break;
     case IT_OTA: snprintf(out, n, "%s", ota_running_label()); break;
+    case IT_WIFI: {
+        /* 值显示已存几个——是 0 的话，"联网对练连不上"的原因一眼可见 */
+        const cw_net_cfg_t *nc = net_store_get();
+        int k = 0;
+        for (int i = 0; i < CW_WIFI_PROFILE_MAX; i++)
+            if (nc->profiles[i].used && nc->profiles[i].ssid[0]) k++;
+        snprintf(out, n, "%d 个", k);
+        break;
+    }
     case IT_INFO:
         snprintf(out, n, "%s", it->info ? it->info
                                         : esp_app_get_description()->version);
@@ -378,6 +399,11 @@ static void item_cb(lv_event_t *e)
     case IT_CALLSIGN: ui_nav_show(build_callsign); break;
     case IT_RESET: ui_nav_show(build_reset); break;
     case IT_OTA: ui_nav_show(ui_ota_create); break;
+    case IT_WIFI:
+        /* 改完 WiFi 回到设置，而不是被弹回主页 */
+        ui_wifi_set_return(ui_settings_create);
+        ui_nav_show(ui_wifi_create);
+        break;
     default: break;
     }
 }

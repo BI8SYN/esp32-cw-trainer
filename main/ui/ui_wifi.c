@@ -384,7 +384,18 @@ static void import_cb(lv_event_t *e)
     if (n > 0) show(build_list);
 }
 
-static void back_home(lv_event_t *e) { (void)e; ui_nav_show(ui_home_create); }
+/*
+ * 返回目标由调用方设定。配网页有三个入口——首次进对练页时自动跳转、
+ * 设置里的「WiFi 网络」、对练页连不上时点状态带——退出时应该回到来的地方，
+ * 而不是一律弹回主页（那样用户在设置里改完 WiFi 会莫名其妙被踢出设置）。
+ */
+static ui_screen_builder_t s_return_to;
+
+static void back_home(lv_event_t *e)
+{
+    (void)e;
+    ui_nav_show(s_return_to ? s_return_to : ui_home_create);
+}
 
 static void list_on_delete(lv_event_t *e) { (void)e; s_scr = NULL; }
 
@@ -419,6 +430,8 @@ static lv_obj_t *build_list(void)
     }
     return s_scr;
 }
+
+void ui_wifi_set_return(ui_screen_builder_t builder) { s_return_to = builder; }
 
 lv_obj_t *ui_wifi_create(void)
 {
