@@ -59,6 +59,9 @@ esp_err_t kob_net_start(void);
 bool      kob_net_pop_line(kob_net_line_t *out);
 /* 停止：发 DIS、关 socket、摘掉电键回调、关 WiFi。 */
 void      kob_net_stop(void);
+/* 换 wire：停掉 socket 任务、按 net_store 里的新 wire 重开一遍，**不动 WiFi**。
+   调用前先把 net_store_get()->wire 改好。 */
+esp_err_t kob_net_rewire(void);
 
 const kob_net_status_t *kob_net_status(void);
 

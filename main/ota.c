@@ -118,13 +118,8 @@ cleanup:
     esp_http_client_cleanup(cli);
 out:
     s_chk.checked = true;
-    if (s_auto_off) {
-        /* 开机检查完必须把射频关掉，否则就变成了"WiFi 常连"——那正是
-           spec 3.5 要避免的（电流尖峰窜进内置 DAC，拿主线场景的侧音质量
-           换可选功能）。从升级页手动触发的检查不关，那边还要接着下载。 */
-        s_auto_off = false;
-        wifi_net_stop();
-    }
+    /* 射频常连，检查完不再关——这个标志只剩「这次是不是开机自动检查」的含义。 */
+    s_auto_off = false;
     s_chk_task = NULL;
     vTaskDelete(NULL);
 }

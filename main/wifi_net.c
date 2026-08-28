@@ -5,6 +5,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "esp_event.h"
@@ -93,6 +94,12 @@ static esp_err_t radio_on(void)
     if ((err = esp_wifi_set_mode(WIFI_MODE_STA)) != ESP_OK) return err;
     if ((err = esp_wifi_set_storage(WIFI_STORAGE_RAM)) != ESP_OK) return err;
     if ((err = esp_wifi_start()) != ESP_OK) return err;
+    /*
+     * 明确设省电模式，不吃 IDF 的默认值——射频现在是常连的，空闲电流直接决定
+     * 续航，这个值不能随某次 IDF 升级悄悄变掉。MIN_MODEM 在 DTIM 间隙关收发，
+     * 对我们这种「几秒一个小包」的流量几乎没有延迟代价。
+     */
+    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
     s_radio_on = true;
     return ESP_OK;
 }
@@ -135,13 +142,20 @@ static void ssid_of(const wifi_ap_record_t *r, char out[33])
     out[SSID_BYTES] = '\0';
 }
 
-/* 在扫描结果里找信号最强的已保存槽位。返回槽位下标，-1 表示一个都没扫到。 */
-static int pick_profile(const wifi_ap_record_t *recs, uint16_t n)
+/*
+ * 在扫描结果里找信号最强的已保存槽位。返回槽位下标，-1 表示一个都没扫到。
+ *
+ * tried 是已经试过并失败的槽位位图。原来只挑最强的一个、连不上就放弃——
+ * 而「最强的那个密码是错的、旁边还有一个能连」是很常见的情形（家里路由改了
+ * 密码、隔壁的同名 AP），放弃等于明明有网却上不去。现在逐个往下试。
+ */
+static int pick_profile(const wifi_ap_record_t *recs, uint16_t n, uint32_t tried)
 {
     const cw_net_cfg_t *cfg = net_store_get();
     int best = -1, best_rssi = -128;
 
     for (int i = 0; i < CW_WIFI_PROFILE_MAX; i++) {
+        if (tried & (1u << i)) continue;
         if (!cfg->profiles[i].used || !cfg->profiles[i].ssid[0]) continue;
         /* 用户在设置里指定了槽位就只认它——"信号最强"未必是想用的那个。 */
         if (s_prefer >= 0 && i != s_prefer) continue;
@@ -159,35 +173,9 @@ static int pick_profile(const wifi_ap_record_t *recs, uint16_t n)
     return best;
 }
 
-static void worker(void *arg)
+/* 连一个具体槽位，等到拿到 IP 或失败。连上返回 true。 */
+static bool connect_slot(int idx)
 {
-    (void)arg;
-
-    wifi_lock();
-    if (radio_on() != ESP_OK) {
-        wifi_unlock();
-        report(WIFI_NET_FAIL_NO_AP, NULL);
-        s_task = NULL;
-        vTaskDelete(NULL);
-        return;
-    }
-
-    report(WIFI_NET_SCANNING, NULL);
-
-    wifi_ap_record_t *recs = NULL;
-    uint16_t n = scan_once(&recs);
-    int idx = (n && recs) ? pick_profile(recs, n) : -1;
-    free(recs);
-    wifi_unlock();
-
-    if (idx < 0) {
-        ESP_LOGW(TAG, "no saved network in range (%u AP scanned)", n);
-        report(WIFI_NET_FAIL_NO_AP, NULL);
-        s_task = NULL;
-        vTaskDelete(NULL);
-        return;
-    }
-
     const cw_net_cfg_t *cfg = net_store_get();
     report(WIFI_NET_CONNECTING, cfg->profiles[idx].ssid);
 
@@ -209,26 +197,94 @@ static void worker(void *arg)
     /* 等到拿到 IP 为止。只看 STA_CONNECTED 是不够的——没有 IP 就没法开 socket。 */
     for (int waited = 0; waited < CONNECT_TIMEOUT_MS; waited += 100) {
         if (s_got_ip) {
-            ESP_LOGI(TAG, "connected: %s", cfg->profiles[idx].ssid);
+            ESP_LOGI(TAG, "connected: %s (free heap %lu)", cfg->profiles[idx].ssid,
+                     (unsigned long)esp_get_free_heap_size());
             report(WIFI_NET_CONNECTED, cfg->profiles[idx].ssid);
-            s_task = NULL;
-            vTaskDelete(NULL);
-            return;
+            return true;
         }
         if (s_disconnected) {
             /* 扫到了这个 SSID 却连不上，绝大多数情况是密码错。与「扫不到」
                区分开报，因为用户要做的事完全不同：一个是改密码，一个是换网络。 */
             ESP_LOGW(TAG, "auth/assoc failed for %s", cfg->profiles[idx].ssid);
             report(WIFI_NET_FAIL_AUTH, cfg->profiles[idx].ssid);
-            s_task = NULL;
-            vTaskDelete(NULL);
-            return;
+            return false;
         }
         vTaskDelay(pdMS_TO_TICKS(100));
     }
-
     ESP_LOGW(TAG, "connect timeout for %s", cfg->profiles[idx].ssid);
     report(WIFI_NET_FAIL_AUTH, cfg->profiles[idx].ssid);
+    esp_wifi_disconnect();      /* 超时也要收手，否则下一轮 connect 会撞上它 */
+    return false;
+}
+
+/* 扫描一次，按信号从强到弱把扫到的已保存槽位逐个试过去。连上返回 true。 */
+static bool try_connect(void)
+{
+    wifi_lock();
+    if (radio_on() != ESP_OK) {
+        wifi_unlock();
+        report(WIFI_NET_FAIL_NO_AP, NULL);
+        return false;
+    }
+    report(WIFI_NET_SCANNING, NULL);
+    wifi_ap_record_t *recs = NULL;
+    uint16_t n = scan_once(&recs);
+    wifi_unlock();
+
+    uint32_t tried = 0;
+    bool any = false;
+    while (recs && n) {
+        int idx = pick_profile(recs, n, tried);
+        if (idx < 0) break;
+        any = true;
+        tried |= 1u << idx;
+        if (connect_slot(idx)) { free(recs); return true; }
+    }
+    free(recs);
+
+    if (!any) {
+        ESP_LOGW(TAG, "no saved network in range (%u AP scanned)", n);
+        report(WIFI_NET_FAIL_NO_AP, NULL);
+    }
+    return false;
+}
+
+/* 退避：首次 5 秒，逐次加倍，封顶 60 秒。 */
+#define RETRY_MIN_MS  5000
+#define RETRY_MAX_MS  60000
+
+/*
+ * 常驻任务：连上就守着，掉线就重连，连不上就退避重试。
+ *
+ * 射频不再关闭，所以这个任务起来之后就不退出了——除非一个已保存的网络都没有，
+ * 那种情况下重试是空转，退出等配网页存好了再由它拉起来。
+ */
+static void worker(void *arg)
+{
+    (void)arg;
+    uint32_t backoff = RETRY_MIN_MS;
+
+    for (;;) {
+        if (try_connect()) {
+            backoff = RETRY_MIN_MS;
+            /* 守着。「保持连接」不是「连上一次」——AP 重启、走出覆盖范围、
+               信道拥塞都会把链路打断，而 ESP-IDF 不会自己重连，得我们来。
+               切换「连接网络」也走这条路：wifi_net_prefer() 主动断开，
+               下一轮重连时 pick_profile() 就认新的槽位了。 */
+            while (!s_disconnected) vTaskDelay(pdMS_TO_TICKS(500));
+            ESP_LOGW(TAG, "link lost, reconnecting");
+            report(WIFI_NET_CONNECTING, NULL);
+            continue;
+        }
+
+        /* 一个网络都没存，重试没有意义。 */
+        if (!net_store_has_wifi()) break;
+
+        for (uint32_t w = 0; w < backoff; w += 200) vTaskDelay(pdMS_TO_TICKS(200));
+        if (backoff < RETRY_MAX_MS) backoff *= 2;
+        if (backoff > RETRY_MAX_MS) backoff = RETRY_MAX_MS;
+    }
+
     s_task = NULL;
     vTaskDelete(NULL);
 }
@@ -240,6 +296,12 @@ esp_err_t wifi_net_start(wifi_net_cb_t cb, void *user)
         if (err != ESP_OK) return err;
     }
     if (s_task) return ESP_ERR_INVALID_STATE;   /* 已经在连了 */
+    /*
+     * 已经连上就什么都不做。射频改成常连之后，各处（对练页、升级页、配网页）
+     * 都会「先 start 一下再用」，不挡住的话每一次都会重新起一个 worker 去扫描
+     * 重连——把一条好端端的连接掐掉几秒，纯属自找。
+     */
+    if (s_got_ip) return ESP_OK;
 
     s_cb = cb;
     s_user = user;
@@ -251,21 +313,6 @@ esp_err_t wifi_net_start(wifi_net_cb_t cb, void *user)
         return ESP_FAIL;
     }
     return ESP_OK;
-}
-
-void wifi_net_stop(void)
-{
-    if (!s_radio_on) {
-        report(WIFI_NET_OFF, NULL);
-        return;
-    }
-    esp_wifi_disconnect();
-    esp_wifi_stop();
-    /* deinit 才真正把驱动的那几十 KB 还回堆里；只 stop() 是留着的。 */
-    esp_wifi_deinit();
-    s_radio_on = false;
-    s_got_ip = false;
-    report(WIFI_NET_OFF, NULL);
 }
 
 bool             wifi_net_is_connected(void) { return s_got_ip; }
@@ -280,7 +327,23 @@ int wifi_net_level(void)
     return 1;
 }
 
-void wifi_net_prefer(int slot) { s_prefer = slot; }
+void wifi_net_prefer(int slot)
+{
+    if (slot == s_prefer) return;
+    s_prefer = slot;
+
+    /*
+     * 主动断一下，让 worker 的重连那一轮带着新槽位重新挑。
+     *
+     * 射频改成常连之后，这一步是必需的：原来只要改掉 s_prefer 就行，因为下一次
+     * 连接总会到来（每次进对练页都会重连一遍）。现在连接是一直在的，「下一次」
+     * 不会自己来——不断开的话，用户在设置里换了网络却毫无反应。
+     */
+    if (s_got_ip) {
+        ESP_LOGI(TAG, "preferred network changed, reconnecting");
+        esp_wifi_disconnect();
+    }
+}
 int  wifi_net_preferred(void) { return s_prefer; }
 wifi_net_state_t wifi_net_state(void)        { return s_state; }
 const char      *wifi_net_ssid(void)         { return s_ssid; }

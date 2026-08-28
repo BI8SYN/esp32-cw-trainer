@@ -4,6 +4,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #include "esp_timer.h"
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
@@ -104,15 +105,55 @@ static void on_code(const char *from, const int32_t *code, int32_t n,
     if (txt && txt[0]) push_line(from, txt);
 }
 
+/*
+ * 站点表的过期时间。对端每 10 秒发一次 ID 信标（KOB_ID_BEACON_MS），发报时
+ * 码包也算数，所以 35 秒 = 约三个信标周期：丢一两个包不会把人误判成离开，
+ * 而真正离线的人半分钟内就会从顶栏消失。
+ *
+ * 必须有这个：协议里没有「某人退出了」的通知——DIS 是发给服务器的，服务器
+ * 不转发。不设过期，站点表就只增不减，顶栏的人数会一直虚高。
+ */
+#define PEER_TTL_MS 35000u
+
+static uint32_t s_peer_ms[KOB_NET_PEER_MAX];   /* 与 s_st.peers 一一对应 */
+
+/* 对端还在线上。ID 包和码包都会走到这里，见 kob_peer_fn 的说明。 */
 static void on_peer(const char *id, void *user)
 {
     (void)user;
+    uint32_t t = now_ms();
     for (int i = 0; i < s_st.peer_n; i++) {
-        if (strcmp(s_st.peers[i], id) == 0) return;
+        if (strcmp(s_st.peers[i], id) == 0) { s_peer_ms[i] = t; return; }
     }
     if (s_st.peer_n < KOB_NET_PEER_MAX) {
         snprintf(s_st.peers[s_st.peer_n], sizeof s_st.peers[0], "%s", id);
+        s_peer_ms[s_st.peer_n] = t;
         s_st.peer_n++;
+    }
+}
+
+/*
+ * 把超时未出现的站点摘掉。倒着扫，删除时把末尾那个搬过来即可——顶栏只显示
+ * 人数，表内顺序没有意义，不必保序。
+ *
+ * **自己读钟，绝不能接收主循环那个 t。** on_peer() 里的时间戳也是现读的，
+ * 而它发生在 recv() 之后——recv 最多阻塞 20ms，所以 on_peer 打的戳会比循环
+ * 顶部的 t 晚。拿 t 去减一个更晚的戳，无符号下溢成 42 亿，远大于 PEER_TTL_MS，
+ * 站点刚加进来就被当成超时摘掉。表现是人数在 0 和 1 之间反复闪。
+ * 两处读同一个单调时钟、且这里必然读在后面，差值才有意义。
+ */
+static void peer_sweep(void)
+{
+    uint32_t now = now_ms();
+    for (int i = s_st.peer_n - 1; i >= 0; i--) {
+        if ((uint32_t)(now - s_peer_ms[i]) < PEER_TTL_MS) continue;
+        int last = s_st.peer_n - 1;
+        if (i != last) {
+            memcpy(s_st.peers[i], s_st.peers[last], sizeof s_st.peers[0]);
+            s_peer_ms[i] = s_peer_ms[last];
+        }
+        s_st.peers[last][0] = '\0';
+        s_st.peer_n--;
     }
 }
 
@@ -206,7 +247,7 @@ static bool sock_open(void)
     ESP_LOGI(TAG, "socket -> %s:%u wire=%d(%s) office=%s",
              cfg->host, cfg->port, cfg->wire,
              cw_net_wire_label(cfg->wire) ? cw_net_wire_label(cfg->wire) : "自定义",
-             cfg->office);
+             cw_net_office());
     return true;
 }
 
@@ -282,7 +323,9 @@ static void task(void *arg)
 
     const cw_net_cfg_t *cfg = net_store_get();
     /* wire 是唯一的控制项——不同的 wire 上跑着不同的陪练。 */
-    kob_client_init(&s_client, cfg->office, cfg->wire);
+    /* seq 号段起点要随机——它是「这个包是不是我自己发的」的判据，和同呼号
+       的对端区分开全靠它。见 kob_client.h 里 seq_base 的说明。 */
+    kob_client_init(&s_client, cw_net_office(), cfg->wire, esp_random());
     s_client.send = sock_send;
     s_client.on_code = on_code;
     s_client.on_peer = on_peer;
@@ -320,6 +363,8 @@ static void task(void *arg)
         if (s_tx_break_req) send_break();
         if (s_tx_flush) flush_tx();
 
+        peer_sweep();
+
         /* 线路空闲判定：一段时间没有新的收报元素，就认为对方发完了。 */
         if (!out.key_down && !out.latched && s_st.sender[0] &&
             (uint32_t)(t - last_online_check) > 1500) {
@@ -343,18 +388,23 @@ static void task(void *arg)
 
 /* ------------------------------------------------------------------ 公开 */
 
-esp_err_t kob_net_start(void)
+/* 停 socket 任务并等它自己收尾（关 socket、摘电键回调）。**不碰 WiFi**。 */
+static void stop_task(void)
 {
-    if (s_task) return ESP_ERR_INVALID_STATE;
+    if (!s_task) return;
+    s_stop = true;
+    /* 这个等待是安全的：kob_net 不再回调进 UI，socket 任务不会去取 ui_lock()，
+       因此不会和持有该锁的 LVGL 线程互等。任务循环 5ms 一拍、recv 超时 20ms，
+       正常几十毫秒内就退出。 */
+    for (int i = 0; i < 100 && s_task; i++) vTaskDelay(pdMS_TO_TICKS(10));
+}
 
+static esp_err_t spawn_task(void)
+{
     memset(&s_st, 0, sizeof s_st);
+    memset(s_peer_ms, 0, sizeof s_peer_ms);
     s_ring_head = s_ring_tail = 0;
     s_stop = false;
-
-    esp_err_t err = wifi_net_init();
-    if (err != ESP_OK) return err;
-    err = wifi_net_start(NULL, NULL);
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) return err;
 
     /* 钉在 core 0：和 WiFi/lwIP 同核。优先级 5，远低于 core 1 上的 tone(23)
        与 key_input(22)——发报时序的优先级高于一切网络处理。 */
@@ -365,19 +415,38 @@ esp_err_t kob_net_start(void)
     return ESP_OK;
 }
 
+esp_err_t kob_net_start(void)
+{
+    if (s_task) return ESP_ERR_INVALID_STATE;
+
+    esp_err_t err = wifi_net_init();
+    if (err != ESP_OK) return err;
+    err = wifi_net_start(NULL, NULL);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) return err;
+
+    return spawn_task();
+}
+
+/*
+ * 换 wire。只重开 socket 和协议握手，**射频一根手指都不碰**。
+ *
+ * 换 wire 曾经是走「整页重建」的（apply_wire() -> ui_nav_show(ui_net_create)），
+ * 而重建会连带 kob_net_stop() -> wifi_net_stop() -> esp_wifi_deinit()，把几十 KB
+ * 的 WiFi 驱动整个卸掉再装回来，全程堵在 LVGL 事件回调里。更糟的是
+ * wifi_net_stop() 并不等 wifi_net 那个连接 worker 退出，deinit 会从它脚下把
+ * 驱动抽走。换一条线路而已，不该动到射频。
+ */
+esp_err_t kob_net_rewire(void)
+{
+    stop_task();
+    return spawn_task();
+}
+
 void kob_net_stop(void)
 {
-    if (!s_task) {
-        wifi_net_stop();
-        return;
-    }
-    s_stop = true;
-    /* 等 socket 任务自己收尾（关 socket、摘电键回调）再关射频。
-       这个等待现在是安全的：kob_net 不再回调进 UI，socket 任务不会去取
-       ui_lock()，因此不会和持有该锁的 LVGL 线程互等。任务循环 5ms 一拍、
-       recv 超时 20ms，正常几十毫秒内就退出。 */
-    for (int i = 0; i < 100 && s_task; i++) vTaskDelay(pdMS_TO_TICKS(10));
-    wifi_net_stop();
+    /* 只停 socket 任务。射频是常连的，离开对练页不关——进来时也就不用再等
+       一遍握手。换 wire 走 kob_net_rewire()，根本不到这里。 */
+    stop_task();
 }
 
 const kob_net_status_t *kob_net_status(void) { return &s_st; }

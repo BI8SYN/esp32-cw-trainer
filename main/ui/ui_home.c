@@ -132,6 +132,20 @@ lv_obj_t *ui_home_create(void)
     lv_obj_align(s_clock, LV_ALIGN_LEFT_MID, 6, 0);
 
     /*
+     * 顶栏正中：自己的呼号。没设置就整个不建——留一行占位或者写「未设置」，
+     * 等于让一个空状态天天挂在主界面上，而这一格本来就是可有可无的信息。
+     * 需要设置的地方（联网对练）自己会提示，不必在这里天天喊。
+     *
+     * 不放进 tick() 里刷：呼号只在设置页改得动，改完必然经过一次
+     * ui_nav_show(ui_home_create)，整页重建时自然就是新的了。
+     */
+    if (cfg->callsign[0]) {
+        lv_obj_t *call = lv_label_create(bar);
+        lv_label_set_text(call, cfg->callsign);
+        lv_obj_align(call, LV_ALIGN_CENTER, 0, 0);
+    }
+
+    /*
      * 顶栏右侧从右到左：电量图标、电量百分比、WiFi 图标。
      *
      * 设置的齿轮已经移到下面的菜单里——16px 的图标在电阻屏上既难认也难点，

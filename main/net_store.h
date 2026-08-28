@@ -42,7 +42,24 @@ typedef struct {
     char              host[64];
     uint16_t          port;
     int16_t           wire;
-    char              office[16];
+    /*
+     * 这 16 字节原来是 office（站点 ID），已废弃——站点 ID 现在每次上线现取
+     * 呼号，见 cw_net_office()。
+     *
+     * 它废掉的原因值得留着：office 是 set_defaults() 里从呼号拷的一份副本，
+     * 而 set_defaults() 只在首次初始化（NVS 里还没有 blob）时跑一次，那一刻
+     * 呼号还是出厂默认。用户后来改呼号，改的是 cw_settings，这份副本一动
+     * 不动——于是**所有设备上线报出去的 ID 永远是出厂值**。
+     *
+     * 现在这块地方改放「用户亲自定过呼号」的标记（CALLSIGN_OK_MAGIC），用来
+     * 让开机清理遗留出厂呼号那一步只发生一次，见 cw_net_callsign_confirm()。
+     *
+     * 复用而不是新加字段：加字段会改变结构体长度，就要提版本号写迁移，而每
+     * 改一次这个 blob 都是一次冲掉用户 WiFi 密码的机会（v1->v2 那次就冲了）。
+     * 老设备这里存的是旧的 office 值（"BI8SYN" 之类），不等于 magic，正好被
+     * 当成「还没定过」——升级路径不用额外处理。
+     */
+    char              callsign_ok[16];
     uint16_t          rx_delay_ms;
     /*
      * 已废弃，不再读写。
@@ -56,8 +73,17 @@ typedef struct {
      * 一次改这个 blob 都是一次冲掉用户 WiFi 密码的机会（v1->v2 那次就冲了）。
      * 留着不用，代价是一个字节。
      */
-    uint8_t           echo_mode_deprecated;
-    uint8_t           noise_notice_shown;   /* 侧音底噪提示是否已展示过 */
+    /*
+     * 已废弃，不再读写。曾经是「陪练模式」，后来短暂做过「保持联网」开关。
+     * 射频现在无条件常连，没有开关了。字节保留不删，理由同其他废弃字段：
+     * 改结构体长度就要提版本号写迁移，而每改一次这个 blob 都是一次冲掉用户
+     * WiFi 密码的机会（v1->v2 那次就冲了）。
+     */
+    uint8_t           unused_byte;
+    /* 已废弃，不再读写。它曾经记「侧音底噪的提示是否展示过」，那条提示占着
+       收报记录的第一行，而绝大多数人第一次进来看到的就是它——想练的东西被
+       一句注意事项挡在前面。字节保留不删，理由同上面那几个废弃字段。 */
+    uint8_t           noise_notice_deprecated;
     char              ota_url[96];          /* 版本清单（JSON）地址 */
     uint8_t           boot_check;          /* 开机联网检查一次更新 */
 } cw_net_cfg_t;
@@ -85,6 +111,31 @@ typedef struct {
 
 /* 返回这条 wire 上是什么。未知的 wire 返回 NULL，由调用方显示 "wire N"。 */
 const char *cw_net_wire_label(int16_t wire);
+
+/*
+ * 上线用的站点 ID。**直接取当前呼号，不留副本**——副本正是上面
+ * office_deprecated 的教训：拷一次就永远停在出厂值，两台设备撞成同一个 ID，
+ * 在 wire 上谁也认不出谁。呼号为空时退回 "CWTRN"，因为 ID 包不能发空串：
+ * 服务器会把空 ID 的站点显示成一片空白，界面上分不清是谁。
+ */
+const char *cw_net_office(void);
+
+/*
+ * 呼号是否可用。联网对练用它做准入：没有就先弹窗要求定一个，因为呼号会作为
+ * 站点 ID 上到 wire 上，而一条 wire 上两个同名站点是分不清谁是谁的。
+ *
+ * 判据就是「呼号非空」。老设备上遗留的出厂值 BI8SYN 由 net_store_init()
+ * 开机清掉一次，所以这里不需要再对它做特判。
+ */
+bool cw_net_callsign_ok(void);
+
+/*
+ * 用户在呼号编辑框里按下确定时调用，写下 callsign_ok 标记并落盘。
+ *
+ * 标记只有一个用途：让开机清理出厂呼号那一步**只发生一次**。BI8SYN 是个
+ * 合法呼号，真有人叫这个；他自己定过之后就不能再被清掉了。
+ */
+void cw_net_callsign_confirm(void);
 /* 默认固件地址：wire 服务器那台机器上的静态页（morsekob-web 单元，端口 7891）。
    把固件放进 /opt/morsekob/www/ 即可。 */
 /* 指向版本清单而不是固件本身：设备要先知道服务器上是什么版本，才谈得上

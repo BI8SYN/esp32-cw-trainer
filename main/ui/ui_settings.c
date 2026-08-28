@@ -10,6 +10,7 @@
 #include "wifi_net.h"
 #include "ui_ota.h"
 #include "ui_wifi.h"
+#include "ui_callsign.h"
 #include "ota.h"
 #include "cw_player.h"
 #include "tone_gen.h"
@@ -135,8 +136,6 @@ static lv_obj_t *s_list, *s_tabs[GROUP_COUNT];
 static lv_obj_t *s_val_label;
 static lv_obj_t *s_val_hint;   /* 数值下方的补充说明，目前只有 wire 号用 */
 static void update_hint(void);
-static char s_call_buf[12];
-static lv_obj_t *s_call_hint;
 
 /* ---- 读写设置字段 ----
  * it->name 在这里被当成字段名做 strcmp 分派：新增/改名条目时必须同步这里
@@ -249,7 +248,9 @@ static void fmt_val(const item_t *it, char *out, size_t n)
         break;
     }
     case IT_TOGGLE: snprintf(out, n, "%s", get_val(it) ? "开" : "关"); break;
-    case IT_CALLSIGN: snprintf(out, n, "%s", c->callsign); break;
+    /* 空呼号显示「未设置」——一片空白看起来像渲染坏了，而这一项现在出厂
+       就是空的，用户得看出来它在等自己填。 */
+    case IT_CALLSIGN: snprintf(out, n, "%s", c->callsign[0] ? c->callsign : "未设置"); break;
     case IT_OTA: {
         /* 显示"有没有新的"，不显示分区标签——ota_0/ota_1 是实现细节，
            用户既不关心也看不懂。 */
@@ -380,57 +381,8 @@ static lv_obj_t *build_reset(void)
     return s;
 }
 
-/* 呼号编辑：4 行 × 9 列 + 退格/确定 */
-static lv_obj_t *s_call_label;
-static void call_key_cb(lv_event_t *e)
-{
-    const char *k = lv_label_get_text(lv_obj_get_child(lv_event_get_target(e), 0));
-    size_t l = strlen(s_call_buf);
-    if (!strcmp(k, "退格")) {
-        if (l) s_call_buf[l - 1] = 0;
-        lv_label_set_text(s_call_hint, "");
-    } else if (!strcmp(k, "确定")) {
-        /* 长度不足时不能悄悄放弃：停在编辑页、给出提示，不导航离开——
-         * 否则操作者看到页面正常返回，会以为已经保存成功。 */
-        if (l < 3) { lv_label_set_text(s_call_hint, "呼号至少 3 个字符，未保存"); return; }
-        strcpy(cw_settings_get()->callsign, s_call_buf);
-        cw_settings_save();
-        ui_nav_show(ui_settings_create);
-        return;
-    } else if (l < 10) {
-        s_call_buf[l] = k[0]; s_call_buf[l + 1] = 0;
-        lv_label_set_text(s_call_hint, "");
-    }
-    lv_label_set_text(s_call_label, s_call_buf);
-}
-static lv_obj_t *build_callsign(void)
-{
-    lv_obj_t *s = ui_screen_create();
-    ui_topbar(s, "我的呼号", back_to_settings);
-    strcpy(s_call_buf, cw_settings_get()->callsign);
-    s_call_label = lv_label_create(s);
-    lv_obj_set_style_text_font(s_call_label, UI_FONT_MID, 0);
-    lv_label_set_text(s_call_label, s_call_buf);
-    lv_obj_align(s_call_label, LV_ALIGN_TOP_MID, 0, UI_TOPBAR_H + 2);
-    s_call_hint = lv_label_create(s);
-    lv_obj_set_style_text_font(s_call_hint, UI_FONT_CN, 0);
-    lv_label_set_text(s_call_hint, "");
-    lv_obj_align(s_call_hint, LV_ALIGN_TOP_MID, 0, UI_TOPBAR_H + 22);
-    const char *keys = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    int cols = 10, cw = 32, ch = 42, y0 = UI_TOPBAR_H + 40;
-    for (int i = 0; i < 36; i++) {
-        char t[2] = { keys[i], 0 };
-        lv_obj_t *k = ui_cell(s, t, UI_FONT_CN, call_key_cb, NULL);
-        lv_obj_set_pos(k, (i % cols) * cw, y0 + (i / cols) * ch); lv_obj_set_size(k, cw, ch);
-    }
-    lv_obj_t *bs = ui_cell(s, "退格", UI_FONT_CN, call_key_cb, NULL);
-    lv_obj_set_pos(bs, 6 * cw, y0 + 3 * ch); lv_obj_set_size(bs, 2 * cw, ch);
-    lv_obj_t *ok = ui_cell(s, "确定", UI_FONT_CN, call_key_cb, NULL);
-    lv_obj_set_pos(ok, 8 * cw, y0 + 3 * ch); lv_obj_set_size(ok, 2 * cw, ch);
-    return s;
-}
-
 /* ---- 主设置页 ---- */
+
 static void item_cb(lv_event_t *e)
 {
     s_item = lv_event_get_user_data(e);
@@ -438,7 +390,12 @@ static void item_cb(lv_event_t *e)
     case IT_NUM: ui_nav_show(build_adjust); break;
     case IT_CHOICE: ui_nav_show(build_choice); break;
     case IT_TOGGLE: set_val(s_item, !get_val(s_item)); ui_nav_show(ui_settings_create); break;
-    case IT_CALLSIGN: ui_nav_show(build_callsign); break;
+    /* 弹窗盖在设置页上，不换页。确定后重建设置页，让列表里那一行显示新呼号；
+       取消传 NULL——关掉弹窗停在原地就是对的。 */
+    case IT_CALLSIGN:
+        ui_callsign_set_return(ui_settings_create);
+        ui_nav_show(ui_callsign_create);
+        break;
     case IT_RESET: ui_nav_show(build_reset); break;
     case IT_OTA: ui_nav_show(ui_ota_create); break;
     case IT_WIFI:
