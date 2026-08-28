@@ -32,6 +32,21 @@ typedef struct {
 
 typedef struct {
     uint16_t delay_ms;
+    /*
+     * 已经**播完**的字符数，只增不减（reset 时归零）。
+     *
+     * 文字必须跟着声音走：收到包就把文字推给界面的话，文字会恒定领先声音
+     * delay_ms 加上这个字符本身的时长，也就是 0.5~1 秒。缓冲在每个字符的
+     * 末尾埋一个边界标记，播到它才 +1，界面据此决定什么时候吐这个字。
+     */
+    uint32_t chars_done;
+    /*
+     * 冻结：本机发报期间把时间基准停住。侧音只有一路，对方的音频不能同时
+     * 响，但也不能丢——原来是照常推进时钟只不出声，松手时那几个字已经流
+     * 过去了。held_at_ms 记下冻结的时刻，resume 时把所有未来时刻整体后移。
+     */
+    bool     held;
+    uint32_t held_at_ms;
     int32_t  q[KOB_RXBUF_CAP];
     int      head, tail;             /* head == tail 表示空 */
     bool     playing;                /* 是否已经开始消费队列 */
@@ -48,6 +63,16 @@ void kob_rxbuf_push(kob_rxbuf_t *b, const int32_t *code, int32_t n, uint32_t now
 /* 周期调用（建议 5~10ms），返回此刻应有的发声状态。 */
 void kob_rxbuf_poll(kob_rxbuf_t *b, uint32_t now_ms, kob_rx_out_t *out);
 void kob_rxbuf_reset(kob_rxbuf_t *b);
+
+/* 已播完的字符数。调用方用它的增量决定吐几个字，见 chars_done 的说明。 */
+uint32_t kob_rxbuf_chars_done(const kob_rxbuf_t *b);
+
+/*
+ * 冻结 / 解冻播放。本机发报期间冻住，松手解冻，中间这段时间不推进。
+ * 两者都是幂等的：重复 hold 不会把冻结起点往后挪，未冻结时 resume 无效。
+ */
+void kob_rxbuf_hold(kob_rxbuf_t *b, uint32_t now_ms);
+void kob_rxbuf_resume(kob_rxbuf_t *b, uint32_t now_ms);
 /* 判断一个码包是否是「打断」：恰好两个元素，(-n, +2) 且 n > 3000。 */
 bool kob_rxbuf_is_break(const int32_t *code, int32_t n);
 

@@ -52,6 +52,55 @@ static const char NET_OWNER;   /* 电键归属令牌，见 key_input_stop_if() *
 
 static uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 
+/*
+ * 等着跟声音一起出场的文字。
+ *
+ * 协议上一个码包就是一个字符，rxbuf 又在每个字符末尾埋了边界，所以这个队列
+ * 和 chars_done 是一一对应的：播完第 N 个字符，才放出第 N 条文字。原来是收到
+ * 包就推给界面，而音频要等 500ms 抖动缓冲再播、还要花掉字符本身的时长——
+ * 文字恒定领先声音 0.5~1 秒，看着的和听着的根本不是一个字。
+ */
+#define PEND_MAX 24
+typedef struct { char from[24]; char txt[16]; } pend_t;
+static pend_t   s_pend[PEND_MAX];
+static int      s_pend_head, s_pend_tail;
+static uint32_t s_emitted;          /* 已经吐给界面的字符数，和 chars_done 比 */
+
+static void push_line(const char *from, const char *txt);
+
+static void pend_push(const char *from, const char *txt)
+{
+    int next = (s_pend_tail + 1) % PEND_MAX;
+    if (next == s_pend_head) return;      /* 满了丢新的，和 push_line 一致 */
+    snprintf(s_pend[s_pend_tail].from, sizeof s_pend[0].from, "%s", from ? from : "");
+    snprintf(s_pend[s_pend_tail].txt, sizeof s_pend[0].txt, "%s", txt ? txt : "");
+    s_pend_tail = next;
+}
+
+/* 把还没等到声音的文字全部吐出去，并重新对齐计数。
+   打断时用：缓冲被清空，那些字符的声音再也不会响了，但内容确实收到了，
+   不能让它凭空消失。 */
+static void pend_flush_all(void)
+{
+    while (s_pend_head != s_pend_tail) {
+        push_line(s_pend[s_pend_head].from, s_pend[s_pend_head].txt);
+        s_pend_head = (s_pend_head + 1) % PEND_MAX;
+    }
+    s_emitted = 0;
+}
+
+/* 播完几个字符就放出几条文字。 */
+static void pend_drain(void)
+{
+    uint32_t done = kob_rxbuf_chars_done(&s_rxbuf);
+    while (s_emitted < done) {
+        if (s_pend_head == s_pend_tail) { s_emitted = done; break; }
+        push_line(s_pend[s_pend_head].from, s_pend[s_pend_head].txt);
+        s_pend_head = (s_pend_head + 1) % PEND_MAX;
+        s_emitted++;
+    }
+}
+
 static void push_line(const char *from, const char *txt)
 {
     int tail = s_ring_tail;
@@ -88,21 +137,46 @@ static void on_code(const char *from, const int32_t *code, int32_t n,
     if (s_st.i_am_sending) {
         s_st.broken = true;
     }
+
+    /*
+     * 新的一轮发报（换人，或者上一轮静默超时后 sender 已被清空）：立刻给界面
+     * 一条空内容的记录，让呼号牌先亮出来。
+     *
+     * 文字现在是跟着声音走的，要等抖动缓冲加这个字符自己的时长——半秒到一秒。
+     * 呼号牌不该陪着一起等：「谁在发」是收到包的那一刻就确定的事，先摆出来，
+     * 内容随后一个字一个字填进去。
+     */
+    bool new_run = strcmp(s_st.sender, from) != 0;
     snprintf(s_st.sender, sizeof s_st.sender, "%s", from);
+    if (new_run) push_line(from, "");
+
+    /* 打断会把缓冲整个清空，排队的文字就再也等不到它们的声音了。
+       内容是真收到过的，先吐出去，再让 push 去清缓冲。 */
+    bool is_break = kob_rxbuf_is_break(code, n);
+    if (is_break) pend_flush_all();
 
     kob_rxbuf_push(&s_rxbuf, code, n, now_ms());
 
-    /* seq 跳变说明中间丢了包。协议一个字符一个包、UDP 无重传，丢了就是丢了
-       一个字——如实显示 ? 而不是把残缺的内容伪装成完整的。 */
+    /*
+     * seq 跳变说明中间丢了包。协议一个字符一个包、UDP 无重传，丢了就是丢了
+     * 一个字——如实显示 ? 而不是把残缺的内容伪装成完整的。
+     *
+     * ? 并进这个字符的文字里，不单独排一条：丢掉的包没有音频，单独排队就
+     * 永远等不到「播完」，会把整个队列堵死。
+     */
+    char buf[16];
+    int k = 0;
     if (lost > 0) {
-        char q[KOB_LOST_MAX + 1];
-        int k = lost > KOB_LOST_MAX ? KOB_LOST_MAX : (int)lost;
-        for (int i = 0; i < k; i++) q[i] = '?';
-        q[k] = '\0';
-        push_line(from, q);
+        k = lost > KOB_LOST_MAX ? KOB_LOST_MAX : (int)lost;
+        if (k > (int)sizeof buf - 2) k = (int)sizeof buf - 2;
+        for (int i = 0; i < k; i++) buf[i] = '?';
     }
+    buf[k] = '\0';
+    if (txt && txt[0]) snprintf(buf + k, sizeof buf - k, "%s", txt);
 
-    if (txt && txt[0]) push_line(from, txt);
+    /* 打断包本身不产生字符边界（push 直接 return 了），排进去会堵住队列。 */
+    if (buf[0] && !is_break) pend_push(from, buf);
+    else if (buf[0]) push_line(from, buf);
 }
 
 /*
@@ -287,6 +361,23 @@ static void send_break(void)
     kob_client_send_code(&s_client, brk, 2, "", now_ms());
 }
 
+/*
+ * 本机是不是正在发报。
+ *
+ * 不能直接用 s_st.i_am_sending：它跟的是键的按下/抬起，而形成一个字符的过程中
+ * 键大部分时间是抬起的。最后一个边沿之后静默满这么久，才算这一轮发完。
+ * 1 秒是照着字符间隔定的——20 WPM 下字间隔 180ms、词间隔 420ms，都在 1 秒内，
+ * 所以一整段发报中间不会被误判成「发完了」。
+ */
+#define TX_BUSY_MS 1000
+
+static bool tx_busy(uint32_t t)
+{
+    if (s_st.i_am_sending) return true;
+    if (!s_tx_have_edge) return false;
+    return (uint32_t)(t - s_tx_last_edge_ms) < TX_BUSY_MS;
+}
+
 static void task(void *arg)
 {
     (void)arg;
@@ -354,11 +445,28 @@ static void task(void *arg)
 
         kob_client_tick(&s_client, t);
 
-        /* 收报回放 -> 侧音。注意：这里和 key_input 的 5ms 任务都会调
-           tone_gen_set()。本机发报时不要让收报把侧音抢走。 */
+        /*
+         * 收报回放 -> 侧音。这里和 key_input 的 5ms 任务都会调 tone_gen_set()，
+         * 侧音只有一路，本机发报时不能让收报把它抢走。
+         *
+         * 但「不抢」不等于「跳过」。原来只是不调 tone_gen_set()，而 rxbuf 照常
+         * 按墙上时钟推进——你按键这几秒里对方的码元全都流过去了，松手时那几个
+         * 字永远听不到。现在是把时间基准冻住，松手后整体后移接着播。
+         *
+         * 判据不能只看 i_am_sending：它跟的是键的按下/抬起，一个字符里键大部分
+         * 时间是抬起的，那样会在每个点划的间隙里放对方半个码元，糊成一片。
+         * 用 tx_busy()：最后一个边沿之后静默满 TX_BUSY_MS 才算发完。
+         */
+        bool busy = tx_busy(t);
+        if (busy) kob_rxbuf_hold(&s_rxbuf, t);
+        else      kob_rxbuf_resume(&s_rxbuf, t);
+
         kob_rx_out_t out;
         kob_rxbuf_poll(&s_rxbuf, t, &out);
-        if (!s_st.i_am_sending) tone_gen_set(out.key_down);
+        if (!busy) tone_gen_set(out.key_down);
+
+        /* 文字跟着声音走：播完一个字符，才放出它的文字。 */
+        pend_drain();
 
         if (s_tx_break_req) send_break();
         if (s_tx_flush) flush_tx();
@@ -404,6 +512,8 @@ static esp_err_t spawn_task(void)
     memset(&s_st, 0, sizeof s_st);
     memset(s_peer_ms, 0, sizeof s_peer_ms);
     s_ring_head = s_ring_tail = 0;
+    s_pend_head = s_pend_tail = 0;
+    s_emitted = 0;
     s_stop = false;
 
     /* 钉在 core 0：和 WiFi/lwIP 同核。优先级 5，远低于 core 1 上的 tone(23)

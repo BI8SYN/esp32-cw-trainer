@@ -1,9 +1,19 @@
 #include "kob_rxbuf.h"
+#include <limits.h>
 #include <string.h>
 
 #define BREAK_THRESHOLD_MS 3000   /* 规范：(-n, +2) 且 n > 3000 视为打断 */
 #define LATCH_START        1      /* +1 */
 #define LATCH_END          2      /* +2 */
+/*
+ * 字符边界标记。每个码包（协议上就是一个字符）压完自己的码元后压一个，
+ * 播到它就说明这个字符的声音放完了。
+ *
+ * 取 INT32_MIN 而不是别的：真实码元是毫秒时长，正数是闭合、负数是断开，
+ * 而 1/2 已经被锁存占掉、0 是填充位。一个负到 24 天的「断开」不可能出现在
+ * 真实数据里，所以它和任何合法取值都撞不上。
+ */
+#define CHAR_MARK          INT32_MIN
 
 /* 见 kob_client.c 里同名函数的说明：uint32 毫秒 49.7 天回绕，
    无符号减法在回绕处依然给出正确差值。 */
@@ -69,6 +79,7 @@ void kob_rxbuf_push(kob_rxbuf_t *b, const int32_t *code, int32_t n, uint32_t now
     }
 
     for (int32_t i = 0; i < n; i++) q_push(b, code[i]);
+    q_push(b, CHAR_MARK);      /* 一个包 = 一个字符，末尾埋边界，见 chars_done */
 
     if (!b->have_ready) {
         b->ready_ms = now_ms + b->delay_ms;
@@ -93,6 +104,12 @@ static bool next_element(kob_rxbuf_t *b, uint32_t from_ms)
             b->cur_down = false;
             b->playing = false;
             return true;
+        }
+        if (e == CHAR_MARK) {
+            /* 这个字符的声音刚放完。只计数，继续取下一个元素——边界本身
+               不占时长，不能让它把播放停住。 */
+            b->chars_done++;
+            continue;
         }
         if (e == 0) continue;        /* 填充位，跳过 */
 
@@ -133,6 +150,7 @@ static void drain_latched(kob_rxbuf_t *b, uint32_t now_ms)
             return;
         }
         if (e == LATCH_START) { q_pop(b, &e); continue; }   /* 重复的 +1，忽略 */
+        if (e == CHAR_MARK) { q_pop(b, &e); b->chars_done++; continue; }
         if (e < 0 || e == 0) { q_pop(b, &e); continue; }    /* 追溯性时长，丢弃 */
         /* 长度 > 1ms 的 mark 同样解锁，且这个 mark 要真的播出来 */
         b->latched = false;
@@ -143,8 +161,36 @@ static void drain_latched(kob_rxbuf_t *b, uint32_t now_ms)
     }
 }
 
+uint32_t kob_rxbuf_chars_done(const kob_rxbuf_t *b) { return b->chars_done; }
+
+void kob_rxbuf_hold(kob_rxbuf_t *b, uint32_t now_ms)
+{
+    if (b->held) return;          /* 幂等：重复 hold 不把冻结起点往后挪 */
+    b->held = true;
+    b->held_at_ms = now_ms;
+}
+
+void kob_rxbuf_resume(kob_rxbuf_t *b, uint32_t now_ms)
+{
+    if (!b->held) return;
+    b->held = false;
+
+    /* 把所有「未来的时刻」整体后移冻结的这段时长。用无符号加法，回绕安全。 */
+    uint32_t frozen = now_ms - b->held_at_ms;
+    b->elem_end_ms += frozen;
+    b->ready_ms += frozen;
+}
+
 void kob_rxbuf_poll(kob_rxbuf_t *b, uint32_t now_ms, kob_rx_out_t *out)
 {
+    /* 冻结期间时间不推进。保持当前发声状态原样返回——调用方在发报，本来
+       也不会拿它去驱动侧音，但状态得是连续的，松手才能接着往下走。 */
+    if (b->held) {
+        out->key_down = (b->playing || b->latched) ? b->cur_down : false;
+        out->latched = b->latched;
+        return;
+    }
+
     /* 锁存态：不受时钟推进影响，一直保持到收到 +2 / 一个真 mark，或被 reset。 */
     if (b->latched) {
         drain_latched(b, now_ms);
