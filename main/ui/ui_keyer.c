@@ -86,17 +86,27 @@ lv_obj_t *ui_keyer_create(void)
     int top = UI_TOPBAR_H;
     if (!tone_gen_is_ok()) { ui_notice(s_scr, "音频异常，侧音不可用"); top += 22; }
 
+    /*
+     * 纵向预算（顶栏之下 212px）：解码文本 74 / 点划 26 / 电键 108。
+     *
+     * 文本高度必须是 74 = 2 行 x UI_FONT_MID 的行高 37。原来只给了 60，
+     * 第二行的下缘被裁掉 14px——Q 的尾巴正好在那里，看起来就成了 O。
+     * 和配网页输入框、对练页状态带是同一类问题：容器高度必须 >= 内容高度。
+     */
     s_text = lv_label_create(s_scr);
     lv_obj_set_style_text_font(s_text, UI_FONT_MID, 0);
-    lv_obj_set_pos(s_text, 8, top + 4);
-    lv_obj_set_size(s_text, 304, 60);
+    lv_obj_set_pos(s_text, 8, top + 2);
+    lv_obj_set_size(s_text, 304, 74);
     lv_label_set_long_mode(s_text, LV_LABEL_LONG_WRAP);
     lv_label_set_text(s_text, "");
     s_buf[0] = 0;
 
+    /* 点划行改用 UI_FONT_CN（行高 26）：文本要 74、电键要留够 108，
+       三者加起来必须 <= 212，点划这行只能用小的。它是转瞬即逝的提示，
+       让位给要读的解码文本是对的。 */
     s_seq = lv_label_create(s_scr);
-    lv_obj_set_style_text_font(s_seq, UI_FONT_MID, 0);
-    lv_obj_align(s_seq, LV_ALIGN_TOP_MID, 0, top + 66);
+    lv_obj_set_style_text_font(s_seq, UI_FONT_CN, 0);
+    lv_obj_align(s_seq, LV_ALIGN_TOP_MID, 0, top + 78);
     lv_label_set_text(s_seq, "");
 
     /* s_pad[] 是跨页面存活的文件级 static；下面三条布局分支里，仅"外接+直键"
@@ -109,7 +119,9 @@ lv_obj_t *ui_keyer_create(void)
      * 残留值。 */
     s_pad[0] = s_pad[1] = NULL;
 
-    int py = 120, ph = 240 - py;
+    /* 132 起，剩 108px 给电键——远超 44px 触控下限，同时给上面的解码文本
+       腾出完整的两行高度。 */
+    int py = 132, ph = 240 - py;
     bool straight = cfg->keyer_mode == KEYER_MODE_STRAIGHT;
     bool ext = cfg->key_input == CW_KEY_INPUT_EXT;
     if (ext) {

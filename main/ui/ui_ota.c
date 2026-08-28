@@ -28,14 +28,16 @@ static void refresh(void)
     const ota_status_t *st = ota_status();
     const ota_check_t *ck = ota_check_result();
 
-    /* 顶部两行永远是"我在跑什么 / 服务器上有什么"。不显示固件地址——
-       用户改不了它，看了也没有任何可做的事，属于纯噪音。 */
-    lv_label_set_text_fmt(s_url, "当前 %s", ota_current_version());
-    if (ota_check_busy())      lv_label_set_text(s_latest, "检查中...");
-    else if (!ck->checked)     lv_label_set_text(s_latest, "");
-    else if (ck->err[0])       lv_label_set_text_fmt(s_latest, "检查失败：%s", ck->err);
-    else if (ck->available)    lv_label_set_text_fmt(s_latest, "服务器 %s", ck->latest);
-    else                       lv_label_set_text(s_latest, "已是最新");
+    /*
+     * 两行平行的标注：当前版本 / 最新版本。不显示固件地址——用户改不了它，
+     * 看了也没有任何可做的事。也不说"服务器 vX"：用户关心的是"最新的是
+     * 哪个"，服务器只是它碰巧待的地方。
+     */
+    lv_label_set_text_fmt(s_url, "当前版本  %s", ota_current_version());
+    if (ota_check_busy())      lv_label_set_text(s_latest, "最新版本  检查中...");
+    else if (!ck->checked)     lv_label_set_text(s_latest, "最新版本  --");
+    else if (ck->err[0])       lv_label_set_text_fmt(s_latest, "最新版本  %s", ck->err);
+    else                       lv_label_set_text_fmt(s_latest, "最新版本  %s", ck->latest);
 
     switch (st->state) {
     case OTA_IDLE:
