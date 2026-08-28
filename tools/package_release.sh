@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# 打一个可直接发给别人的固件包，输出到 ~/Desktop/<工程>-<版本>/ 并压成同名 .zip。
+# 打一个可直接发给别人的固件包，输出到 dist/<工程>-<版本>/ 并压成同名 .zip。
 # 目录结构、文件命名、README 章节都沿用 v1.0.0 那一版手工打的包的约定。
 #
 # 用法： tools/package_release.sh [工程目录]
 #   例： tools/package_release.sh firmware/cw-trainer
 #
 # 环境变量：
-#   DIST_DIR   输出的父目录，默认 ~/Desktop
+#   DIST_DIR   输出的父目录，默认仓库的 dist/
 #
 # 版本号取工程 CMakeLists.txt 里的 PROJECT_VER，不是仓库 tag——两个固件共用
 # tag 命名空间，只有 PROJECT_VER 才是这个固件真正嵌进 bin 里的那个值
@@ -18,7 +18,10 @@ REPO_ROOT="$PWD"
 
 PROJECT="${1:-firmware/cw-trainer}"
 NAME="$(basename "$PROJECT")"
-DIST_DIR="${DIST_DIR:-$HOME/Desktop}"
+# 默认打进仓库的 dist/ 并随版本库一起提交——包和产出它的源码绑在一起，
+# 别人 clone 下来就有，不依赖任何外部托管。
+# 只提交 .zip，展开的目录由 .gitignore 排除（提交两份等于体积翻倍）。
+DIST_DIR="${DIST_DIR:-$REPO_ROOT/dist}"
 
 [[ -f "$REPO_ROOT/$PROJECT/CMakeLists.txt" ]] || {
   echo "错误：$PROJECT 里没有 CMakeLists.txt" >&2
