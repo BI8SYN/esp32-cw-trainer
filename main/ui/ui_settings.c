@@ -133,6 +133,8 @@ static int s_group = 0;
 static const item_t *s_item;
 static lv_obj_t *s_list, *s_tabs[GROUP_COUNT];
 static lv_obj_t *s_val_label;
+static lv_obj_t *s_val_hint;   /* 数值下方的补充说明，目前只有 wire 号用 */
+static void update_hint(void);
 static char s_call_buf[12];
 static lv_obj_t *s_call_hint;
 
@@ -288,6 +290,7 @@ static void adj_cb(lv_event_t *e)
     set_val(s_item, v);
     char b[16]; fmt_val(s_item, b, sizeof b);
     lv_label_set_text(s_val_label, b);
+    update_hint();
 }
 
 /* 数值调整页里的"试听"用 cw_player 全局单例播放 PARIS。&s_adj_scr 取本
@@ -298,8 +301,20 @@ static void adj_cb(lv_event_t *e)
  * 起播的音频，而不是本页自己那一段——ui_preview/ui_practice 已经踩过这个
  * 坑，这里沿用同一套令牌机制。 */
 static lv_obj_t *s_adj_scr;
-static void adj_on_delete(lv_event_t *e) { (void)e; cw_player_stop_if(&s_adj_scr); s_adj_scr = NULL; }
+static void adj_on_delete(lv_event_t *e) { (void)e; cw_player_stop_if(&s_adj_scr); s_adj_scr = NULL; s_val_hint = NULL; }
 static void listen_cb(lv_event_t *e) { (void)e; cw_player_play("PARIS", NULL, &s_adj_scr); }
+
+/* 数值页下方的补充说明。目前只有 wire 号有内容。 */
+static void update_hint(void)
+{
+    if (!s_val_hint || !s_item) return;
+    if (strcmp(s_item->name, "wire 号") == 0) {
+        const char *n = cw_net_wire_label((int16_t)get_val(s_item));
+        lv_label_set_text(s_val_hint, n ? n : "");
+    } else {
+        lv_label_set_text(s_val_hint, "");
+    }
+}
 
 static lv_obj_t *build_adjust(void)
 {
@@ -316,6 +331,15 @@ static lv_obj_t *build_adjust(void)
     char b[16]; fmt_val(s_item, b, sizeof b);
     lv_label_set_text(s_val_label, b);
     lv_obj_align(s_val_label, LV_ALIGN_TOP_MID, 0, 88);
+
+    /* wire 号下面显示这条 wire 上跑着哪个陪练。号码本身对用户没有意义，
+       知道"上面是谁"才谈得上选。没有陪练的 wire 就不显示——留白比显示
+       一句"无"更干净，也不会让人以为出了什么问题。 */
+    s_val_hint = lv_label_create(s);
+    lv_obj_set_style_text_font(s_val_hint, UI_FONT_CN, 0);
+    lv_obj_align(s_val_hint, LV_ALIGN_TOP_MID, 0, 132);
+    lv_label_set_text(s_val_hint, "");
+    update_hint();
     if (s_item->listen) {
         lv_obj_t *l = ui_button(s, "试听", listen_cb, NULL);
         lv_obj_set_width(l, 120); lv_obj_align(l, LV_ALIGN_TOP_MID, 0, 170);

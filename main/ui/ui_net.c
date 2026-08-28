@@ -223,11 +223,54 @@ static void picker_close(lv_event_t *e)
     lv_obj_del((lv_obj_t *)lv_event_get_user_data(e));
 }
 
+static lv_obj_t *s_num_lbl;
+static int16_t   s_num_val;
+
+static void num_adj(lv_event_t *e)
+{
+    int d = (int)(intptr_t)lv_event_get_user_data(e);
+    s_num_val += d;
+    if (s_num_val < 1) s_num_val = 999;
+    if (s_num_val > 999) s_num_val = 1;
+    lv_label_set_text_fmt(s_num_lbl, "wire %d", s_num_val);
+}
+
+static void apply_wire(int16_t w)
+{
+    net_store_get()->wire = w;
+    net_store_save();
+    /* 换 wire 等于换一条线路，只能断开重连。整页重建最省事，也顺带把
+       收报记录清空——上一条 wire 上的对话留在屏幕上只会造成误解。 */
+    ui_nav_show(ui_net_create);
+}
+
+static void num_ok(lv_event_t *e) { (void)e; apply_wire(s_num_val); }
+
+/* 手动输入：+/- 调数字。不用键盘——只有一个 1~999 的数，键盘要占掉大半屏，
+   而 +/- 在这个量级上更快也更不容易输错。 */
+static void picker_manual(lv_event_t *e)
+{
+    lv_obj_t *dlg = (lv_obj_t *)lv_event_get_user_data(e);
+    lv_obj_clean(dlg);
+    s_num_val = net_store_get()->wire;
+
+    s_num_lbl = lv_label_create(dlg);
+    lv_obj_set_style_text_font(s_num_lbl, UI_FONT_MID, 0);
+    lv_label_set_text_fmt(s_num_lbl, "wire %d", s_num_val);
+    lv_obj_align(s_num_lbl, LV_ALIGN_TOP_MID, 0, 10);
+
+    lv_obj_t *m = ui_cell(dlg, "-", UI_FONT_MID, num_adj, (void *)(intptr_t)-1);
+    lv_obj_set_pos(m, 0, 56);  lv_obj_set_size(m, 78, 56);
+    lv_obj_t *p = ui_cell(dlg, "+", UI_FONT_MID, num_adj, (void *)(intptr_t)1);
+    lv_obj_set_pos(p, 158, 56); lv_obj_set_size(p, 78, 56);
+    lv_obj_t *ok = ui_cell(dlg, "确定", UI_FONT_CN, num_ok, NULL);
+    lv_obj_set_pos(ok, 0, 118); lv_obj_set_size(ok, 236, 56);
+}
+
 static void picker_pick(lv_event_t *e)
 {
     int16_t w = (int16_t)(intptr_t)lv_event_get_user_data(e);
-    net_store_get()->wire = w;
-    net_store_save();
+    apply_wire(w);
     /* 换 wire 等于换一条线路，只能断开重连。整页重建最省事，也顺带把
        收报记录清空——上一条 wire 上的对话留在屏幕上只会造成误解。 */
     ui_nav_show(ui_net_create);
@@ -249,7 +292,7 @@ static void title_cb(lv_event_t *e)
 
     lv_obj_t *dlg = lv_obj_create(overlay);
     lv_obj_remove_style_all(dlg);
-    lv_obj_set_size(dlg, 240, 176);
+    lv_obj_set_size(dlg, 240, 228);
     lv_obj_center(dlg);
     lv_obj_set_style_bg_color(dlg, UI_WHITE, 0);
     lv_obj_set_style_bg_opa(dlg, LV_OPA_COVER, 0);
@@ -266,8 +309,15 @@ static void title_cb(lv_event_t *e)
         lv_obj_set_size(c, 236, 56);
         lv_obj_set_style_border_side(c, LV_BORDER_SIDE_BOTTOM, 0);
     }
+    /* 第三行是手动输入：陪练只占了两条 wire，其余的要能自由接入
+       （和别人约一条自己的 wire 对练，或者接国际 wire）。 */
+    lv_obj_t *man = ui_cell(dlg, "手动输入", UI_FONT_CN, picker_manual, dlg);
+    lv_obj_set_pos(man, 0, 112);
+    lv_obj_set_size(man, 236, 56);
+    lv_obj_set_style_border_side(man, LV_BORDER_SIDE_BOTTOM, 0);
+
     lv_obj_t *c = ui_cell(dlg, "取消", UI_FONT_CN, picker_close, overlay);
-    lv_obj_set_pos(c, 0, 112);
+    lv_obj_set_pos(c, 0, 168);
     lv_obj_set_size(c, 236, 56);
     lv_obj_set_style_border_side(c, LV_BORDER_SIDE_NONE, 0);
 }
@@ -310,8 +360,13 @@ lv_obj_t *ui_net_create(void)
     lv_obj_t *bar = ui_topbar(s_scr, "", back);
     s_title = lv_label_create(bar);
     lv_obj_set_style_text_font(s_title, UI_FONT_CN, 0);
-    lv_obj_align(s_title, LV_ALIGN_LEFT_MID, 6, 0);
-    lv_label_set_text(s_title, wire_name());
+    /* x=40 而不是 6：返回箭头占 0..36，写 6 会把它压住（ui_topbar 里
+       带返回箭头时标题也是从 40 起）。 */
+    lv_obj_align(s_title, LV_ALIGN_LEFT_MID, 40, 0);
+    /* 加 ">" 表示可点——项目里「更多练习 >」「设置 >」都是这个约定，
+       用户已经认得。字体里没有任何下拉三角（▾ ▼ ∨ 都不在 font20 的
+       码点范围内），只能用 ASCII。 */
+    lv_label_set_text_fmt(s_title, "%s >", wire_name());
     lv_obj_add_flag(s_title, LV_OBJ_FLAG_CLICKABLE);
     /* 电阻屏漏点常见，扩大可点区域（视觉大小不变） */
     lv_obj_set_ext_click_area(s_title, 12);
@@ -319,7 +374,8 @@ lv_obj_t *ui_net_create(void)
 
     s_peers = lv_label_create(bar);
     lv_obj_set_style_text_font(s_peers, UI_FONT_CN, 0);
-    lv_obj_align(s_peers, LV_ALIGN_RIGHT_MID, -64, 0);
+    /* 右侧没有其他控件（返回是左边的箭头），靠到最右 */
+    lv_obj_align(s_peers, LV_ALIGN_RIGHT_MID, -6, 0);
     lv_label_set_text(s_peers, "");
 
     /* 收报区 74px：可滚动容器 + 自动折行的标签。行数由字体和宽度自己决定，
