@@ -13,6 +13,8 @@
 #define TEXT_MAX 40   /* 2 行 × 20 字符（等宽 font28 约 16px/字） */
 
 static lv_obj_t *s_scr, *s_text, *s_seq, *s_pad[2];
+/* 电键归属令牌。取本文件某个静态变量的地址即可，只要全局唯一。 */
+static const char KEYER_OWNER;
 static char s_buf[TEXT_MAX + 1];
 static lv_timer_t *s_timer;
 
@@ -65,7 +67,7 @@ static void clear_cb(lv_event_t *e) { (void)e; s_buf[0] = 0; lv_label_set_text(s
 /* 手法分析从电键页进：它讲的是你发出去的时序，走到这一页的人正好在发报。 */
 static void go_fist(lv_event_t *e) { (void)e; ui_nav_show(ui_fist_create); }
 static void back(lv_event_t *e) { (void)e; ui_nav_show(ui_home_create); }
-static void on_delete(lv_event_t *e) { (void)e; key_input_stop(); lv_timer_del(s_timer); s_timer = NULL; s_scr = NULL; s_pad[0] = s_pad[1] = NULL; }
+static void on_delete(lv_event_t *e) { (void)e; key_input_stop_if((void *)&KEYER_OWNER); lv_timer_del(s_timer); s_timer = NULL; s_scr = NULL; s_pad[0] = s_pad[1] = NULL; }
 
 lv_obj_t *ui_keyer_create(void)
 {
@@ -127,7 +129,7 @@ lv_obj_t *ui_keyer_create(void)
         ui_keyer_paddles(s_scr, py, ph, s_pad);
     }
 
-    key_input_start(char_cb, NULL);
+    key_input_start(char_cb, (void *)&KEYER_OWNER);
     s_timer = lv_timer_create(poll, 50, NULL);
     return s_scr;
 }

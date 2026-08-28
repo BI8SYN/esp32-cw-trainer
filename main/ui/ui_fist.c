@@ -23,6 +23,7 @@
 #define ELEM_MAX 64
 
 static lv_obj_t *s_scr, *s_canvas, *s_summary;
+static const char FIST_OWNER;   /* 电键归属令牌，见 key_input_stop_if() */
 static lv_timer_t *s_timer;
 
 /* 边沿回调在 key_input 的 5ms 任务里跑（core 1，优先级 22），只记数据，
@@ -170,8 +171,9 @@ static void back(lv_event_t *e) { (void)e; ui_nav_show(ui_keyer_create); }
 static void on_delete(lv_event_t *e)
 {
     (void)e;
-    key_input_set_edge_cb(NULL, NULL);
-    key_input_stop();
+    /* 只在电键还归本页时才停。ui_nav_show 先建新页再删旧页，无条件停止
+       会掐掉新页刚启动的电键——见 key_input_stop_if() 的说明。 */
+    key_input_stop_if((void *)&FIST_OWNER);
     if (s_timer) { lv_timer_del(s_timer); s_timer = NULL; }
     s_scr = NULL; s_canvas = NULL; s_summary = NULL;
 }
@@ -206,8 +208,9 @@ lv_obj_t *ui_fist_create(void)
     s_elem_n = 0;
     s_have_last = false;
     s_dirty = true;
+    /* 必须先 start 再挂边沿：start 会清掉上一个页面留下的边沿回调。 */
+    key_input_start(NULL, (void *)&FIST_OWNER);
     key_input_set_edge_cb(on_edge, NULL);
-    key_input_start(NULL, NULL);
     s_timer = lv_timer_create(poll, 120, NULL);
     return s_scr;
 }

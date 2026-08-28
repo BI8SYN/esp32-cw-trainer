@@ -140,6 +140,11 @@ void key_input_start(key_input_char_cb_t cb, void *user)
     s_last_out = false;
     s_cb = cb;
     s_user = user;
+    /* 接管电键的人从一张白纸开始：上一个页面挂的边沿回调在这里清掉，
+       免得它继续往一个已经不可见的页面的缓冲里写。要边沿的页面在
+       start 之后自己再挂。 */
+    s_edge_cb = NULL;
+    s_edge_user = NULL;
     if (c->key_input == CW_KEY_INPUT_EXT) {
         /* 启动自检，只在选中外接口模式时做：引脚已经在 key_input_init() 里配置
          * 成输入+内部上拉，这里立即采样一次原始电平——不经过去抖（去抖要两个
@@ -160,6 +165,15 @@ void key_input_start(key_input_char_cb_t cb, void *user)
     xTaskNotifyGive(s_task);
 }
 
+bool key_input_stop_if(void *owner)
+{
+    /* 归属不对说明电键已经被后建的页面接管了，这次 stop 请求属于正在被
+       删除的旧页面——什么都不做才是对的。见头文件里的说明。 */
+    if (!s_running || s_user != owner) return false;
+    key_input_stop();
+    return true;
+}
+
 void key_input_stop(void)
 {
     /* 不在这里调用 tone_gen_set：tone_gen_set 只应该来自 key_input 自己的任务
@@ -167,6 +181,8 @@ void key_input_stop(void)
      * 最迟在下一个 tick（至多 TICK_MS）之内会自己发现并关掉侧音。 */
     s_running = false;
     s_cb = NULL;
+    s_edge_cb = NULL;
+    s_edge_user = NULL;
 }
 
 void key_input_touch(int paddle, bool pressed)

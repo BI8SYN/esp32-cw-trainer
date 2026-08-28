@@ -47,6 +47,8 @@ static volatile bool     s_tx_flush;      /* 字符边界到了，请 socket 任
 static volatile bool     s_tx_break_req;  /* 请求发一个打断包 */
 static char              s_tx_txt[8];
 
+static const char NET_OWNER;   /* 电键归属令牌，见 key_input_stop_if() */
+
 static uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 
 static void push_line(const char *from, const char *txt)
@@ -296,8 +298,9 @@ static void task(void *arg)
     s_tx_n = 0;
     s_tx_have_edge = false;
     s_tx_flush = false;
+    /* 先 start 再挂边沿：start 会清掉上一个页面留下的边沿回调。 */
+    key_input_start(on_key_char, (void *)&NET_OWNER);
     key_input_set_edge_cb(on_key_edge, NULL);
-    key_input_start(on_key_char, NULL);
 
     /* 4. 主循环 */
     uint32_t last_online_check = now_ms();
@@ -331,8 +334,7 @@ static void task(void *arg)
     }
 
     /* 5. 收尾 */
-    key_input_set_edge_cb(NULL, NULL);
-    key_input_stop();
+    key_input_stop_if((void *)&NET_OWNER);
     tone_gen_set(false);
     kob_client_stop(&s_client, now_ms());
     if (s_sock >= 0) { close(s_sock); s_sock = -1; }
