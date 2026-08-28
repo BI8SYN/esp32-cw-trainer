@@ -30,7 +30,35 @@ typedef struct {
     char        msg[64];
 } ota_status_t;
 
-/* 在后台任务里执行整个流程，非阻塞。进度轮询 ota_status()。 */
+/*
+ * 版本检查。设备只知道自己在跑哪个版本，要判断"有没有新的"必须问服务器，
+ * 所以服务器上除了固件本身还要放一份清单：
+ *
+ *     http://.../cw-trainer.json
+ *     {"version":"v1.3.0","url":"http://.../cw-trainer-v1.3.0.bin"}
+ *
+ * 固件文件名带版本号，一来能同时保留多个版本、二来出问题时看文件名就知道
+ * 设备装的是哪个。
+ */
+typedef struct {
+    bool checked;              /* 查过了（不论结果） */
+    bool available;            /* 服务器版本与当前不同 */
+    char latest[24];           /* 服务器上的版本号 */
+    char bin_url[128];
+    char err[48];              /* 查询失败的原因，成功时为空 */
+} ota_check_t;
+
+/* 后台拉清单并比对，非阻塞。结果轮询 ota_check_result()。 */
+esp_err_t          ota_check_start(void);
+/* stop_wifi_after=true 时查完自己关射频——开机检查用，否则就成了 WiFi 常连。 */
+esp_err_t          ota_check_start_auto(bool stop_wifi_after);
+const ota_check_t *ota_check_result(void);
+bool               ota_check_busy(void);
+/* 当前固件版本，来自 esp_app_get_description()。 */
+const char        *ota_current_version(void);
+
+/* 在后台任务里执行整个流程，非阻塞。进度轮询 ota_status()。
+   url 传 NULL 时用上一次检查得到的 bin_url。 */
 esp_err_t ota_start(const char *url);
 const ota_status_t *ota_status(void);
 /* OTA_DONE 之后调用，重启进入新固件。 */

@@ -94,6 +94,7 @@ static const item_t GEN[] = {
     { "作者", IT_INFO, 0, 0, 0, "", NULL, 0, false, "BI8SYN" },
     { "版本", IT_INFO, 0, 0, 0, "", NULL, 0, false, NULL },
     { "固件升级", IT_OTA, 0, 0, 0, "", NULL, 0, false, NULL },
+    { "开机检查更新", IT_TOGGLE, 0, 0, 0, "", NULL, 0, false, NULL },
     /* 危险操作按惯例压在最末 */
     { "恢复出厂设置", IT_RESET, 0, 0, 0, "", NULL, 0, false, NULL },
 };
@@ -126,7 +127,7 @@ static item_t NET[] = {
 };
 
 static const item_t *const GROUPS[4] = { AUDIO, KEY, GEN, NET };
-static const int GROUP_N[4] = { 4, 3, 8, 5 };
+static const int GROUP_N[4] = { 4, 3, 9, 5 };
 static const char *const GROUP_NAMES[4] = { "音频", "电键", "常规", "网络" };
 #define GROUP_COUNT 4
 
@@ -156,6 +157,7 @@ static int get_val(const item_t *it)
         }
         return 0;
     }
+    if (!strcmp(it->name, "开机检查更新")) return nc->boot_check ? 1 : 0;
     if (!strcmp(it->name, "陪练模式")) return nc->echo_mode ? 1 : 0;
     if (!strcmp(it->name, "收报缓冲")) return nc->rx_delay_ms;
     if (!strcmp(it->name, "wire 号")) return nc->wire;
@@ -213,6 +215,7 @@ static void set_val(const item_t *it, int v)
         wifi_net_prefer(-1);
         return;
     }
+    if (!strcmp(it->name, "开机检查更新")) { nc->boot_check = (uint8_t)(v ? 1 : 0); net_store_save(); return; }
     if (!strcmp(it->name, "陪练模式")) { nc->echo_mode = (uint8_t)(v ? 1 : 0); net_store_save(); return; }
     if (!strcmp(it->name, "收报缓冲")) { nc->rx_delay_ms = (uint16_t)v; net_store_save(); return; }
     if (!strcmp(it->name, "wire 号")) { nc->wire = (int16_t)v; net_store_save(); return; }
@@ -237,10 +240,29 @@ static void fmt_val(const item_t *it, char *out, size_t n)
     cw_settings_t *c = cw_settings_get();
     switch (it->type) {
     case IT_NUM: snprintf(out, n, "%d%s", get_val(it), it->unit); break;
-    case IT_CHOICE: snprintf(out, n, "%s", it->choices[get_val(it)]); break;
+    case IT_CHOICE: {
+        /* choices 为空或下标越界不该崩——这一整套是按 name 做 strcmp 分派的，
+           表和分派函数不同步时本来就容易出错，不能让它以空指针解引用收场。 */
+        int v = get_val(it);
+        if (!it->choices || it->nchoices <= 0 || v < 0 || v >= it->nchoices)
+            snprintf(out, n, "-");
+        else
+            snprintf(out, n, "%s", it->choices[v]);
+        break;
+    }
     case IT_TOGGLE: snprintf(out, n, "%s", get_val(it) ? "开" : "关"); break;
     case IT_CALLSIGN: snprintf(out, n, "%s", c->callsign); break;
-    case IT_OTA: snprintf(out, n, "%s", ota_running_label()); break;
+    case IT_OTA: {
+        /* 显示"有没有新的"，不显示分区标签——ota_0/ota_1 是实现细节，
+           用户既不关心也看不懂。 */
+        const ota_check_t *ck = ota_check_result();
+        if (ota_check_busy())   snprintf(out, n, "检查中");
+        else if (!ck->checked)  snprintf(out, n, "未检查");
+        else if (ck->err[0])    snprintf(out, n, "检查失败");
+        else if (ck->available) snprintf(out, n, "有 %s", ck->latest);
+        else                    snprintf(out, n, "已最新");
+        break;
+    }
     case IT_WIFI: {
         /* 值显示已存几个——是 0 的话，"联网对练连不上"的原因一眼可见 */
         const cw_net_cfg_t *nc = net_store_get();
@@ -434,8 +456,21 @@ static void back_home(lv_event_t *e) { (void)e; ui_nav_show(ui_home_create); }
 lv_obj_t *ui_settings_create(void)
 {
     rebuild_net_picks();
-    NET[0].choices = s_net_pick;
-    NET[0].nchoices = s_net_pick_n;
+    /*
+     * 按名字找那一行，不要写死下标。
+     *
+     * 之前这里是 NET[0]，而后来在表头插了「WiFi 网络」——choices 就挂到了
+     * 那个 IT_WIFI 行上，真正的「连接网络」拿到的是 NULL，fmt_val 里
+     * it->choices[...] 直接空指针解引用，点一下网络页签就崩溃重启（表现
+     * 为"跳回首页"）。下标会随插行静默错位，而且不会有编译错误。
+     */
+    for (int i = 0; i < GROUP_N[3]; i++) {
+        if (strcmp(NET[i].name, "连接网络") == 0) {
+            NET[i].choices = s_net_pick;
+            NET[i].nchoices = s_net_pick_n;
+            break;
+        }
+    }
     lv_obj_t *scr = ui_screen_create();
     ui_topbar(scr, "设置", back_home);
     int h = (240 - UI_TOPBAR_H) / GROUP_COUNT;

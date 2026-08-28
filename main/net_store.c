@@ -67,6 +67,12 @@ typedef struct {
     uint8_t           noise_notice_shown;
 } cw_net_cfg_v1_t;
 
+/* v2：v1 末尾加了 ota_url */
+typedef struct {
+    cw_net_cfg_v1_t   v1;
+    char              ota_url[96];
+} cw_net_cfg_v2_t;
+
 static void migrate_v1(const cw_net_cfg_v1_t *old, cw_net_cfg_t *dst)
 {
     set_defaults(dst);
@@ -79,7 +85,18 @@ static void migrate_v1(const cw_net_cfg_v1_t *old, cw_net_cfg_t *dst)
     dst->rx_delay_ms = old->rx_delay_ms;
     dst->echo_mode = old->echo_mode;
     dst->noise_notice_shown = old->noise_notice_shown;
-    /* ota_url 保持 set_defaults() 给的默认地址 */
+    /* ota_url / boot_check 保持 set_defaults() 给的默认值 */
+}
+
+static void migrate_v2(const cw_net_cfg_v2_t *old, cw_net_cfg_t *dst)
+{
+    migrate_v1(&old->v1, dst);
+    dst->version = CW_NET_CFG_VERSION;
+    /* v2 的 ota_url 指向 .bin，v3 起指向版本清单 .json。旧值搬过来会让
+       检查更新一直失败，所以只在它已经是清单地址时才保留。 */
+    size_t n = strlen(old->ota_url);
+    if (n > 5 && strcmp(old->ota_url + n - 5, ".json") == 0)
+        snprintf(dst->ota_url, sizeof dst->ota_url, "%s", old->ota_url);
 }
 
 static void copy_field(char *dst, size_t dst_sz, const uint8_t *src, size_t src_len)
@@ -100,6 +117,7 @@ static void set_defaults(cw_net_cfg_t *c)
     c->rx_delay_ms = 500;
     snprintf(c->ota_url, sizeof c->ota_url, "%s", CW_NET_DEFAULT_OTA);
     c->echo_mode = 0;
+    c->boot_check = 1;
     /* office ID 跟随呼号。cw_settings_init() 必须先于本函数调用过。 */
     const cw_settings_t *s = cw_settings_get();
     if (s && s->callsign[0]) snprintf(c->office, sizeof c->office, "%s", s->callsign);
@@ -128,19 +146,25 @@ esp_err_t net_store_init(void)
     }
 
     union {
-        cw_net_cfg_t    v2;
+        cw_net_cfg_t    cur;
+        cw_net_cfg_v2_t v2m;
         cw_net_cfg_v1_t v1;
     } raw;
     size_t len = sizeof raw;
     err = nvs_get_blob(h, NVS_KEY_NET_CFG, &raw, &len);
     nvs_close(h);
 
+    if (err == ESP_OK && len == sizeof(cw_net_cfg_v2_t) && raw.v2m.v1.version == 2) {
+        ESP_LOGI(TAG, "migrating net cfg v2 -> v%d（保住已存的 WiFi）", CW_NET_CFG_VERSION);
+        migrate_v2(&raw.v2m, &s_cfg);
+        return write_blob();
+    }
     if (err == ESP_OK && len == sizeof(cw_net_cfg_v1_t) && raw.v1.version == 1) {
         ESP_LOGI(TAG, "migrating net cfg v1 -> v%d（保住已存的 WiFi）", CW_NET_CFG_VERSION);
         migrate_v1(&raw.v1, &s_cfg);
         return write_blob();
     }
-    if (err == ESP_OK && len == sizeof s_cfg) memcpy(&s_cfg, &raw.v2, sizeof s_cfg);
+    if (err == ESP_OK && len == sizeof s_cfg) memcpy(&s_cfg, &raw.cur, sizeof s_cfg);
 
     if (err == ESP_ERR_NVS_NOT_FOUND) {
         ESP_LOGI(TAG, "no net cfg, first run");

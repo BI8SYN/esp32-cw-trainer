@@ -10,6 +10,7 @@
 #include "net_store.h"
 #include "stats_store.h"
 #include "ota.h"
+#include "wifi_net.h"
 #include "tone_gen.h"
 #include "cw_player.h"
 #include "key_input.h"
@@ -113,6 +114,19 @@ void app_main(void)
 
     ui_nav_show(ui_home_create);
     ESP_ERROR_CHECK(battery_start(battery_cb));
+
+    /*
+     * 开机检查一次更新（可在设置里关掉）。
+     *
+     * 这**不是**"WiFi 常连"——只开一小会儿射频、拉一份几百字节的清单就
+     * 关掉，代价远小于一直连着。但射频毕竟开了几秒，如果你在开机头几秒
+     * 就开始 Koch 听写、并且听得出侧音底噪，把「开机检查更新」关掉即可。
+     */
+    if (net_store_get()->boot_check) {
+        wifi_net_init();
+        wifi_net_start(NULL, NULL);
+        ota_check_start_auto(true);
+    }
     ESP_LOGI(TAG, "ui ready");
 
     while (true) {

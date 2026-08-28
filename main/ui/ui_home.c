@@ -10,6 +10,7 @@
 #include "ui_icons.h"
 #include "ui_more.h"
 #include "wifi_net.h"
+#include "ota.h"
 #include "ui_settings.h"
 #include "cw_settings.h"
 #include "koch_engine.h"
@@ -51,6 +52,7 @@ static lv_timer_t *s_timer;
 static bool s_dimmed;
 static uint32_t s_last_idle;
 static bool s_reset_notice_shown;
+static bool s_ota_notice_shown;
 
 /* 灭屏期间显示和触摸层其实一直是活的：只是背光被设成 0，控件树、点击事件都
  * 照常工作。这意味着"把屏幕点亮的那一下"本身就会被当成一次普通点击送到
@@ -154,6 +156,16 @@ lv_obj_t *ui_home_create(void)
     ui_home_set_battery(battery_percent());
 
     int top = UI_TOPBAR_H;
+    /* 开机检查发现新版本就提示一次。不弹对话框拦路——用户开机多半是想
+       练一课，不是来升级的；一行提示够了，去设置里升级。 */
+    const ota_check_t *ck = ota_check_result();
+    if (ck->checked && ck->available && !s_ota_notice_shown) {
+        char m[64];
+        snprintf(m, sizeof m, "有新版本 %s，可在设置里升级", ck->latest);
+        ui_notice(s_scr, m);
+        s_ota_notice_shown = true;
+        top += 22;
+    }
     if (cw_settings_was_reset() && !s_reset_notice_shown) {
         ui_notice(s_scr, "进度已重置（数据损坏或版本不符）");
         s_reset_notice_shown = true;

@@ -19,17 +19,27 @@
  * 按钮交给用户的唯一理由。
  */
 
-static lv_obj_t *s_scr, *s_msg, *s_bar, *s_btn, *s_url;
+static lv_obj_t *s_scr, *s_msg, *s_bar, *s_btn, *s_url, *s_latest;
 static lv_timer_t *s_timer;
 
 static void refresh(void)
 {
     if (!s_scr) return;
     const ota_status_t *st = ota_status();
+    const ota_check_t *ck = ota_check_result();
+
+    /* 顶部两行永远是"我在跑什么 / 服务器上有什么"。不显示固件地址——
+       用户改不了它，看了也没有任何可做的事，属于纯噪音。 */
+    lv_label_set_text_fmt(s_url, "当前 %s", ota_current_version());
+    if (ota_check_busy())      lv_label_set_text(s_latest, "检查中...");
+    else if (!ck->checked)     lv_label_set_text(s_latest, "");
+    else if (ck->err[0])       lv_label_set_text_fmt(s_latest, "检查失败：%s", ck->err);
+    else if (ck->available)    lv_label_set_text_fmt(s_latest, "服务器 %s", ck->latest);
+    else                       lv_label_set_text(s_latest, "已是最新");
 
     switch (st->state) {
     case OTA_IDLE:
-        lv_label_set_text(s_msg, "准备就绪");
+        lv_label_set_text(s_msg, "");
         break;
     case OTA_CONNECTING:
     case OTA_DOWNLOADING:
@@ -53,7 +63,9 @@ static void refresh(void)
     if (st->state == OTA_DONE) lv_label_set_text(lbl, "重启");
     else if (st->state == OTA_DOWNLOADING || st->state == OTA_CONNECTING)
         lv_label_set_text(lbl, "进行中");
-    else lv_label_set_text(lbl, "开始升级");
+    else if (ota_check_busy()) lv_label_set_text(lbl, "检查中");
+    else if (ck->checked && ck->available) lv_label_set_text(lbl, "升级");
+    else lv_label_set_text(lbl, "重新检查");
 }
 
 static void poll(lv_timer_t *t) { (void)t; refresh(); }
@@ -64,7 +76,13 @@ static void btn_cb(lv_event_t *e)
     const ota_status_t *st = ota_status();
     if (st->state == OTA_DONE) { ota_reboot(); return; }
     if (st->state == OTA_DOWNLOADING || st->state == OTA_CONNECTING) return;
-    ota_start(net_store_get()->ota_url);
+    if (ota_check_busy()) return;
+
+    const ota_check_t *ck = ota_check_result();
+    /* 没有新版本时这个按钮的意思是"再查一次"——比灰掉一个按钮让用户
+       无事可做要好。 */
+    if (!ck->checked || !ck->available) ota_check_start();
+    else ota_start(NULL);          /* 用检查拿到的那个地址 */
     refresh();
 }
 
@@ -76,9 +94,10 @@ static void on_delete(lv_event_t *e)
     if (s_timer) { lv_timer_del(s_timer); s_timer = NULL; }
     /* 下载进行中不关射频，否则会把自己的连接掐断。用户返回只是不看了，
        任务还在后台跑完；下次进来还能看到结果。 */
-    if (ota_status()->state != OTA_DOWNLOADING && ota_status()->state != OTA_CONNECTING)
+    if (ota_status()->state != OTA_DOWNLOADING && ota_status()->state != OTA_CONNECTING
+        && !ota_check_busy())
         wifi_net_stop();
-    s_scr = NULL; s_msg = s_bar = s_btn = s_url = NULL;
+    s_scr = NULL; s_msg = s_bar = s_btn = s_url = s_latest = NULL;
 }
 
 lv_obj_t *ui_ota_create(void)
@@ -92,11 +111,18 @@ lv_obj_t *ui_ota_create(void)
     lv_obj_set_pos(s_url, 6, UI_TOPBAR_H + 6);
     lv_obj_set_width(s_url, 308);
     lv_label_set_long_mode(s_url, LV_LABEL_LONG_WRAP);
-    lv_label_set_text(s_url, net_store_get()->ota_url);
+    lv_label_set_text(s_url, "");
+
+    s_latest = lv_label_create(s_scr);
+    lv_obj_set_style_text_font(s_latest, UI_FONT_CN, 0);
+    lv_obj_set_pos(s_latest, 6, UI_TOPBAR_H + 36);
+    lv_obj_set_width(s_latest, 308);
+    lv_label_set_long_mode(s_latest, LV_LABEL_LONG_WRAP);
+    lv_label_set_text(s_latest, "");
 
     s_msg = lv_label_create(s_scr);
     lv_obj_set_style_text_font(s_msg, UI_FONT_CN, 0);
-    lv_obj_set_pos(s_msg, 6, UI_TOPBAR_H + 70);
+    lv_obj_set_pos(s_msg, 6, UI_TOPBAR_H + 68);
     lv_label_set_text(s_msg, "");
 
     /* 进度条：外框固定，内条宽度随进度变 */
@@ -121,6 +147,10 @@ lv_obj_t *ui_ota_create(void)
     /* 升级要联网，而射频平时是关的（见文件顶部）。 */
     wifi_net_init();
     wifi_net_start(NULL, NULL);
+    /* 进页面就自动查一次——用户点进来就是想知道"有没有新的"，
+       让他再点一次按钮才开始查是多余的一步。 */
+    if (ota_status()->state == OTA_IDLE || ota_status()->state == OTA_FAIL)
+        ota_check_start();
 
     refresh();
     s_timer = lv_timer_create(poll, 300, NULL);

@@ -8,6 +8,8 @@
 #include "esp_https_ota.h"
 #include "esp_system.h"
 #include "wifi_net.h"
+#include "esp_app_desc.h"
+#include "net_store.h"
 
 static const char *TAG = "ota";
 
@@ -16,6 +18,129 @@ static const char *TAG = "ota";
 static ota_status_t s_st;
 static char         s_url[160];
 static TaskHandle_t s_task;
+static ota_check_t  s_chk;
+static TaskHandle_t s_chk_task;
+static bool         s_auto_off;   /* 查完自己关射频（开机检查用） */
+
+const char *ota_current_version(void)
+{
+    const esp_app_desc_t *d = esp_app_get_description();
+    return d ? d->version : "?";
+}
+
+const ota_check_t *ota_check_result(void) { return &s_chk; }
+bool ota_check_busy(void) { return s_chk_task != NULL; }
+
+/*
+ * 从清单 JSON 里抠一个字符串字段。
+ *
+ * 不引入 cJSON：清单就两个字段、格式由我们自己生成，为它多链一个解析库
+ * 不划算（固件正在为 OTA 省空间）。但**必须按字段名找**而不是按位置——
+ * 按位置解析会在字段顺序变化时静默读错。
+ */
+static bool json_str(const char *json, const char *key, char *out, size_t out_sz)
+{
+    char pat[24];
+    snprintf(pat, sizeof pat, "\"%s\"", key);
+    const char *p = strstr(json, pat);
+    if (!p) return false;
+    p = strchr(p + strlen(pat), ':');
+    if (!p) return false;
+    p = strchr(p, '"');
+    if (!p) return false;
+    p++;
+    const char *e = strchr(p, '"');
+    if (!e) return false;
+    size_t n = (size_t)(e - p);
+    if (n >= out_sz) n = out_sz - 1;
+    memcpy(out, p, n);
+    out[n] = '\0';
+    return true;
+}
+
+static void check_task(void *arg)
+{
+    (void)arg;
+    memset(&s_chk, 0, sizeof s_chk);
+
+    for (int i = 0; i < 250 && !wifi_net_is_connected(); i++) vTaskDelay(pdMS_TO_TICKS(100));
+    if (!wifi_net_is_connected()) {
+        snprintf(s_chk.err, sizeof s_chk.err, "WiFi 未连接");
+        s_chk.checked = true;
+        s_chk_task = NULL;
+        vTaskDelete(NULL);
+        return;
+    }
+
+    esp_http_client_config_t cfg = {
+        .url = net_store_get()->ota_url,
+        .timeout_ms = 8000,
+    };
+    esp_http_client_handle_t cli = esp_http_client_init(&cfg);
+    if (!cli) {
+        snprintf(s_chk.err, sizeof s_chk.err, "无法创建 HTTP 客户端");
+        goto out;
+    }
+    if (esp_http_client_open(cli, 0) != ESP_OK) {
+        snprintf(s_chk.err, sizeof s_chk.err, "连不上服务器");
+        goto cleanup;
+    }
+    esp_http_client_fetch_headers(cli);
+    if (esp_http_client_get_status_code(cli) != 200) {
+        snprintf(s_chk.err, sizeof s_chk.err, "服务器返回 %d",
+                 esp_http_client_get_status_code(cli));
+        goto cleanup;
+    }
+
+    char body[320] = { 0 };
+    int n = esp_http_client_read(cli, body, sizeof body - 1);
+    if (n <= 0) {
+        snprintf(s_chk.err, sizeof s_chk.err, "清单为空");
+        goto cleanup;
+    }
+    body[n] = '\0';
+
+    if (!json_str(body, "version", s_chk.latest, sizeof s_chk.latest) ||
+        !json_str(body, "url", s_chk.bin_url, sizeof s_chk.bin_url)) {
+        snprintf(s_chk.err, sizeof s_chk.err, "清单格式不对");
+        goto cleanup;
+    }
+
+    /* 只比"是否不同"，不判大小：版本号是自由字符串，语义比较不可靠，而且
+       服务器放旧版本时"降级"本身也是有用的操作。 */
+    s_chk.available = strcmp(s_chk.latest, ota_current_version()) != 0;
+    ESP_LOGI(TAG, "服务器版本 %s，本机 %s，%s",
+             s_chk.latest, ota_current_version(),
+             s_chk.available ? "有更新" : "已是最新");
+
+cleanup:
+    esp_http_client_close(cli);
+    esp_http_client_cleanup(cli);
+out:
+    s_chk.checked = true;
+    if (s_auto_off) {
+        /* 开机检查完必须把射频关掉，否则就变成了"WiFi 常连"——那正是
+           spec 3.5 要避免的（电流尖峰窜进内置 DAC，拿主线场景的侧音质量
+           换可选功能）。从升级页手动触发的检查不关，那边还要接着下载。 */
+        s_auto_off = false;
+        wifi_net_stop();
+    }
+    s_chk_task = NULL;
+    vTaskDelete(NULL);
+}
+
+esp_err_t ota_check_start_auto(bool stop_wifi_after)
+{
+    if (s_chk_task) return ESP_ERR_INVALID_STATE;
+    s_auto_off = stop_wifi_after;
+    if (xTaskCreatePinnedToCore(check_task, "ota_chk", 6144, NULL, 5, &s_chk_task, 0) != pdPASS) {
+        s_chk_task = NULL;
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
+esp_err_t ota_check_start(void) { return ota_check_start_auto(false); }
 
 static void set(ota_state_t st, int pct, const char *msg)
 {
@@ -144,6 +269,9 @@ done:
 esp_err_t ota_start(const char *url)
 {
     if (s_task) return ESP_ERR_INVALID_STATE;
+    /* 不传地址就用上一次检查拿到的——用户点"升级"时想装的必然是刚才
+       看到的那个版本，让他再指定一次没有意义。 */
+    if (!url || !url[0]) url = s_chk.bin_url;
     if (!url || !url[0]) return ESP_ERR_INVALID_ARG;
     snprintf(s_url, sizeof s_url, "%s", url);
     memset(&s_st, 0, sizeof s_st);

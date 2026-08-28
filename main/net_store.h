@@ -46,12 +46,13 @@ typedef struct {
     uint16_t          rx_delay_ms;
     uint8_t           echo_mode;            /* 0 = 机器人 QSO(wire)，1 = 回声(CW_NET_ECHO_WIRE) */
     uint8_t           noise_notice_shown;   /* 侧音底噪提示是否已展示过 */
-    char              ota_url[96];          /* 固件地址，设置页只读显示 */
+    char              ota_url[96];          /* 版本清单（JSON）地址 */
+    uint8_t           boot_check;          /* 开机联网检查一次更新 */
 } cw_net_cfg_t;
 
-/* 加了 ota_url 字段，结构体变长，必须提版本号。
-   这个 blob 与 cw_settings 无关，重置它只会丢网络设置，不影响 Koch 进度。 */
-#define CW_NET_CFG_VERSION 2
+/* v2 加了 ota_url，v3 加了 boot_check。每次改结构体都必须提版本号**并写迁移**
+   ——v1->v2 那次我只提了版本号没写迁移，把用户存的 WiFi 账号密码全冲了。 */
+#define CW_NET_CFG_VERSION 3
 
 /* 默认服务器是自建的那台（阿里云广州）。不接国际公共 wire：实测国际线路
    UDP 丢包 17~24%，而协议是每字符一个包且无重传，等于每五个字符丢一个。
@@ -70,7 +71,9 @@ typedef struct {
 #define CW_NET_ECHO_WIRE     12
 /* 默认固件地址：wire 服务器那台机器上的静态页（morsekob-web 单元，端口 7891）。
    把固件放进 /opt/morsekob/www/ 即可。 */
-#define CW_NET_DEFAULT_OTA   "http://8.138.130.141:7891/cw-trainer.bin"
+/* 指向版本清单而不是固件本身：设备要先知道服务器上是什么版本，才谈得上
+   "有没有新的"。清单里再给固件的实际地址。 */
+#define CW_NET_DEFAULT_OTA   "http://8.138.130.141:7891/cw-trainer.json"
 
 esp_err_t     net_store_init(void);
 cw_net_cfg_t *net_store_get(void);
