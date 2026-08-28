@@ -32,6 +32,7 @@ idf_component_register(
         "ui/ui_result.c"
         "ui/ui_keyer.c"
         "ui/ui_settings.c"
+        "ui/ui_callsign.c"
         "ui/ui_wifi.c"
         "ui/ui_net.c"
         "ui/ui_ota.c"

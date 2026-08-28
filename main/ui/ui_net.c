@@ -5,6 +5,7 @@
 #include "ui_home.h"
 #include "ui_keyer.h"
 #include "ui_wifi.h"
+#include "ui_callsign.h"
 #include "kob_net.h"
 #include "net_store.h"
 #include "key_input.h"
@@ -55,6 +56,18 @@ static const char *wire_name(void)
     return buf;
 }
 static lv_timer_t *s_timer;
+/*
+ * 本页处于「还没有呼号」状态：不联网，收报区改放一个「设置呼号」按钮。
+ *
+ * 呼号是上到 wire 上的站点 ID，一条 wire 上两个同名站点分不清谁是谁——顶栏和
+ * 收报记录里都只有这一个名字。出厂呼号留空就是为了让这件事必然被看见一次；
+ * 老设备上呼号非空、但那是出厂值 BI8SYN（开机会清掉一次），所以判据统一走
+ * cw_net_callsign_ok()。
+ *
+ * 只是显示一个按钮，不是自动弹层：自动弹层要么寄生在别人的屏幕上（踩过，
+ * 见 ui_callsign.h），要么把返回路径变成死循环。按钮什么都不劫持。
+ */
+static bool        s_need_callsign;
 static char       s_text_buf[LOG_CAP + 1];
 static char       s_last_who[24];
 
@@ -129,13 +142,39 @@ static void pads_enabled(bool on)
 static void apply_status(void)
 {
     if (!s_scr) return;
+
+    /* 没呼号时本页根本没联网，kob_net 的状态是陈的，照着它刷只会显示一个
+       和当下无关的「未连接」。直接说清楚在等什么，电键也置灰。 */
+    if (s_need_callsign) {
+        lv_label_set_text(s_peers, "");
+        lv_label_set_text(s_band, "还没有呼号，设置后才能上线");
+        pads_enabled(false);
+        return;
+    }
+
     const kob_net_status_t *st = kob_net_status();
 
-    /* 顶栏右侧：谁在线 */
-    char peers[40];
-    if (st->peer_n == 0) snprintf(peers, sizeof peers, "0 人");
-    else if (st->peer_n == 1) snprintf(peers, sizeof peers, "%.24s", st->peers[0]);
-    else snprintf(peers, sizeof peers, "%.18s +%d", st->peers[0], st->peer_n - 1);
+    /*
+     * 顶栏右侧：线上还有几个人（不含自己）。
+     *
+     * 只报数，不报呼号。一条 wire 是共线，人数才是这里唯一稳定有用的信息；
+     * 呼号最多只塞得下一个，那个「第一个」纯粹取决于谁的 ID 先到，没有意义，
+     * 而谁在发报，收报记录每一行前面本来就写着。
+     */
+    char peers[32];
+    snprintf(peers, sizeof peers, "%d 人", st->peer_n);
+
+    /*
+     * 同呼号仍然要说出来，只是不再重复那个呼号。两个人用同一个呼号，收发本身
+     * 没问题（见 kob_client_rx 的注释），但收报记录里的发报方是同一个名字，
+     * 分不清哪句是谁说的。
+     */
+    for (int i = 0; i < st->peer_n; i++) {
+        if (strcmp(st->peers[i], cw_net_office()) == 0) {
+            snprintf(peers, sizeof peers, "%d 人·重名", st->peer_n);
+            break;
+        }
+    }
     lv_label_set_text(s_peers, peers);
 
     /* 状态带：永远回答「现在什么情况」 */
@@ -169,17 +208,20 @@ static void apply_status(void)
     case KOB_NET_ONLINE:
         if (st->broken) {
             snprintf(band, sizeof band, "%.16s 打断了你 - 松开电键让位", st->sender);
-        } else if (st->sender[0]) {
-            /* 不禁用电键，但要明说按下会发生什么——补偿新手误触打断的风险 */
-            snprintf(band, sizeof band, "%.16s 正在发报 - 按电键将打断", st->sender);
         } else {
             /*
-             * 线路空闲时这条带子只做一件事：把本机正在打的点划显示清楚。
+             * 在线时这条带子只做一件事：把本机正在打的点划显示清楚。
              *
              * 原来这里在没按键时显示"该你发了"、按下时才显示点划。但
              * i_am_sending 跟的是键的按下/抬起，而形成一个字符的过程中键
              * 大部分时间是抬起的——于是两条文案高频交替，点划根本看不清。
              * 提示语没什么信息量（能发报时本来就该你发），直接去掉。
+             *
+             * 对方发报时也一样只显示点划，不再插一条「XXX 正在发报 - 按电键
+             * 将打断」。那条本意是提醒误触的代价，实际效果是：对方一开始发，
+             * 带子就被这句话占满，而这正是你最需要看清自己手法的时候——
+             * 抄收的同时想跟着打一遍，点划却没地方显示了。谁在发报顶栏的
+             * 站点名已经说了，打断与否是电键本来就有的语义，不必每次复述。
              *
              * 点划之间插空格，和电键页 ui_keyer.c 的显示方式一致，读起来
              * 比 "-..." 挤在一起清楚得多。
@@ -218,10 +260,22 @@ static void back(lv_event_t *e) { (void)e; ui_nav_show(ui_home_create); }
 
 /* ---------------------------------------------------------------- 换 wire */
 
-static void picker_close(lv_event_t *e)
+/*
+ * wire 选择器的遮罩。原来它是靠「选完整页重建」顺带销毁的，现在换 wire 不再
+ * 重建页面，必须显式关掉，否则选完弹窗会赖在屏幕上。
+ *
+ * 用 lv_obj_del_async 而不是 lv_obj_del：关闭动作都是从遮罩**子孙**的事件
+ * 回调里发起的，同步删掉祖先会让当前正在执行的那个回调所属的对象在返回前
+ * 就被释放。
+ */
+static lv_obj_t *s_picker;
+
+static void picker_dismiss(void)
 {
-    lv_obj_del((lv_obj_t *)lv_event_get_user_data(e));
+    if (s_picker) { lv_obj_del_async(s_picker); s_picker = NULL; }
 }
+
+static void picker_close(lv_event_t *e) { (void)e; picker_dismiss(); }
 
 static lv_obj_t *s_num_lbl;
 static int16_t   s_num_val;
@@ -237,11 +291,35 @@ static void num_adj(lv_event_t *e)
 
 static void apply_wire(int16_t w)
 {
+    picker_dismiss();
     net_store_get()->wire = w;
     net_store_save();
-    /* 换 wire 等于换一条线路，只能断开重连。整页重建最省事，也顺带把
-       收报记录清空——上一条 wire 上的对话留在屏幕上只会造成误解。 */
-    ui_nav_show(ui_net_create);
+
+    /*
+     * 就地换线：停 socket 任务、按新 wire 重开一遍，页面不重建、WiFi 不重启。
+     *
+     * 原来这里是 ui_nav_show(ui_net_create)，理由是「整页重建最省事」。代价
+     * 在两个地方：一是重建会走 kob_net_stop() -> wifi_net_stop() ->
+     * esp_wifi_deinit()，几十 KB 的 WiFi 驱动在 LVGL 事件回调里拆了又建，而
+     * wifi_net_stop() 并不等连接 worker 退出，deinit 会从它脚下抽走驱动；
+     * 二是 ui_nav_show() 先建新页、下一拍才删旧页，旧页那次迟到的删除会把新页
+     * 刚起的网络和定时器一起关掉。换一条线路不该牵动这么多东西。
+     *
+     * 收报记录还是要清——上一条 wire 上的对话留在屏幕上只会造成误解，
+     * 只是现在显式清，不再靠重建顺带。
+     */
+    s_text_buf[0] = '\0';
+    redraw_log();
+    kob_net_rewire();
+
+    /* 方框里的名字变了，宽度也就变了——人数是对齐到方框的，得跟着重排。 */
+    if (s_title) {
+        lv_label_set_text(s_title, wire_name());
+        lv_obj_align(s_title, LV_ALIGN_RIGHT_MID, -6, 0);
+    }
+    if (s_peers && s_title) lv_obj_align_to(s_peers, s_title, LV_ALIGN_OUT_LEFT_MID, -8, 0);
+
+    apply_status();
 }
 
 static void num_ok(lv_event_t *e) { (void)e; apply_wire(s_num_val); }
@@ -271,9 +349,6 @@ static void picker_pick(lv_event_t *e)
 {
     int16_t w = (int16_t)(intptr_t)lv_event_get_user_data(e);
     apply_wire(w);
-    /* 换 wire 等于换一条线路，只能断开重连。整页重建最省事，也顺带把
-       收报记录清空——上一条 wire 上的对话留在屏幕上只会造成误解。 */
-    ui_nav_show(ui_net_create);
 }
 
 /*
@@ -284,6 +359,7 @@ static void title_cb(lv_event_t *e)
 {
     (void)e;
     lv_obj_t *overlay = lv_obj_create(lv_scr_act());
+    s_picker = overlay;
     lv_obj_remove_style_all(overlay);
     lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
     lv_obj_set_style_bg_color(overlay, UI_WHITE, 0);
@@ -316,10 +392,18 @@ static void title_cb(lv_event_t *e)
     lv_obj_set_size(man, 236, 56);
     lv_obj_set_style_border_side(man, LV_BORDER_SIDE_BOTTOM, 0);
 
-    lv_obj_t *c = ui_cell(dlg, "取消", UI_FONT_CN, picker_close, overlay);
+    lv_obj_t *c = ui_cell(dlg, "取消", UI_FONT_CN, picker_close, NULL);
     lv_obj_set_pos(c, 0, 168);
     lv_obj_set_size(c, 236, 56);
     lv_obj_set_style_border_side(c, LV_BORDER_SIDE_NONE, 0);
+}
+
+/* 收报区那个「设置呼号」按钮。填完回到本页，那时呼号有了，自然就联网了。 */
+static void go_callsign(lv_event_t *e)
+{
+    (void)e;
+    ui_callsign_set_return(ui_net_create);
+    ui_nav_show(ui_callsign_create);
 }
 
 /* 只在 WiFi 连不上时有效——其他状态下点状态带没有意义，也不该有反应。 */
@@ -331,22 +415,47 @@ static void band_cb(lv_event_t *e)
     ui_nav_show(ui_wifi_create);
 }
 
-static void on_delete(lv_event_t *e)
+/* 断网、拆定时器、把页面指针全部作废。离开本页和从本页回到本页都要走一遍。 */
+static void teardown(void)
 {
-    (void)e;
     kob_net_stop();
     if (s_timer) { lv_timer_del(s_timer); s_timer = NULL; }
     s_scr = NULL;
     s_pad[0] = s_pad[1] = NULL;
-    s_peers = s_box = s_log = s_band = NULL;
+    s_peers = s_box = s_log = s_band = s_title = NULL;
+}
+
+static void on_delete(lv_event_t *e)
+{
+    /*
+     * 只有「被删的确实是当前这一页」才收摊。
+     *
+     * ui_nav_show() 是先建新页、再 lv_obj_del_async() 删旧页——旧页的删除发生
+     * 在**下一拍**，那时新页早已建好、网络也起来了。所以从对练页导航回对练页
+     * （换 wire、定完呼号）时，这个回调会把新页刚起的网络和刚建的定时器一起
+     * 关掉：s_timer 被删、s_scr 置空，poll() 从此直接返回，界面冻在最后画上去
+     * 的那一帧再也不动。表现就是「进来了但不连接，只显示一个状态」。
+     *
+     * 判据用 s_scr：新页在自己的 ui_net_create() 里已经把 s_scr 指向自己，所以
+     * 旧页这次迟到的删除会 target != s_scr，直接跳过。真正离开本页时（回主页、
+     * 去配网页）没人改过 s_scr，target == s_scr，该收的照收。
+     */
+    if (lv_event_get_target(e) != s_scr) return;
+    teardown();
 }
 
 /* ---------------------------------------------------------------- 构建 */
 
 lv_obj_t *ui_net_create(void)
 {
-    /* 没配过网就先去配网——对练页在这种状态下什么都显示不了。 */
-    if (!net_store_has_wifi()) return ui_wifi_create();
+    /* 没配过网就先去配网——对练页在这种状态下什么都显示不了。配完回到这里。 */
+    if (!net_store_has_wifi()) {
+        ui_wifi_set_return(ui_net_create);
+        return ui_wifi_create();
+    }
+
+    /* 整页的形态由它决定：没呼号就不联网，收报区放按钮。见声明处的说明。 */
+    s_need_callsign = !cw_net_callsign_ok();
 
     /* cw_player 和本页都要用 tone_gen。ui_nav_show 会先建新页再删旧页，
        旧页可能还在播，用 stop_if 只掐属于它自己的那次播放。 */
@@ -355,18 +464,29 @@ lv_obj_t *ui_net_create(void)
     s_scr = ui_screen_create();
     lv_obj_add_event_cb(s_scr, on_delete, LV_EVENT_DELETE, NULL);
 
-    /* 标题位显示当前 wire 上是什么，点击可换。这是 wire 的唯一切换入口——
-       设置里只保留数字输入，用于接入没有陪练的自定义 wire。 */
     lv_obj_t *bar = ui_topbar(s_scr, "", back);
+
+    /*
+     * 顶栏右侧从左到右是「人数」「wire 方框」。
+     *
+     * wire 是这一页唯一的切换入口（设置里只剩数字输入，用于接入没有陪练的
+     * 自定义 wire），所以它必须看得出来能点。原来是靠标题后面缀一个 " >"，
+     * 沿用项目里「更多练习 >」的约定——但那是列表行，整行都能点，箭头只是
+     * 个方向暗示；顶栏里孤零零一个 ">" 太轻，看不出可点。改成描边方框：
+     * 边框本身就是「这是个按钮」的意思，不依赖任何字形，也不占额外的高度。
+     *
+     * 顺序上人数在左、wire 在右：wire 是可操作的，放在最边上手指最好够到；
+     * 人数只是读数，挨着它放就行。
+     */
     s_title = lv_label_create(bar);
     lv_obj_set_style_text_font(s_title, UI_FONT_CN, 0);
-    /* x=40 而不是 6：返回箭头占 0..36，写 6 会把它压住（ui_topbar 里
-       带返回箭头时标题也是从 40 起）。 */
-    lv_obj_align(s_title, LV_ALIGN_LEFT_MID, 40, 0);
-    /* 加 ">" 表示可点——项目里「更多练习 >」「设置 >」都是这个约定，
-       用户已经认得。字体里没有任何下拉三角（▾ ▼ ∨ 都不在 font20 的
-       码点范围内），只能用 ASCII。 */
-    lv_label_set_text_fmt(s_title, "%s >", wire_name());
+    lv_label_set_text(s_title, wire_name());
+    lv_obj_set_style_pad_hor(s_title, 8, 0);
+    lv_obj_set_style_pad_ver(s_title, 2, 0);
+    lv_obj_set_style_border_width(s_title, 1, 0);
+    lv_obj_set_style_border_color(s_title, UI_BLACK, 0);
+    lv_obj_set_style_radius(s_title, 3, 0);
+    lv_obj_align(s_title, LV_ALIGN_RIGHT_MID, -6, 0);
     lv_obj_add_flag(s_title, LV_OBJ_FLAG_CLICKABLE);
     /* 电阻屏漏点常见，扩大可点区域（视觉大小不变） */
     lv_obj_set_ext_click_area(s_title, 12);
@@ -374,8 +494,9 @@ lv_obj_t *ui_net_create(void)
 
     s_peers = lv_label_create(bar);
     lv_obj_set_style_text_font(s_peers, UI_FONT_CN, 0);
-    /* 右侧没有其他控件（返回是左边的箭头），靠到最右 */
-    lv_obj_align(s_peers, LV_ALIGN_RIGHT_MID, -6, 0);
+    /* 贴在 wire 方框左边。方框宽度随 wire 名字变（「QSO 陪练」和「wire 10」
+       差不少），所以对齐到它而不是写死一个 x。 */
+    lv_obj_align_to(s_peers, s_title, LV_ALIGN_OUT_LEFT_MID, -8, 0);
     lv_label_set_text(s_peers, "");
 
     /* 收报区 74px：可滚动容器 + 自动折行的标签。行数由字体和宽度自己决定，
@@ -390,30 +511,23 @@ lv_obj_t *ui_net_create(void)
     lv_obj_set_scroll_dir(s_box, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(s_box, LV_SCROLLBAR_MODE_OFF);
 
-    s_log = lv_label_create(s_box);
-    lv_obj_set_style_text_font(s_log, UI_FONT_CN, 0);
-    lv_obj_set_width(s_log, 308);
-    lv_label_set_long_mode(s_log, LV_LABEL_LONG_WRAP);
     s_text_buf[0] = '\0';
     s_last_who[0] = '\0';
 
-    /*
-     * 首次进入时把侧音底噪的提示作为记录的第一行。spec 6.2 要求这条必须告知、
-     * 不能藏着：联网期间 WiFi 的电流尖峰可能窜进内置 DAC，侧音出现底噪属正常，
-     * 离线练习不受影响。
-     *
-     * 用记录的第一行而不是 ui_notice()：本页垂直预算 28+74+28+110 已经把 240px
-     * 用满，ui_notice() 会占掉 22px 挤垮布局。放进记录里零成本，而且随着对话
-     * 往上滚自然消失，不需要用户去关它。
-     */
-    cw_net_cfg_t *ncfg = net_store_get();
-    if (!ncfg->noise_notice_shown) {
-        snprintf(s_text_buf, sizeof s_text_buf,
-                 "提示 联网时侧音可能有底噪，属正常。离线练习不受影响。");
-        ncfg->noise_notice_shown = 1;
-        net_store_save();
+    if (s_need_callsign) {
+        /* 收报区本来就是空的，正好用来放这个按钮——用户被挡在哪儿、该做什么，
+           都在他正看着的地方。s_log 留空，redraw_log() 自己会跳过。 */
+        s_log = NULL;
+        lv_obj_t *b = ui_button(s_box, "设置呼号", go_callsign, NULL);
+        lv_obj_set_size(b, 200, 48);
+        lv_obj_align(b, LV_ALIGN_CENTER, 0, 0);
+    } else {
+        s_log = lv_label_create(s_box);
+        lv_obj_set_style_text_font(s_log, UI_FONT_CN, 0);
+        lv_obj_set_width(s_log, 308);
+        lv_label_set_long_mode(s_log, LV_LABEL_LONG_WRAP);
+        lv_label_set_text(s_log, s_text_buf);
     }
-    lv_label_set_text(s_log, s_text_buf);
 
     /* 状态带 28px：必须 >= UI_FONT_CN 的行高 26，否则文字上下被裁 */
     lv_obj_t *bandbg = lv_obj_create(s_scr);
@@ -440,7 +554,7 @@ lv_obj_t *ui_net_create(void)
     int py = UI_TOPBAR_H + 74 + 28;
     ui_keyer_paddles(s_scr, py, 240 - py, s_pad);
 
-    kob_net_start();
+    if (!s_need_callsign) kob_net_start();
     apply_status();
     s_timer = lv_timer_create(poll, 100, NULL);
     return s_scr;

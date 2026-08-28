@@ -81,10 +81,11 @@ static void migrate_v1(const cw_net_cfg_v1_t *old, cw_net_cfg_t *dst)
     snprintf(dst->host, sizeof dst->host, "%s", old->host);
     dst->port = old->port;
     dst->wire = old->wire;
-    snprintf(dst->office, sizeof dst->office, "%s", old->office);
+    /* 旧的 office 不搬：那 16 字节现在是 callsign_ok 标记，搬过来反而会让
+       老设备错误地跳过呼号准入。留成 set_defaults() 给的全零。 */
     dst->rx_delay_ms = old->rx_delay_ms;
     dst->echo_mode_deprecated = 0;
-    dst->noise_notice_shown = old->noise_notice_shown;
+    /* noise_notice_shown 不搬：那条底噪提示已经去掉，字段作废。 */
     /* ota_url / boot_check 保持 set_defaults() 给的默认值 */
 }
 
@@ -118,9 +119,62 @@ static void set_defaults(cw_net_cfg_t *c)
     snprintf(c->ota_url, sizeof c->ota_url, "%s", CW_NET_DEFAULT_OTA);
     c->echo_mode_deprecated = 0;
     c->boot_check = 1;
-    /* office ID 跟随呼号。cw_settings_init() 必须先于本函数调用过。 */
+    /* 这里曾经把呼号拷进 c->office 当站点 ID。不能拷：set_defaults() 只在首次
+       初始化时跑，那一刻呼号还是出厂默认，之后用户改呼号这份副本不会变。
+       站点 ID 现在每次上线现取，见 cw_net_office()。 */
+}
+
+/* 放在 callsign_ok 里的标记。挑一个不可能是呼号的串——呼号编辑框只能输入
+   A-Z0-9，所以带小写和点的值绝不会被误认成「某人真的叫这个」。 */
+#define CALLSIGN_OK_MAGIC "ok.v1"
+
+/* cw_settings.c 里曾经的出厂呼号。见下面 clear_factory_callsign()。 */
+#define FACTORY_CALLSIGN  "BI8SYN"
+
+bool cw_net_callsign_ok(void)
+{
+    const cw_settings_t *st = cw_settings_get();
+    return st && st->callsign[0];
+}
+
+void cw_net_callsign_confirm(void)
+{
+    if (strcmp(s_cfg.callsign_ok, CALLSIGN_OK_MAGIC) == 0) return;
+    snprintf(s_cfg.callsign_ok, sizeof s_cfg.callsign_ok, "%s", CALLSIGN_OK_MAGIC);
+    net_store_save();
+}
+
+/*
+ * 开机清掉遗留的出厂呼号。
+ *
+ * 出厂呼号现在留空，于是联网对练的准入拦截（呼号为空就要求先定一个）对新
+ * 设备必然触发一次。但**已经在用的设备**存的是老出厂值 BI8SYN——呼号非空，
+ * 拦不住，那批设备照样会带着同一个 ID 上 wire。所以升级后清一次。
+ *
+ * 关键是「一次」：BI8SYN 是个合法呼号，真有人叫这个。每次开机都清的话，
+ * 那个人永远设不上自己的呼号——设完下次开机又没了，而且没有任何提示。
+ * 所以只在 callsign_ok 标记缺席时清：标记是用户在呼号编辑框里按下确定时写的，
+ * 有标记就说明这个 BI8SYN 是他自己定的，不能动。
+ *
+ * 清完不写标记：清空之后拦截会触发，用户定完呼号，标记那时才写上。
+ */
+static void clear_factory_callsign(void)
+{
+    if (strcmp(s_cfg.callsign_ok, CALLSIGN_OK_MAGIC) == 0) return;
+
+    cw_settings_t *st = cw_settings_get();
+    if (!st || strcmp(st->callsign, FACTORY_CALLSIGN) != 0) return;
+
+    ESP_LOGI(TAG, "清掉遗留的出厂呼号 %s，联网对练会要求重新定一个", FACTORY_CALLSIGN);
+    st->callsign[0] = '\0';
+    cw_settings_save();
+}
+
+const char *cw_net_office(void)
+{
     const cw_settings_t *s = cw_settings_get();
-    if (s && s->callsign[0]) snprintf(c->office, sizeof c->office, "%s", s->callsign);
+    if (s && s->callsign[0]) return s->callsign;
+    return "CWTRN";
 }
 
 static esp_err_t write_blob(void)
@@ -134,7 +188,7 @@ static esp_err_t write_blob(void)
     return err;
 }
 
-esp_err_t net_store_init(void)
+static esp_err_t load_cfg(void)
 {
     set_defaults(&s_cfg);
 
@@ -181,10 +235,19 @@ esp_err_t net_store_init(void)
         return write_blob();
     }
 
-    ESP_LOGI(TAG, "net cfg loaded: %s:%u wire=%d office=%s delay=%ums echo=%u",
-             s_cfg.host, s_cfg.port, s_cfg.wire, s_cfg.office,
-             s_cfg.rx_delay_ms, 0);
+    ESP_LOGI(TAG, "net cfg loaded: %s:%u wire=%d office=%s delay=%ums",
+             s_cfg.host, s_cfg.port, s_cfg.wire, cw_net_office(),
+             s_cfg.rx_delay_ms);
     return ESP_OK;
+}
+
+esp_err_t net_store_init(void)
+{
+    /* 加载本身有好几条返回路径（两条迁移 + 首次 + 损坏重置），清理要在每条
+       路径之后都发生，所以包一层，而不是往每个 return 前面各塞一次。 */
+    esp_err_t err = load_cfg();
+    clear_factory_callsign();
+    return err;
 }
 
 const char *cw_net_wire_label(int16_t wire)

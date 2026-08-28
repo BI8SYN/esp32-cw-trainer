@@ -21,7 +21,16 @@ static void set_defaults(cw_settings_t *c)
     c->key_input = CW_KEY_INPUT_TOUCH;
     c->keyer_mode = 2;
     c->paddle_swap = 0;
-    strcpy(c->callsign, "BI8SYN");
+    /*
+     * 呼号**留空**，不给出厂默认值。
+     *
+     * 原来这里是 "BI8SYN"。呼号会作为站点 ID 上到 wire 上，而没人会去改一个
+     * 「看起来已经填好了」的设置——结果两个人各拿一台新设备约同一条 wire，
+     * 双方报出去的 ID 是同一个，顶栏、收报记录里谁是谁全分不清。
+     *
+     * 留空则是个明确的「还没填」，联网对练进不去（ui_net_create() 会先拦下来
+     * 要求填），本地练习照常（trainer 遇到空呼号回退成 NOCALL）。
+     */
     c->koch_lesson = 1;
     memset(c->koch_last_pct, 0xFF, sizeof c->koch_last_pct);
     c->brightness = 80;

@@ -45,7 +45,7 @@ static void setup(kob_client_t *c)
     g_sent_n = 0; g_code_n = -1; g_lost = -1;
     g_code_from[0] = 0; g_code_txt[0] = 0; g_peer[0] = 0;
     g_state = KOB_ST_IDLE;
-    kob_client_init(c, "BI8SYN", 11);
+    kob_client_init(c, "BI8SYN", 11, 0xC0FFEEu);
     c->send = rec_send; c->on_code = rec_code; c->on_peer = rec_peer; c->on_state = rec_state;
 }
 
@@ -118,16 +118,162 @@ TEST(incoming_code_from_others_is_reported) {
 }
 
 TEST(own_echo_is_ignored) {
-    /* 服务器会把我发的包回给我自己。当成对方发报的话会自听成回声，
-       而且会把「当前发报方」错标成自己。 */
+    /* 服务器如果把我发的包回给我（本项目的服务器不会，但换个实现就难说），
+       必须丢掉：否则自听成回声，且「当前发报方」被错标成自己。
+       判据是 id 相同 **且** seq 在我自己发过的号段里。 */
+    kob_client_t c; setup(&c);
+    bring_online(&c);
+    const int32_t v[] = { 60, -60, 180 };
+    kob_client_send_code(&c, v, 3, "A", 1400);
+    uint8_t pkt[KOB_PKT_LONG];
+    kob_pkt_code(pkt, "BI8SYN", c.tx_seq, v, 3, "A");   /* 我刚发的那个 seq */
+    g_code_n = -1;
+    kob_client_rx(&c, pkt, sizeof pkt, 1500);
+    ASSERT_EQ_INT(g_code_n, -1);
+}
+
+TEST(own_id_echo_is_ignored) {
+    /* ID 包用的是号段起点，边界上不能漏。 */
+    kob_client_t c; setup(&c);
+    bring_online(&c);
+    uint8_t pkt[KOB_PKT_LONG];
+    kob_pkt_id(pkt, "BI8SYN", c.seq_base, "CWTRN 1.0");
+    kob_client_rx(&c, pkt, sizeof pkt, 1500);
+    ASSERT_EQ_STR(g_peer, "");
+}
+
+TEST(seq_base_is_seeded_and_above_legacy_range) {
+    /* 号段起点必须随种子变，否则两台设备又会重叠。上界压在 2^30 以内，
+       一整个会话累加上去也不会把 int32 顶成负数。 */
+    kob_client_t a, b;
+    kob_client_init(&a, "BI8SYN", 11, 1u);
+    kob_client_init(&b, "BI8SYN", 11, 2u);
+    ASSERT_TRUE(a.seq_base != b.seq_base);
+    ASSERT_TRUE(a.seq_base > 0 && a.seq_base <= 0x40000000);
+    ASSERT_TRUE(b.seq_base > 0 && b.seq_base <= 0x40000000);
+    ASSERT_EQ_INT(a.tx_seq, a.seq_base);
+}
+
+TEST(same_callsign_peer_is_delivered) {
+    /*
+     * 同呼号的对端必须能收到。
+     *
+     * 这里曾经有一条 `if (strcmp(p.id, c->office) == 0) return;`，
+     * 用意是丢掉「服务器回显给我的自发包」。实测（两个客户端同
+     * 时挂在 8.138.130.141:7890 wire 10）证明服务器**从不回显发送方
+     * 自己的包** —— 发报方一个字节都收不到，只有对端收到。
+     *
+     * 所以那条过滤只会在一种情况下生效：对端呼号和我相同。而出厂
+     * 默认呼号就是 BI8SYN，于是两台没改过呼号的设备上同一条 wire，互相
+     * 把对方的每一个包当成自己的回声丢掉：两边都显示在线，谁也听不到谁。
+     * 机器人 wire（11/12）不受影响，因为它们的 ID 是 BOT / ECHO。
+     */
     kob_client_t c; setup(&c);
     bring_online(&c);
     const int32_t v[] = { 60, -60, 180 };
     uint8_t pkt[KOB_PKT_LONG];
+    /* 对端的号段是它自己随机的，和我的不重叠——这里用 9 代表「我没发过」。 */
+    ASSERT_TRUE(c.seq_base > 9);
     kob_pkt_code(pkt, "BI8SYN", 9, v, 3, "A");
     g_code_n = -1;
     kob_client_rx(&c, pkt, sizeof pkt, 1500);
-    ASSERT_EQ_INT(g_code_n, -1);
+    ASSERT_EQ_INT(g_code_n, 3);
+    ASSERT_EQ_STR(g_code_txt, "A");
+}
+
+TEST(same_callsign_peer_id_packet_reports_peer) {
+    /* ID 包同理：同呼号的对端上线，应该出现在站点列表里。 */
+    kob_client_t c; setup(&c);
+    bring_online(&c);
+    uint8_t pkt[KOB_PKT_LONG];
+    ASSERT_TRUE(c.seq_base > 0);
+    kob_pkt_id(pkt, "BI8SYN", 0, "CWTRN 1.0");
+    kob_client_rx(&c, pkt, sizeof pkt, 1500);
+    ASSERT_EQ_STR(g_peer, "BI8SYN");
+}
+
+TEST(id_beacon_resent_periodically_while_online) {
+    /*
+     * ID 包原来只在建连时发一次，于是站点表两头都是错的：晚加入的人看不到
+     * 早到的人，已经走了的人也没法过期。信标必须周期重发。
+     */
+    kob_client_t c; setup(&c);
+    bring_online(&c);
+    int before = g_sent_n;
+    kob_client_tick(&c, 1200 + KOB_ID_BEACON_MS - 1);
+    ASSERT_EQ_INT(g_sent_n, before);            /* 还没到点 */
+
+    kob_client_tick(&c, 1200 + KOB_ID_BEACON_MS);
+    ASSERT_TRUE(g_sent_n > before);
+    /* 这一拍里保活 CON 和 ID 信标都该发出去，最后一个是 ID 包（n == 0）。 */
+    kob_packet_t p;
+    ASSERT_TRUE(kob_pkt_parse(g_sent[g_sent_n - 1], g_sent_len[g_sent_n - 1], &p));
+    ASSERT_EQ_INT(p.n, 0);
+    ASSERT_EQ_STR(p.id, "BI8SYN");
+}
+
+TEST(id_beacon_not_starved_by_outgoing_code) {
+    /*
+     * 信标用自己的时间戳，不能蹭 last_tx_ms：正在连续发报的站点 last_tx_ms
+     * 一直在刷新，蹭它就永远发不出信标——而那正是最该让别人知道你在的时候。
+     */
+    kob_client_t c; setup(&c);
+    bring_online(&c);
+    const int32_t v[] = { 60 };
+    /* 卡在信标到点前一毫秒发一个码包，把 last_tx_ms 刷到最新 */
+    kob_client_send_code(&c, v, 1, "E", 1200 + KOB_ID_BEACON_MS - 1);
+
+    int before = g_sent_n;
+    kob_client_tick(&c, 1200 + KOB_ID_BEACON_MS);
+
+    /* 恰好一个包：保活 CON 因为 last_tx_ms 刚刷新而不该发，ID 信标必须发。
+       信标要是蹭 last_tx_ms，这里一个包也不会有。 */
+    ASSERT_EQ_INT(g_sent_n, before + 1);
+    kob_packet_t p;
+    ASSERT_TRUE(kob_pkt_parse(g_sent[before], g_sent_len[before], &p));
+    ASSERT_EQ_INT(p.n, 0);
+}
+
+TEST(peer_id_triggers_immediate_id_reply) {
+    /*
+     * 发现延迟不能等于信标周期。对方报身份时立刻回报自己的，一个来回就互相
+     * 看见了；干等下一拍的话，一进线路顶栏要愣最多 10 秒才从 0 人变 1 人。
+     */
+    kob_client_t c; setup(&c);
+    bring_online(&c);                       /* 这一步发过 ID，last_id_ms = 1200 */
+    uint8_t pkt[KOB_PKT_LONG];
+    kob_pkt_id(pkt, "BG7XXX", 3, "x");
+    int before = g_sent_n;
+    kob_client_rx(&c, pkt, sizeof pkt, 1200 + KOB_ID_REPLY_MS);
+    ASSERT_EQ_INT(g_sent_n, before + 1);
+    kob_packet_t p;
+    ASSERT_TRUE(kob_pkt_parse(g_sent[before], g_sent_len[before], &p));
+    ASSERT_EQ_INT(p.n, 0);
+    ASSERT_EQ_STR(p.id, "BI8SYN");
+}
+
+TEST(id_reply_is_rate_limited) {
+    /* 互相应答不能滚成风暴：刚发过 ID 就不再应答。这条是收敛的唯一保证。 */
+    kob_client_t c; setup(&c);
+    bring_online(&c);
+    uint8_t pkt[KOB_PKT_LONG];
+    kob_pkt_id(pkt, "BG7XXX", 3, "x");
+    int before = g_sent_n;
+    kob_client_rx(&c, pkt, sizeof pkt, 1200 + KOB_ID_REPLY_MS - 1);
+    ASSERT_EQ_INT(g_sent_n, before);
+    ASSERT_EQ_STR(g_peer, "BG7XXX");        /* 不应答，但站点照样要记下来 */
+}
+
+TEST(code_packet_also_reports_peer_alive) {
+    /* 只认 ID 包会把正在连续发报的站点判成失联。码包同样是「还活着」的证据。 */
+    kob_client_t c; setup(&c);
+    bring_online(&c);
+    const int32_t v[] = { 60, -60, 180 };
+    uint8_t pkt[KOB_PKT_LONG];
+    kob_pkt_code(pkt, "BG7XXX", 5, v, 3, "A");
+    kob_client_rx(&c, pkt, sizeof pkt, 1500);
+    ASSERT_EQ_STR(g_peer, "BG7XXX");
+    ASSERT_EQ_INT(g_code_n, 3);      /* 报活的同时，码包本身照常送出去 */
 }
 
 TEST(duplicate_seq_is_dropped) {
@@ -310,6 +456,15 @@ int main(void) {
     RUN(send_code_increments_seq);
     RUN(incoming_code_from_others_is_reported);
     RUN(own_echo_is_ignored);
+    RUN(own_id_echo_is_ignored);
+    RUN(seq_base_is_seeded_and_above_legacy_range);
+    RUN(same_callsign_peer_is_delivered);
+    RUN(same_callsign_peer_id_packet_reports_peer);
+    RUN(id_beacon_resent_periodically_while_online);
+    RUN(id_beacon_not_starved_by_outgoing_code);
+    RUN(peer_id_triggers_immediate_id_reply);
+    RUN(id_reply_is_rate_limited);
+    RUN(code_packet_also_reports_peer_alive);
     RUN(duplicate_seq_is_dropped);
     RUN(id_packet_from_other_reports_peer_not_code);
     RUN(tick_sends_keepalive);
