@@ -233,7 +233,7 @@ static void submit_qso_cb(lv_event_t *e)
 static void build_choice(lv_obj_t *s)
 {
     int top = UI_TOPBAR_H;
-    if (s_tr.charset_fallback) { ui_notice(s, "建议先练 Koch，当前使用全部字母"); top += 22; }
+    if (s_tr.charset_fallback) { ui_notice(s, "建议先练 Koch，当前使用全部字母"); top += UI_NOTICE_H; }
     s_hint = lv_label_create(s); lv_obj_set_pos(s_hint, 8, top + 10); lv_obj_set_width(s_hint, 220);
     s_replay = ui_button(s, "重播", replay_cb, NULL); lv_obj_set_size(s_replay, 70, 30); lv_obj_set_pos(s_replay, 242, top + 5);
     s_fb = lv_label_create(s); lv_obj_set_pos(s_fb, 8, top + 10); lv_obj_set_width(s_fb, 230);

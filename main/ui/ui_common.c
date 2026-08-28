@@ -146,7 +146,7 @@ lv_obj_t *ui_notice(lv_obj_t *parent, const char *text)
 {
     lv_obj_t *n = lv_obj_create(parent);
     plain(n);
-    lv_obj_set_size(n, LV_PCT(100), 22);
+    lv_obj_set_size(n, LV_PCT(100), UI_NOTICE_H);
     lv_obj_set_pos(n, 0, UI_TOPBAR_H);
     lv_obj_set_style_bg_color(n, UI_GRAY_BG, 0);
     lv_obj_set_style_border_width(n, 1, 0);
