@@ -63,7 +63,7 @@ typedef struct {
     int16_t           wire;
     char              office[16];
     uint16_t          rx_delay_ms;
-    uint8_t           echo_mode;
+    uint8_t           echo_mode_deprecated;
     uint8_t           noise_notice_shown;
 } cw_net_cfg_v1_t;
 
@@ -83,7 +83,7 @@ static void migrate_v1(const cw_net_cfg_v1_t *old, cw_net_cfg_t *dst)
     dst->wire = old->wire;
     snprintf(dst->office, sizeof dst->office, "%s", old->office);
     dst->rx_delay_ms = old->rx_delay_ms;
-    dst->echo_mode = old->echo_mode;
+    dst->echo_mode_deprecated = 0;
     dst->noise_notice_shown = old->noise_notice_shown;
     /* ota_url / boot_check 保持 set_defaults() 给的默认值 */
 }
@@ -116,7 +116,7 @@ static void set_defaults(cw_net_cfg_t *c)
     c->wire = CW_NET_DEFAULT_WIRE;
     c->rx_delay_ms = 500;
     snprintf(c->ota_url, sizeof c->ota_url, "%s", CW_NET_DEFAULT_OTA);
-    c->echo_mode = 0;
+    c->echo_mode_deprecated = 0;
     c->boot_check = 1;
     /* office ID 跟随呼号。cw_settings_init() 必须先于本函数调用过。 */
     const cw_settings_t *s = cw_settings_get();
@@ -183,8 +183,15 @@ esp_err_t net_store_init(void)
 
     ESP_LOGI(TAG, "net cfg loaded: %s:%u wire=%d office=%s delay=%ums echo=%u",
              s_cfg.host, s_cfg.port, s_cfg.wire, s_cfg.office,
-             s_cfg.rx_delay_ms, s_cfg.echo_mode);
+             s_cfg.rx_delay_ms, 0);
     return ESP_OK;
+}
+
+const char *cw_net_wire_label(int16_t wire)
+{
+    if (wire == CW_NET_QSO_WIRE)  return "QSO 陪练";
+    if (wire == CW_NET_ECHO_WIRE) return "回声";
+    return NULL;
 }
 
 cw_net_cfg_t *net_store_get(void) { return &s_cfg; }

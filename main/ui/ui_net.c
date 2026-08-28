@@ -39,7 +39,21 @@
 #define LOG_CAP  512      /* 缓冲上限 */
 #define LOG_KEEP 360      /* 超出后保留的尾部长度 */
 
-static lv_obj_t  *s_scr, *s_peers, *s_box, *s_log, *s_band, *s_pad[2];
+static lv_obj_t  *s_scr, *s_peers, *s_box, *s_log, *s_band, *s_pad[2], *s_title;
+
+/*
+ * wire 号对用户没有意义，上面有什么才有意义。所以顶栏显示的是名字，
+ * 未知的 wire 才退回显示号码。
+ */
+static const char *wire_name(void)
+{
+    static char buf[20];
+    int16_t w = net_store_get()->wire;
+    const char *n = cw_net_wire_label(w);
+    if (n) return n;
+    snprintf(buf, sizeof buf, "wire %d", w);
+    return buf;
+}
 static lv_timer_t *s_timer;
 static char       s_text_buf[LOG_CAP + 1];
 static char       s_last_who[24];
@@ -134,8 +148,7 @@ static void apply_status(void)
         pads_on = false;
         break;
     case KOB_NET_CONNECTING:
-        snprintf(band, sizeof band, "正在接入 wire %d ...",
-                 net_store_get()->echo_mode ? CW_NET_ECHO_WIRE : net_store_get()->wire);
+        snprintf(band, sizeof band, "正在接入 %.16s ...", wire_name());
         pads_on = false;
         break;
     case KOB_NET_ERR_WIFI:
@@ -203,6 +216,62 @@ static void poll(lv_timer_t *t)
 
 static void back(lv_event_t *e) { (void)e; ui_nav_show(ui_home_create); }
 
+/* ---------------------------------------------------------------- 换 wire */
+
+static void picker_close(lv_event_t *e)
+{
+    lv_obj_del((lv_obj_t *)lv_event_get_user_data(e));
+}
+
+static void picker_pick(lv_event_t *e)
+{
+    int16_t w = (int16_t)(intptr_t)lv_event_get_user_data(e);
+    net_store_get()->wire = w;
+    net_store_save();
+    /* 换 wire 等于换一条线路，只能断开重连。整页重建最省事，也顺带把
+       收报记录清空——上一条 wire 上的对话留在屏幕上只会造成误解。 */
+    ui_nav_show(ui_net_create);
+}
+
+/*
+ * 顶栏标题可点，弹出选择。用列表而不是让标题循环切换：循环切换没有可发现性，
+ * 用户不点一下不知道有哪些选项、也不知道点下去会去哪。
+ */
+static void title_cb(lv_event_t *e)
+{
+    (void)e;
+    lv_obj_t *overlay = lv_obj_create(lv_scr_act());
+    lv_obj_remove_style_all(overlay);
+    lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_color(overlay, UI_WHITE, 0);
+    lv_obj_set_style_bg_opa(overlay, LV_OPA_80, 0);
+    lv_obj_clear_flag(overlay, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *dlg = lv_obj_create(overlay);
+    lv_obj_remove_style_all(dlg);
+    lv_obj_set_size(dlg, 240, 176);
+    lv_obj_center(dlg);
+    lv_obj_set_style_bg_color(dlg, UI_WHITE, 0);
+    lv_obj_set_style_bg_opa(dlg, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(dlg, 2, 0);
+    lv_obj_set_style_border_color(dlg, UI_BLACK, 0);
+    lv_obj_clear_flag(dlg, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* 三行各 56px，远超 44px 触控下限 */
+    const int16_t wires[2] = { CW_NET_QSO_WIRE, CW_NET_ECHO_WIRE };
+    for (int i = 0; i < 2; i++) {
+        lv_obj_t *c = ui_cell(dlg, cw_net_wire_label(wires[i]), UI_FONT_CN,
+                              picker_pick, (void *)(intptr_t)wires[i]);
+        lv_obj_set_pos(c, 0, i * 56);
+        lv_obj_set_size(c, 236, 56);
+        lv_obj_set_style_border_side(c, LV_BORDER_SIDE_BOTTOM, 0);
+    }
+    lv_obj_t *c = ui_cell(dlg, "取消", UI_FONT_CN, picker_close, overlay);
+    lv_obj_set_pos(c, 0, 112);
+    lv_obj_set_size(c, 236, 56);
+    lv_obj_set_style_border_side(c, LV_BORDER_SIDE_NONE, 0);
+}
+
 /* 只在 WiFi 连不上时有效——其他状态下点状态带没有意义，也不该有反应。 */
 static void band_cb(lv_event_t *e)
 {
@@ -236,7 +305,18 @@ lv_obj_t *ui_net_create(void)
     s_scr = ui_screen_create();
     lv_obj_add_event_cb(s_scr, on_delete, LV_EVENT_DELETE, NULL);
 
-    lv_obj_t *bar = ui_topbar(s_scr, "联网对练", back);
+    /* 标题位显示当前 wire 上是什么，点击可换。这是 wire 的唯一切换入口——
+       设置里只保留数字输入，用于接入没有陪练的自定义 wire。 */
+    lv_obj_t *bar = ui_topbar(s_scr, "", back);
+    s_title = lv_label_create(bar);
+    lv_obj_set_style_text_font(s_title, UI_FONT_CN, 0);
+    lv_obj_align(s_title, LV_ALIGN_LEFT_MID, 6, 0);
+    lv_label_set_text(s_title, wire_name());
+    lv_obj_add_flag(s_title, LV_OBJ_FLAG_CLICKABLE);
+    /* 电阻屏漏点常见，扩大可点区域（视觉大小不变） */
+    lv_obj_set_ext_click_area(s_title, 12);
+    lv_obj_add_event_cb(s_title, title_cb, LV_EVENT_CLICKED, NULL);
+
     s_peers = lv_label_create(bar);
     lv_obj_set_style_text_font(s_peers, UI_FONT_CN, 0);
     lv_obj_align(s_peers, LV_ALIGN_RIGHT_MID, -64, 0);

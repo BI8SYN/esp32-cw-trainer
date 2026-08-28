@@ -36,7 +36,6 @@ static const char *const KEYER_MODES[] = { "直键", "Iambic A", "Iambic B" };
  * 的字形表里没有 `unicode = 0x00b0` 这一项），会静默渲染成空白——正是 README
  * 「界面里的中文字体」一节描述的那类只有对着真屏幕才看得出来的坑。 */
 static const char *const SCREEN_ROTS[] = { "正常", "上下翻转" };
-static const char *const PRACTICE_MODES[] = { "机器人 QSO", "回声" };
 /*
  * 「连接网络」的选项在运行时按已保存的槽位生成：自动 + 每个非空槽位的
  * SSID。IT_CHOICE 的 choices 是 const char* 数组，所以这里备一份可写的
@@ -116,7 +115,6 @@ static item_t NET[] = {
      */
     { "WiFi 网络", IT_WIFI, 0, 0, 0, "", NULL, 0, false, NULL },
     { "连接网络", IT_CHOICE, 0, 0, 0, "", NULL, 0, false, NULL },
-    { "陪练模式", IT_CHOICE, 0, 0, 0, "", PRACTICE_MODES, 2, false, NULL },
     { "收报缓冲", IT_NUM, 200, 1000, 100, " ms", NULL, 0, false, NULL },
     /*
      * 「对练服务器」那一行删了：只读、改不了，而连不上时对练页会直接显示
@@ -127,7 +125,7 @@ static item_t NET[] = {
 };
 
 static const item_t *const GROUPS[4] = { AUDIO, KEY, GEN, NET };
-static const int GROUP_N[4] = { 4, 3, 9, 5 };
+static const int GROUP_N[4] = { 4, 3, 9, 4 };
 static const char *const GROUP_NAMES[4] = { "音频", "电键", "常规", "网络" };
 #define GROUP_COUNT 4
 
@@ -158,7 +156,6 @@ static int get_val(const item_t *it)
         return 0;
     }
     if (!strcmp(it->name, "开机检查更新")) return nc->boot_check ? 1 : 0;
-    if (!strcmp(it->name, "陪练模式")) return nc->echo_mode ? 1 : 0;
     if (!strcmp(it->name, "收报缓冲")) return nc->rx_delay_ms;
     if (!strcmp(it->name, "wire 号")) return nc->wire;
     if (!strcmp(it->name, "字符速度")) return c->char_wpm;
@@ -216,7 +213,6 @@ static void set_val(const item_t *it, int v)
         return;
     }
     if (!strcmp(it->name, "开机检查更新")) { nc->boot_check = (uint8_t)(v ? 1 : 0); net_store_save(); return; }
-    if (!strcmp(it->name, "陪练模式")) { nc->echo_mode = (uint8_t)(v ? 1 : 0); net_store_save(); return; }
     if (!strcmp(it->name, "收报缓冲")) { nc->rx_delay_ms = (uint16_t)v; net_store_save(); return; }
     if (!strcmp(it->name, "wire 号")) { nc->wire = (int16_t)v; net_store_save(); return; }
 

@@ -203,10 +203,10 @@ static bool sock_open(void)
     struct timeval tv = { .tv_sec = 0, .tv_usec = RECV_TIMEOUT_MS * 1000 };
     setsockopt(s_sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
 
-    ESP_LOGI(TAG, "socket -> %s:%u wire=%d office=%s echo=%u",
-             cfg->host, cfg->port,
-             cfg->echo_mode ? CW_NET_ECHO_WIRE : cfg->wire,
-             cfg->office, cfg->echo_mode);
+    ESP_LOGI(TAG, "socket -> %s:%u wire=%d(%s) office=%s",
+             cfg->host, cfg->port, cfg->wire,
+             cw_net_wire_label(cfg->wire) ? cw_net_wire_label(cfg->wire) : "自定义",
+             cfg->office);
     return true;
 }
 
@@ -281,10 +281,8 @@ static void task(void *arg)
     }
 
     const cw_net_cfg_t *cfg = net_store_get();
-    /* 回声陪练在单独一条 wire 上（见 net_store.h）：机器人在服务端，
-       读不到这个设置，所以用 wire 号来区分行为，不扩协议。 */
-    int16_t wire = cfg->echo_mode ? CW_NET_ECHO_WIRE : cfg->wire;
-    kob_client_init(&s_client, cfg->office, wire);
+    /* wire 是唯一的控制项——不同的 wire 上跑着不同的陪练。 */
+    kob_client_init(&s_client, cfg->office, cfg->wire);
     s_client.send = sock_send;
     s_client.on_code = on_code;
     s_client.on_peer = on_peer;
