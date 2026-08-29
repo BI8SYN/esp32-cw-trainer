@@ -17,6 +17,7 @@
 #include "backlight.h"
 #include "morse_timing.h"
 #include "koch_engine.h"
+#include "keyer.h"
 
 /* 版本号不再硬编码：info 为 NULL 的 IT_INFO 行显示固件真正嵌入的版本
  * （来自 CMakeLists 的 PROJECT_VER），显示值与固件值不可能对不上。 */
@@ -31,7 +32,6 @@ typedef struct {
                           现在两个 IT_INFO 行——作者/版本——各自带自己的值） */
 } item_t;
 
-static const char *const KEY_INPUTS[] = { "触摸屏", "外接口" };
 static const char *const KEYER_MODES[] = { "直键", "Iambic A", "Iambic B" };
 /* 写"上下翻转"而不是"180°"：`°`(U+00B0) 不在 font20 的 cmap 里（`fonts/font20.c`
  * 的字形表里没有 `unicode = 0x00b0` 这一项），会静默渲染成空白——正是 README
@@ -73,7 +73,6 @@ static const item_t AUDIO[] = {
     { "音量",     IT_NUM, 0, 100, 10, "%", NULL, 0, true, NULL },
 };
 static const item_t KEY[] = {
-    { "电键输入", IT_CHOICE, 0, 0, 0, "", KEY_INPUTS, 2, false, NULL },
     { "电键类型", IT_CHOICE, 0, 0, 0, "", KEYER_MODES, 3, false, NULL },
     { "桨键左右对调", IT_TOGGLE, 0, 0, 0, "", NULL, 0, false, NULL },
 };
@@ -126,7 +125,7 @@ static item_t NET[] = {
 };
 
 static const item_t *const GROUPS[4] = { AUDIO, KEY, GEN, NET };
-static const int GROUP_N[4] = { 4, 3, 9, 4 };
+static const int GROUP_N[4] = { 4, 2, 9, 4 };
 static const char *const GROUP_NAMES[4] = { "音频", "电键", "常规", "网络" };
 #define GROUP_COUNT 4
 
@@ -163,7 +162,6 @@ static int get_val(const item_t *it)
     if (!strcmp(it->name, "有效速度")) return c->eff_wpm;
     if (!strcmp(it->name, "音调")) return c->tone_hz;
     if (!strcmp(it->name, "音量")) return c->volume;
-    if (!strcmp(it->name, "电键输入")) return c->key_input;
     if (!strcmp(it->name, "电键类型")) return c->keyer_mode;
     if (!strcmp(it->name, "桨键左右对调")) return c->paddle_swap;
     if (!strcmp(it->name, "Koch 课次")) return c->koch_lesson;
@@ -222,7 +220,6 @@ static void set_val(const item_t *it, int v)
     else if (!strcmp(it->name, "有效速度")) { if (v > c->char_wpm) v = c->char_wpm; c->eff_wpm = (uint8_t)v; }
     else if (!strcmp(it->name, "音调")) c->tone_hz = (uint16_t)v;
     else if (!strcmp(it->name, "音量")) c->volume = (uint8_t)v;
-    else if (!strcmp(it->name, "电键输入")) c->key_input = (uint8_t)v;
     else if (!strcmp(it->name, "电键类型")) c->keyer_mode = (uint8_t)v;
     else if (!strcmp(it->name, "桨键左右对调")) c->paddle_swap = (uint8_t)v;
     else if (!strcmp(it->name, "Koch 课次")) c->koch_lesson = (uint8_t)v;
@@ -305,13 +302,20 @@ static lv_obj_t *s_adj_scr;
 static void adj_on_delete(lv_event_t *e) { (void)e; cw_player_stop_if(&s_adj_scr); s_adj_scr = NULL; s_val_hint = NULL; }
 static void listen_cb(lv_event_t *e) { (void)e; cw_player_play("PARIS", NULL, &s_adj_scr); }
 
-/* 数值页下方的补充说明。目前只有 wire 号有内容。 */
+/* 数值页下方的补充说明。 */
 static void update_hint(void)
 {
     if (!s_val_hint || !s_item) return;
     if (strcmp(s_item->name, "wire 号") == 0) {
         const char *n = cw_net_wire_label((int16_t)get_val(s_item));
         lv_label_set_text(s_val_hint, n ? n : "");
+    } else if (strcmp(s_item->name, "电键类型") == 0) {
+        /* A 和 B 的区别只在**双桨同时按下**（squeeze）时才显现，而电阻屏不支持
+           多点触控——用触摸桨时选 A 还是 B 行为完全一样。不说的话，用户会以为
+           自己选的没生效。只在选到 A/B 时说，直键跟这件事无关。 */
+        lv_label_set_text(s_val_hint,
+                          get_val(s_item) == KEYER_MODE_STRAIGHT
+                          ? "" : "A/B 之别需双桨同按，仅外接电键可分");
     } else {
         lv_label_set_text(s_val_hint, "");
     }
@@ -338,6 +342,13 @@ static lv_obj_t *build_adjust(void)
        一句"无"更干净，也不会让人以为出了什么问题。 */
     s_val_hint = lv_label_create(s);
     lv_obj_set_style_text_font(s_val_hint, UI_FONT_CN, 0);
+    /* 定宽 + 自动换行：「电键类型」那条说明一行放不下（font20 的中文字形约
+       20px 宽，320px 只够 16 个字），不定宽的话 label 会按自然宽度撑出屏幕两侧。
+       两行落在 132..184，下面的「试听」按钮在 170——但有试听的都是音频组的数值
+       项，它们的 hint 是空的，不会撞上。 */
+    lv_obj_set_width(s_val_hint, 300);
+    lv_label_set_long_mode(s_val_hint, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(s_val_hint, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(s_val_hint, LV_ALIGN_TOP_MID, 0, 132);
     lv_label_set_text(s_val_hint, "");
     update_hint();

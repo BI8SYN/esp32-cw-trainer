@@ -25,10 +25,24 @@ typedef void (*key_input_char_cb_t)(char c, void *user);
  */
 typedef void (*key_input_edge_cb_t)(bool down, uint32_t t_ms, void *user);
 
+/*
+ * 触摸桨与外接口是**并联**的：两路谁按都算，没有"输入源"这种二选一设置。
+ * 合并规则见 core/key_merge.h（纯函数，有单测）。
+ *
+ * 外接口因此是**永远在采样**的，这带来一个必须处理的问题：一根空闲电平就是低的
+ * 线会把电键彻底钉死。这不是罕见故障——本机 GPIO27 上接了蜂鸣器是一例，而成品
+ * 直键的 TS 单声道插头插进 3.5mm 立体声母座时，套筒会把 Ring 和 Sleeve 短接，
+ * 划线恒为低，**每插一次直键都会发生**。
+ *
+ * 门闩（armed）：**一根线必须先被观察到"松开"过一次，才被允许说话。**
+ * key_input_start() 里原始采样一次决定初值，5ms 任务里每读到一次去抖后的"松开"
+ * 就重新置位。没开闸的线一律按没按下处理，而且只掐外接那一路——同侧的触摸块
+ * 照常可用，一根坏线不会让整台机器没法用。
+ */
 esp_err_t   key_input_init(void);                 /* 创建 5ms tick 任务（初始为停止状态） */
 
 /*
- * 按当前设置（输入源、电键类型、对调、WPM）重新配置并启动。
+ * 按当前设置（电键类型、对调、WPM）重新配置并启动。
  *
  * user 同时是**归属令牌**：谁 start 的谁拥有电键，见下面 key_input_stop_if()。
  * start 还会清掉边沿回调——接管电键的人从一张白纸开始，要边沿就在 start
@@ -56,6 +70,20 @@ void        key_input_touch(int paddle, bool pressed);
 void        key_input_set_edge_cb(key_input_edge_cb_t cb, void *user);
 /* 当前未完成字符的点划串（UI 轮询显示） */
 const char *key_input_pattern(void);
-bool        key_input_key_down(void);             /* 当前是否在发音（UI 高亮） */
+bool        key_input_key_down(void);             /* 当前是否在发音（侧音状态） */
+
+/*
+ * 屏幕上第 paddle 块（0=左，1=右）当前是否按下——触摸与外接合并后、左右对调
+ * **之前**。电键块的高亮用它：这样按外接电键时屏幕上对应的那一块也会亮，而且
+ * 开了对调也不会变成按左块高亮右块。
+ */
+bool        key_input_paddle_down(int paddle);
+
+/*
+ * 哪几根外接线正被门闩挡在外面：bit0 = 点线，bit1 = 划线。非 0 意味着那根线在
+ * 启动时就读成"按下"且此后没松开过。UI 拿它给出提示——静默忽略一根坏线，表现
+ * 是"按了没反应且毫无线索"，那正是 GPIO27 那次最难查的地方。
+ */
+uint8_t     key_input_ext_blocked(void);
 
 #endif

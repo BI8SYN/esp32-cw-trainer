@@ -249,10 +249,9 @@ lv_obj_t *ui_fist_create(void)
     lv_obj_set_pos(s_summary, 6, UI_TOPBAR_H + 78 + 2);
     lv_label_set_text(s_summary, "");
 
-    /* 电键 110px：和电键页、对练页共用同一个构造函数 */
+    /* 电键：和电键页、对练页共用同一个构造函数，布局由它按设置决定 */
     int py = UI_TOPBAR_H + 78 + 28;
-    lv_obj_t *pads[2];
-    ui_keyer_paddles(s_scr, py, 240 - py, pads);
+    ui_keyer_paddles(s_scr, py, 240 - py, NULL);
 
     s_elem_n = 0;
     s_have_last = false;

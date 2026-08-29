@@ -684,7 +684,7 @@ lv_obj_t *ui_net_create(void)
 
     s_peers = lv_label_create(bar);
     lv_obj_set_style_text_font(s_peers, UI_FONT_CN, 0);
-    /* 贴在 wire 方框左边。方框宽度随 wire 名字变（「QSO 陪练」和「wire 10」
+    /* 贴在 wire 方框左边。方框宽度随 wire 名字变（「AI 陪练」和「wire 10」
        差不少），所以对齐到它而不是写死一个 x。 */
     lv_obj_align_to(s_peers, s_title, LV_ALIGN_OUT_LEFT_MID, -8, 0);
     lv_label_set_text(s_peers, "");

@@ -18,7 +18,6 @@ static void set_defaults(cw_settings_t *c)
     c->eff_wpm = 15;
     c->tone_hz = 600;
     c->volume = 70;
-    c->key_input = CW_KEY_INPUT_TOUCH;
     c->keyer_mode = 2;
     c->paddle_swap = 0;
     /*
@@ -69,7 +68,8 @@ static void migrate_v1(const cw_settings_v1_t *old, cw_settings_t *dst)
     dst->eff_wpm     = old->eff_wpm;
     dst->tone_hz     = old->tone_hz;
     dst->volume      = old->volume;
-    dst->key_input   = old->key_input;
+    /* key_input 不搬：v2 里它已经是废弃的 reserved_key_input，
+       set_defaults() 给的 0 就是它该有的值。 */
     dst->keyer_mode  = old->keyer_mode;
     dst->paddle_swap = old->paddle_swap;
     memcpy(dst->callsign, old->callsign, sizeof dst->callsign);

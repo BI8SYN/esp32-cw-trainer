@@ -7,6 +7,7 @@
 #include "board_config.h"
 #include "cw_settings.h"
 #include "keyer.h"
+#include "key_merge.h"
 #include "cw_decoder.h"
 #include "tone_gen.h"
 
@@ -19,7 +20,10 @@ static volatile bool s_running;
 static keyer_t s_keyer;
 static cw_decoder_t s_dec;
 static volatile bool s_touch[2];
-static bool s_ext_last[2], s_ext_stable[2];
+static bool s_ext_last[2], s_ext_stable[2], s_ext_armed[2];
+/* 屏幕上第 i 块的按下状态（触摸与外接合并后、左右对调之前），给 UI 高亮用。
+ * 由 5ms 任务写、LVGL 任务读，所以是 volatile。 */
+static volatile bool s_in[2];
 /* volatile：task() 里读它、key_input_stop() 从另一个任务清它，见 task() 里
  * 拷贝到局部变量再用的注释。 */
 static key_input_char_cb_t volatile s_cb;
@@ -33,35 +37,38 @@ static uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 static void read_inputs(bool *dit, bool *dah)
 {
     const cw_settings_t *c = cw_settings_get();
-    bool a, b;
-    if (c->key_input == CW_KEY_INPUT_EXT) {
-        bool r0 = gpio_get_level(BOARD_KEY_DIT_GPIO) == 0;
-        bool r1 = gpio_get_level(BOARD_KEY_DAH_GPIO) == 0;
+    const bool raw[2] = {
+        gpio_get_level(BOARD_KEY_DIT_GPIO) == 0,
+        gpio_get_level(BOARD_KEY_DAH_GPIO) == 0,
+    };
+    for (int i = 0; i < 2; i++) {
         /* 10ms 去抖：只有连续两次 tick 读到同一电平，才把它采纳为稳定值。
          * 单个 tick 的毛刺这一次读数会和上一次不一致，stable 保持不变，不会
          * 被采纳；只有当毛刺后紧跟着的下一次读数和它自己一致时才会被接受——
          * 也就是说信号必须真的稳定维持满两个 tick 才算数，单 tick 抖动会被
          * 彻底挡在外面，而不是仅仅被延迟采纳。 */
-        if (r0 == s_ext_last[0]) { s_ext_stable[0] = r0; }
-        s_ext_last[0] = r0;
-        if (r1 == s_ext_last[1]) { s_ext_stable[1] = r1; }
-        s_ext_last[1] = r1;
-        a = s_ext_stable[0];
-        b = s_ext_stable[1];
-    } else {
-        a = s_touch[0];
-        b = s_touch[1];
+        if (raw[i] == s_ext_last[i]) s_ext_stable[i] = raw[i];
+        s_ext_last[i] = raw[i];
+        /* 门闩：见 key_input.h。判据必须用去抖后的值，不能用 raw[i]——原始电平
+         * 上一个方向相反的毛刺就足以给一根真正卡住的线开闸，而开闸之后去抖值
+         * 仍然是"按下"，键照样被钉死，门闩就白设了。去抖要求连续两拍一致，
+         * 毛刺过不去。 */
+        if (!s_ext_stable[i]) s_ext_armed[i] = true;
     }
-    /* paddle_swap 只在这一处应用：不管输入源是触摸桨还是外接口，到这里为止
-     * a/b 都已经统一成同一种"左/右"含义，交换只做这一次，触摸和外接口不会
-     * 出现相反的对调结果。 */
-    if (c->paddle_swap) {
-        bool t = a;
-        a = b;
-        b = t;
-    }
-    *dit = a;
-    *dah = b;
+
+    /* 直键不参与左右对调：它只有一个触点，"左右"无从谈起。真按对调处理的话，
+     * 屏幕上那一整块（走 touch[0]）会被换到 dah 上，而 keyer 的直键分支只看
+     * dit——结果是开了对调之后屏幕上的直键按了没有任何反应。外接的直键同理，
+     * 固定留在点线（IO18 / TRS 的 Tip），这也正是单声道插头的接法。 */
+    const bool swap = c->paddle_swap && c->keyer_mode != KEYER_MODE_STRAIGHT;
+
+    const bool touch[2] = { s_touch[0], s_touch[1] };
+    key_merge_out_t m;
+    key_merge(touch, s_ext_stable, s_ext_armed, swap, &m);
+    s_in[0] = m.in[0];
+    s_in[1] = m.in[1];
+    *dit = m.dit;
+    *dah = m.dah;
 }
 
 static void task(void *arg)
@@ -135,8 +142,20 @@ void key_input_start(key_input_char_cb_t cb, void *user)
     keyer_init(&s_keyer, (keyer_mode_t)c->keyer_mode, dit_ms);
     cw_decoder_init(&s_dec, dit_ms);
     s_touch[0] = s_touch[1] = false;
-    s_ext_last[0] = s_ext_last[1] = false;
-    s_ext_stable[0] = s_ext_stable[1] = false;
+    s_in[0] = s_in[1] = false;
+    /* 原始采样一次，给去抖状态播种，这样去抖值从第一拍起就有效；门闩的初值也由
+     * 它决定。引脚已经在 key_input_init() 里配成输入+内部上拉，此刻读到"按下"
+     * 只可能是这根线本身就被拉低了：本机 GPIO27 上的蜂鸣器是一例，成品直键的
+     * TS 单声道插头插进立体声母座时套筒把 Ring 和 Sleeve 短接、划线恒为低是
+     * 另一例——后者每插一次直键都会发生。这样的线不会被开闸。 */
+    for (int i = 0; i < 2; i++) {
+        bool r = gpio_get_level(i == 0 ? BOARD_KEY_DIT_GPIO : BOARD_KEY_DAH_GPIO) == 0;
+        s_ext_last[i] = s_ext_stable[i] = r;
+        s_ext_armed[i] = !r;
+        if (r) ESP_LOGW(TAG, "external %s line (GPIO%d) reads ACTIVE before any key press - ignored until it is seen released once",
+                        i == 0 ? "dit" : "dah",
+                        (int)(i == 0 ? BOARD_KEY_DIT_GPIO : BOARD_KEY_DAH_GPIO));
+    }
     s_last_out = false;
     s_cb = cb;
     s_user = user;
@@ -148,22 +167,6 @@ void key_input_start(key_input_char_cb_t cb, void *user)
     /* 提前给功放上电：等用户真按下键时它已经稳定，第一声才不会破音。
        见 tone_gen_amp_hold() 的说明。 */
     tone_gen_amp_hold(true);
-    if (c->key_input == CW_KEY_INPUT_EXT) {
-        /* 启动自检，只在选中外接口模式时做：引脚已经在 key_input_init() 里配置
-         * 成输入+内部上拉，这里立即采样一次原始电平——不经过去抖（去抖要两个
-         * tick 才能给出稳定值，这里要的是"这一刻马上能看到"的诊断信息，不是
-         * 拿去驱动 keyer）。如果操作者还没碰任何东西，某根线就已经读成"按下"，
-         * 说明这根线的空闲电平不是预期的高电平（例如 GPIO27，见 board_config.h
-         * 里针对它的说明），键控从一开始就会是错的、且看起来毫无缘由。这里只打
-         * 警告日志、不阻止外接口模式启用——换一块接线方式不同的板子上这两根线
-         * 完全可能是正常的高电平，不能靠猜就拒绝启用。 */
-        if (gpio_get_level(BOARD_KEY_DIT_GPIO) == 0) {
-            ESP_LOGW(TAG, "external dit line (GPIO%d) reads ACTIVE before any key press - idle level is not the expected high, this pin will behave as a stuck key", (int)BOARD_KEY_DIT_GPIO);
-        }
-        if (gpio_get_level(BOARD_KEY_DAH_GPIO) == 0) {
-            ESP_LOGW(TAG, "external dah line (GPIO%d) reads ACTIVE before any key press - idle level is not the expected high, this pin will behave as a stuck key", (int)BOARD_KEY_DAH_GPIO);
-        }
-    }
     s_running = true;
     xTaskNotifyGive(s_task);
 }
@@ -211,3 +214,16 @@ void key_input_set_edge_cb(key_input_edge_cb_t cb, void *user)
 
 const char *key_input_pattern(void) { return cw_decoder_pattern(&s_dec); }
 bool key_input_key_down(void) { return s_last_out; }
+
+bool key_input_paddle_down(int paddle)
+{
+    if (paddle < 0 || paddle > 1) return false;
+    return s_in[paddle];
+}
+
+uint8_t key_input_ext_blocked(void)
+{
+    /* 没在跑的时候门闩状态是上一次的残留，对调用方没有意义，报 0。 */
+    if (!s_running) return 0;
+    return (uint8_t)((s_ext_armed[0] ? 0 : 1) | (s_ext_armed[1] ? 0 : 2));
+}
