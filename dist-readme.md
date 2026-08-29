@@ -49,8 +49,17 @@ python -m esptool --chip esp32 -b 460800 -p /dev/cu.usbserial-XXXX \
 ```bash
 python -m esptool --chip esp32 -b 460800 -p /dev/cu.usbserial-XXXX \
   write_flash --flash_mode dio --flash_size 4MB --flash_freq 80m \
-  0x1000 bootloader.bin 0x8000 partition-table.bin 0x10000 cw-trainer.bin
+  0x1000 bootloader.bin 0x8000 partition-table.bin 0x20000 cw-trainer.bin
+
+python -m esptool --chip esp32 -p /dev/cu.usbserial-XXXX erase_region 0x10000 0x2000
 ```
+
+app 的地址是 **0x20000 不是 0x10000**：这是双槽 OTA 布局，0x10000 是 `otadata`，
+写错了设备起不来。分区表见工程里的 `partitions.csv`。
+
+第二条命令擦掉 `otadata`。设备如果之前 OTA 过，正在从 `ota_1` 启动，那么只往
+`ota_0` 写新固件是不会生效的——它下次还是从 `ota_1` 起来，跑的是旧版本。擦掉
+`otadata` 让 bootloader 回到 `ota_0`。它和 NVS 不是一个分区，设置不受影响。
 
 需要 esptool（`pip install esptool`）。写入每段有 MD5 校验，出错当场失败可重试。
 校验文件完整性：`shasum -a 256 -c SHA256SUMS.txt`
