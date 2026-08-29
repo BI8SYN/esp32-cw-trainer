@@ -37,6 +37,12 @@ static const char *const KEYER_MODES[] = { "直键", "Iambic A", "Iambic B" };
  * 的字形表里没有 `unicode = 0x00b0` 这一项），会静默渲染成空白——正是 README
  * 「界面里的中文字体」一节描述的那类只有对着真屏幕才看得出来的坑。 */
 static const char *const SCREEN_ROTS[] = { "正常", "上下翻转" };
+/* 顺序必须与 cw_settings.h 的 CW_BATT_HIDE/ICON/NUM 一致——
+   IT_CHOICE 存的就是下标本身。 */
+/* 「图标+数字」用加号而不是「和」：fmt_val 的调用处缓冲是 char b[16]，
+   五个中文正好 15 字节 + NUL = 16，零余量；以后谁多加一个字就会在
+   UTF-8 字符中间截断，屏幕上出现半个乱码字。加号版 13 字节，留得住。 */
+static const char *const BATT_SHOWS[] = { "隐藏", "图标", "图标+数字" };
 /*
  * 「连接网络」的选项在运行时按已保存的槽位生成：自动 + 每个非空槽位的
  * SSID。IT_CHOICE 的 choices 是 const char* 数组，所以这里备一份可写的
@@ -79,6 +85,7 @@ static const item_t KEY[] = {
 static const item_t GEN[] = {
     { "我的呼号", IT_CALLSIGN, 0, 0, 0, "", NULL, 0, false, NULL },
     { "Koch 课次", IT_NUM, 1, 39, 1, "", NULL, 0, false, NULL },
+    { "电量显示", IT_CHOICE, 0, 0, 0, "", BATT_SHOWS, 3, false, NULL },
     { "屏幕亮度", IT_NUM, 10, 100, 10, "%", NULL, 0, false, NULL },
     { "屏幕旋转", IT_CHOICE, 0, 0, 0, "", SCREEN_ROTS, 2, false, NULL },
     /*
@@ -125,7 +132,7 @@ static item_t NET[] = {
 };
 
 static const item_t *const GROUPS[4] = { AUDIO, KEY, GEN, NET };
-static const int GROUP_N[4] = { 4, 2, 9, 4 };
+static const int GROUP_N[4] = { 4, 2, 10, 4 };
 static const char *const GROUP_NAMES[4] = { "音频", "电键", "常规", "网络" };
 #define GROUP_COUNT 4
 
@@ -167,6 +174,7 @@ static int get_val(const item_t *it)
     if (!strcmp(it->name, "Koch 课次")) return c->koch_lesson;
     if (!strcmp(it->name, "屏幕亮度")) return c->brightness;
     if (!strcmp(it->name, "屏幕旋转")) return c->rotate_180;
+    if (!strcmp(it->name, "电量显示")) return c->battery_show;
     return 0;
 }
 
@@ -225,6 +233,10 @@ static void set_val(const item_t *it, int v)
     else if (!strcmp(it->name, "Koch 课次")) c->koch_lesson = (uint8_t)v;
     else if (!strcmp(it->name, "屏幕亮度")) { c->brightness = (uint8_t)v; backlight_set(c->brightness); }
     else if (!strcmp(it->name, "屏幕旋转")) { c->rotate_180 = (uint8_t)(v ? 1 : 0); apply_rotation(c->rotate_180); }
+    /* 顶栏是在 ui_home_create() 里按这个值排的，改完要回主页才看得到——
+       和「屏幕旋转」不同，那个能当场生效。这里不主动跳页：用户正在设置页
+       连着调几项是常态，被踢回主页比晚看到一眼更烦。 */
+    else if (!strcmp(it->name, "电量显示")) c->battery_show = (uint8_t)v;
     apply_audio();
     cw_settings_save();
 }

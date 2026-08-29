@@ -34,6 +34,9 @@ static void set_defaults(cw_settings_t *c)
     memset(c->koch_last_pct, 0xFF, sizeof c->koch_last_pct);
     c->brightness = 80;
     c->rotate_180 = 0;
+    /* 出厂默认显示图标+数字：绝大多数人是接了电池的，而且这也是 v3 之前
+       唯一的行为——老设备升级上来不该看到界面无缘无故变了。 */
+    c->battery_show = CW_BATT_NUM;
 }
 
 /* v1 的结构体布局快照，仅用于升级迁移，不要再改动它。
@@ -60,6 +63,55 @@ typedef struct {
 /* 把 v1 的每个字段显式搬到 v2，新字段取默认值。逐字段拷贝而不是 memcpy 整块：
  * 万一以后 v2 在中间插入字段，这里会立刻编译报错或写错位置被看出来，
  * 而 memcpy 会静默地把所有后续字段错位。 */
+/* v2 的结构体布局快照，仅用于升级迁移，不要再改动它。
+ *
+ * 与 v1、v3 一样都是 68 字节——v3 删掉了 key_input、又在末尾加了 battery_show，
+ * 一减一加恰好抵消。三个版本长度全相同，所以 cw_settings_init() 里**必须靠
+ * version 字段分辨**，只看 len 是分不出来的。 */
+typedef struct {
+    uint32_t version;
+    uint8_t  char_wpm;
+    uint8_t  eff_wpm;
+    uint16_t tone_hz;
+    uint8_t  volume;
+    uint8_t  key_input;    /* v3 删除：电键输入二选一，两路改并联后没有意义了 */
+    uint8_t  keyer_mode;
+    uint8_t  paddle_swap;
+    char     callsign[12];
+    uint8_t  koch_lesson;
+    uint8_t  koch_last_pct[41];
+    uint8_t  brightness;
+    uint8_t  rotate_180;
+} cw_settings_v2_t;
+
+/* 历史布局是冻结的：它们描述的是**已经写在别人设备 NVS 里的字节**，改一个字节
+   就会把老配置读错位。谁要是"顺手整理"了上面两个快照，在这里当场编译失败，
+   而不是等到用户的 Koch 进度悄悄错乱。
+   断言消息用 ASCII：tools/check_charset.py 会把字符串字面量算进"界面用到的字"，
+   中文消息会白白占掉裁剪字库的位置，而它根本不会上屏。 */
+_Static_assert(sizeof(cw_settings_v1_t) == 68, "v1 layout is frozen");
+_Static_assert(sizeof(cw_settings_v2_t) == 68, "v2 layout is frozen");
+
+static void migrate_v2(const cw_settings_v2_t *old, cw_settings_t *dst)
+{
+    set_defaults(dst);
+    dst->version     = CW_SETTINGS_VERSION;
+    dst->char_wpm    = old->char_wpm;
+    dst->eff_wpm     = old->eff_wpm;
+    dst->tone_hz     = old->tone_hz;
+    dst->volume      = old->volume;
+    /* key_input 不搬：v3 里这个字段不存在了 */
+    dst->keyer_mode  = old->keyer_mode;
+    dst->paddle_swap = old->paddle_swap;
+    memcpy(dst->callsign, old->callsign, sizeof dst->callsign);
+    dst->callsign[sizeof dst->callsign - 1] = 0;
+    dst->koch_lesson = old->koch_lesson;
+    memcpy(dst->koch_last_pct, old->koch_last_pct, sizeof dst->koch_last_pct);
+    dst->brightness  = old->brightness;
+    dst->rotate_180  = old->rotate_180;
+    /* battery_show 保持 set_defaults() 给的 CW_BATT_NUM：老设备升上来行为不变 */
+}
+
 static void migrate_v1(const cw_settings_v1_t *old, cw_settings_t *dst)
 {
     set_defaults(dst);
@@ -68,8 +120,7 @@ static void migrate_v1(const cw_settings_v1_t *old, cw_settings_t *dst)
     dst->eff_wpm     = old->eff_wpm;
     dst->tone_hz     = old->tone_hz;
     dst->volume      = old->volume;
-    /* key_input 不搬：v2 里它已经是废弃的 reserved_key_input，
-       set_defaults() 给的 0 就是它该有的值。 */
+    /* key_input 不搬：v3 里这个字段不存在了 */
     dst->keyer_mode  = old->keyer_mode;
     dst->paddle_swap = old->paddle_swap;
     memcpy(dst->callsign, old->callsign, sizeof dst->callsign);
@@ -77,7 +128,8 @@ static void migrate_v1(const cw_settings_v1_t *old, cw_settings_t *dst)
     dst->koch_lesson = old->koch_lesson;
     memcpy(dst->koch_last_pct, old->koch_last_pct, sizeof dst->koch_last_pct);
     dst->brightness  = old->brightness;
-    /* rotate_180 保持 set_defaults() 给的 0：老设备升级上来默认不翻转 */
+    /* rotate_180 / battery_show 保持 set_defaults() 给的值：
+       老设备升级上来默认不翻转、电量照常显示 */
 }
 
 static esp_err_t write_blob(const cw_settings_t *c)
@@ -100,8 +152,10 @@ esp_err_t cw_settings_init(void)
         set_defaults(&s_cfg);
         return err;
     }
+    /* 三个版本的 sizeof 恰好都是 68，靠 version 字段分辨，不靠长度。 */
     union {
-        cw_settings_t    v2;
+        cw_settings_t    v3;
+        cw_settings_v2_t v2;
         cw_settings_v1_t v1;
     } raw;
     size_t len = sizeof raw;
@@ -113,8 +167,13 @@ esp_err_t cw_settings_init(void)
         migrate_v1(&raw.v1, &s_cfg);
         return write_blob(&s_cfg);
     }
+    if (err == ESP_OK && len == sizeof(cw_settings_v2_t) && raw.v2.version == 2) {
+        ESP_LOGI(TAG, "migrating config v2 -> v%d", CW_SETTINGS_VERSION);
+        migrate_v2(&raw.v2, &s_cfg);
+        return write_blob(&s_cfg);
+    }
     if (err == ESP_OK && len == sizeof s_cfg) {
-        memcpy(&s_cfg, &raw.v2, sizeof s_cfg);
+        memcpy(&s_cfg, &raw.v3, sizeof s_cfg);
     }
 
     if (err == ESP_ERR_NVS_NOT_FOUND) {
