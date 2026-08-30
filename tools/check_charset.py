@@ -25,6 +25,46 @@ FONT_C = "fonts/font20_cwtrn.c"
 RUNTIME_EXTRA = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/?.,=+-"
 
 
+# 这些调用的参数是**诊断文本**：串口日志、编译期断言消息。它们是字符串字面量，
+# 但永远不会出现在屏幕上——算进来只会让裁剪字库白白变大。而字库大小不是小事：
+# 裁剪前固件 2.2MB，两个 OTA 槽根本放不下（见 main/ota.h）。
+#
+# 实测被它们多算进来的：_Static_assert 的中文消息带进「冻布局改」，
+# ota.c 的一条 ESP_LOGW 带进「析」和破折号。
+DIAGNOSTIC_CALLS = re.compile(r"\b(ESP_LOG[EWIDV]|ESP_EARLY_LOG[EWIDV]|_Static_assert)\s*\(")
+
+
+def strip_diagnostics(text):
+    """删掉诊断调用的整个参数表。
+
+    不能用正则一把梭：参数里就有括号和引号（"服务器返回 %d (%s)"）。手写扫描，
+    跟踪字符串和转义，数到配对的右括号为止。
+    """
+    out, i = [], 0
+    while True:
+        m = DIAGNOSTIC_CALLS.search(text, i)
+        if not m:
+            out.append(text[i:])
+            return "".join(out)
+        out.append(text[i:m.start()])
+        j, depth, instr, esc = m.end(), 1, False, False
+        while j < len(text) and depth:
+            c = text[j]
+            if esc:
+                esc = False
+            elif c == "\\" and instr:
+                esc = True
+            elif c == '"':
+                instr = not instr
+            elif not instr:
+                if c == "(":
+                    depth += 1
+                elif c == ")":
+                    depth -= 1
+            j += 1
+        i = j
+
+
 def used_chars():
     used = set(RUNTIME_EXTRA)
     for pat in SRC_GLOBS:
@@ -33,6 +73,7 @@ def used_chars():
             # 注释里的字不会显示出来，不该被计入
             text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
             text = re.sub(r"//[^\n]*", "", text)
+            text = strip_diagnostics(text)
             for m in re.finditer(r'"((?:[^"\\]|\\.)*)"', text):
                 for ch in m.group(1):
                     if ord(ch) >= 0x20:

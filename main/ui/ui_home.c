@@ -155,20 +155,39 @@ lv_obj_t *ui_home_create(void)
      * 图标全部用 LVGL 图元现画：font20 不含 LVGL 符号所在的 0xF000+ 私有区，
      * LV_SYMBOL_* 会是豆腐块（配网页键盘就栽在这上面）。见 ui_icons.h。
      */
-    /* 数字在电池图标右边，电池图标在它左边——读起来是"电池 78"，
-       符号省掉：旁边就是电池图标，百分号是冗余的。 */
-    s_bat_icon = ui_icon_battery(bar);
-    lv_obj_align(s_bat_icon, LV_ALIGN_RIGHT_MID, -30, 0);
-
+    /*
+     * 右侧从右到左：电量数字、电池图标、WiFi 图标——**位置按实际显示的项依次
+     * 推出来，不能写死偏移**。「电量显示」可以关掉（有人根本没接电池），而原来
+     * 三个偏移是 -6 / -30 / -56 三个常数，关掉电量之后 WiFi 还钉在 -56，右边会
+     * 空出 50px 一大块，看着像画坏了。
+     *
+     * 数字在电池图标右边，读起来是"电池 78"；百分号省掉，旁边就是电池图标，
+     * 那个符号是冗余的。
+     *
+     * 图标全部用 LVGL 图元现画：font20 不含 LVGL 符号所在的 0xF000+ 私有区，
+     * LV_SYMBOL_* 会是豆腐块（配网页键盘就栽在这上面）。见 ui_icons.h。
+     */
+    s_bat = NULL;
+    s_bat_icon = NULL;
+    int x = 6;   /* 距顶栏右边缘的距离，取负后就是 LV_ALIGN_RIGHT_MID 的偏移 */
+    if (cfg->battery_show == CW_BATT_NUM) {
+        /* 用 Montserrat 12 而不是 UI_FONT_CN：后者行高 26，在 28px 的顶栏里
+           和 16px 的图标并排显得头重脚轻。见 ui_common.h 的 UI_FONT_TINY。 */
+        s_bat = lv_label_create(bar);
+        lv_obj_set_style_text_font(s_bat, UI_FONT_TINY, 0);
+        lv_obj_align(s_bat, LV_ALIGN_RIGHT_MID, -x, 0);
+        x += 24;
+    }
+    if (cfg->battery_show != CW_BATT_HIDE) {
+        s_bat_icon = ui_icon_battery(bar);
+        lv_obj_align(s_bat_icon, LV_ALIGN_RIGHT_MID, -x, 0);
+        x += 26;
+    }
+    /* 三项全开时 x 正好回到原来的 56，默认外观一像素都没变。 */
     s_wifi_icon = ui_icon_wifi(bar);
-    lv_obj_align(s_wifi_icon, LV_ALIGN_RIGHT_MID, -56, 0);
+    lv_obj_align(s_wifi_icon, LV_ALIGN_RIGHT_MID, -x, 0);
     ui_icon_wifi_set(s_wifi_icon, wifi_net_level());
 
-    /* 用 Montserrat 12 而不是 UI_FONT_CN：后者行高 26，在 28px 的顶栏里
-       和 16px 的图标并排显得头重脚轻。见 ui_common.h 的 UI_FONT_TINY。 */
-    s_bat = lv_label_create(bar);
-    lv_obj_set_style_text_font(s_bat, UI_FONT_TINY, 0);
-    lv_obj_align(s_bat, LV_ALIGN_RIGHT_MID, -6, 0);
     ui_home_set_battery(battery_percent());
 
     int top = UI_TOPBAR_H;
@@ -274,7 +293,9 @@ lv_obj_t *ui_home_create(void)
 
 void ui_home_set_battery(uint8_t percent)
 {
-    if (!s_scr || !s_bat) return;
-    ui_icon_battery_set(s_bat_icon, percent);
-    lv_label_set_text_fmt(s_bat, "%u", percent);
+    /* 两个控件各自判空：「电量显示」为「图标」时只有图标、为「隐藏」时两个都
+       没有，而 battery 任务照常每 10 秒回调一次。 */
+    if (!s_scr) return;
+    if (s_bat_icon) ui_icon_battery_set(s_bat_icon, percent);
+    if (s_bat) lv_label_set_text_fmt(s_bat, "%u", percent);
 }

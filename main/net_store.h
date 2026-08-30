@@ -106,7 +106,10 @@ typedef struct {
  * wire 号对用户没有意义，**上面有什么才有意义**——界面上一律显示
  * cw_net_wire_label() 给出的名字。
  */
-#define CW_NET_QSO_WIRE      11    /* cwbot-qso，身份 BOT */
+/* 宏名保留 QSO：它指的是服务端 cwbot-qso 这个服务占的那条 wire，服务名没变。
+   界面上的显示名是「AI 陪练」（见 cw_net_wire_label）——这条 wire 上的陪练
+   已经由语言模型驱动，不再是脚本状态机。 */
+#define CW_NET_QSO_WIRE      11    /* cwbot-qso，身份 BOT；显示名「AI 陪练」 */
 #define CW_NET_ECHO_WIRE     12    /* cwbot-echo，身份 ECHO */
 
 /* 返回这条 wire 上是什么。未知的 wire 返回 NULL，由调用方显示 "wire N"。 */

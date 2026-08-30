@@ -81,10 +81,11 @@ static void btn_cb(lv_event_t *e)
     if (ota_check_busy()) return;
 
     const ota_check_t *ck = ota_check_result();
-    /* 没有新版本时这个按钮的意思是"再查一次"——比灰掉一个按钮让用户
-       无事可做要好。 */
-    if (!ck->checked || !ck->available) ota_check_start();
-    else ota_start(NULL);          /* 用检查拿到的那个地址 */
+    /* 只有服务器版本更新时才装。其余情况——版本相同、服务器更旧、没查过、
+       查失败——这个按钮的意思都是"再查一次"，比灰掉一个按钮让用户无事可做
+       要好。**不提供降级入口**，见 ota.h 里 available 的说明。 */
+    if (ck->checked && !ck->err[0] && ck->available) ota_start(NULL);
+    else ota_check_start();
     refresh();
 }
 

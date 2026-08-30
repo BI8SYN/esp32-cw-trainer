@@ -12,7 +12,9 @@
 
 #define TEXT_MAX 40   /* 2 行 × 20 字符（等宽 font28 约 16px/字） */
 
-static lv_obj_t *s_scr, *s_text, *s_seq, *s_pad[2];
+static lv_obj_t *s_scr, *s_text, *s_seq;
+/* 点划行是否正被「外接线被挡住」的提示占着 */
+static bool s_warn;
 /* 电键归属令牌。取本文件某个静态变量的地址即可，只要全局唯一。 */
 static const char KEYER_OWNER;
 static char s_buf[TEXT_MAX + 1];
@@ -34,13 +36,19 @@ static void poll(lv_timer_t *t)
 {
     (void)t;
     const char *p = key_input_pattern();
+    /*
+     * 点划行此刻可能还占着「某根外接线被门闩挡住」的提示（见 ui_keyer_create）。
+     * 提示一直留到你第一次碰键为止——在那之前点划行本来也没内容可显示，让它空着
+     * 反而浪费了这台机器唯一能把这件事说出口的位置。
+     */
+    if (s_warn) {
+        if (!*p && !key_input_key_down()) return;
+        s_warn = false;
+    }
     /* 点划之间加空格显示，如 ". - . ." */
     char shown[24] = ""; size_t n = 0;
     for (; *p && n < sizeof shown - 3; p++) { shown[n++] = *p; shown[n++] = ' '; shown[n] = 0; }
     lv_label_set_text(s_seq, shown);
-    bool down = key_input_key_down();
-    if (cw_settings_get()->key_input == CW_KEY_INPUT_EXT)
-        for (int i = 0; i < 2; i++) if (s_pad[i]) lv_obj_set_style_bg_color(s_pad[i], down ? UI_GRAY_DOWN : UI_WHITE, 0);
 }
 
 /*
@@ -85,26 +93,98 @@ static void pad_cb(lv_event_t *e)
     key_input_touch(want, true);
 }
 
+/*
+ * 电键块的高亮状态。**每组桨一份、动态分配**，不能用文件级 static：
+ * ui_nav_show() 会先建好新页面再异步删除旧页面，两组桨会短暂同时存在，共享一份
+ * 状态时新页面的刷新会去写旧页面已经释放的对象。这正是这个文件此前用
+ * s_pad[] 时踩过的坑，那时靠"每条分支各自清零自己不写的下标"来绕，现在从
+ * 结构上不再有这个洞。
+ */
+typedef struct {
+    lv_obj_t   *pad[2];
+    bool        last[2];
+    lv_timer_t *timer;
+} pad_hl_t;
+
+static void hl_tick(lv_timer_t *t)
+{
+    pad_hl_t *h = t->user_data;
+    for (int i = 0; i < 2; i++) {
+        if (!h->pad[i]) continue;
+        bool down = key_input_paddle_down(i);
+        /* **只在变化时写。** lv_obj_set_style_bg_color() 会触发样式刷新并让对象
+           失效重绘，每 50ms 无脑重写一次会让电键块持续闪烁。 */
+        if (down == h->last[i]) continue;
+        h->last[i] = down;
+        lv_obj_set_style_bg_color(h->pad[i], down ? UI_GRAY_DOWN : UI_WHITE, 0);
+    }
+}
+
+static void hl_free(lv_event_t *e)
+{
+    pad_hl_t *h = lv_event_get_user_data(e);
+    lv_timer_del(h->timer);
+    lv_mem_free(h);
+}
+
 void ui_keyer_paddles(lv_obj_t *parent, int y, int h, lv_obj_t *out[2])
 {
+    const cw_settings_t *cfg = cw_settings_get();
+    const bool straight = cfg->keyer_mode == KEYER_MODE_STRAIGHT;
+    /* 直键不参与对调，与 key_input.c 的 read_inputs() 保持一致：单个触点没有
+       "左右"可言。 */
+    const bool swap = cfg->paddle_swap && !straight;
+
     /* 页面重建时按住状态不能留着，否则会卡出一个永远按下的桨。 */
     s_pad_held = -1;
-    s_pad_split = 160;
-    for (int i = 0; i < 2; i++) {
-        /* 字体必须是 UI_FONT_CN(font20, 3888 字形)。UI_FONT_MID(font28) 和
-         * EN_BIG 都只有 96 个 ASCII 字形、不含中文，"点""划"会变成豆腐块。 */
-        out[i] = ui_cell(parent, i == 0 ? "点" : "划", UI_FONT_CN, NULL, NULL);
-        lv_obj_set_pos(out[i], i * 160, y);
-        lv_obj_set_size(out[i], 160, h);
-        lv_obj_add_event_cb(out[i], pad_cb, LV_EVENT_ALL, (void *)(intptr_t)i);
+    s_pad_split = straight ? 320 : 160;   /* 直键整块都算左块 */
+
+    lv_obj_t *pad[2] = { NULL, NULL };
+    if (straight) {
+        /* 直键只有一个触点，铺成一整条。三个页面都走这里，所以对练页和手法页
+           在直键模式下不会再出现"两块桨但右边那块根本不接线"的情况。 */
+        pad[0] = ui_cell(parent, "直键（按住）", UI_FONT_CN, NULL, NULL);
+        lv_obj_set_pos(pad[0], 0, y);
+        lv_obj_set_size(pad[0], 320, h);
+        lv_obj_add_event_cb(pad[0], pad_cb, LV_EVENT_ALL, (void *)0);
+    } else {
+        for (int i = 0; i < 2; i++) {
+            /* 字体必须是 UI_FONT_CN(font20, 3888 字形)。UI_FONT_MID(font28) 和
+             * EN_BIG 都只有 96 个 ASCII 字形、不含中文，"点""划"会变成豆腐块。 */
+            /* 开了左右对调，标签跟着换：左块印"划"、右块印"点"。不换的话左块
+               印着"点"却发出划，标签就在撒谎。 */
+            pad[i] = ui_cell(parent, (i == 0) != swap ? "点" : "划", UI_FONT_CN, NULL, NULL);
+            lv_obj_set_pos(pad[i], i * 160, y);
+            lv_obj_set_size(pad[i], 160, h);
+            lv_obj_add_event_cb(pad[i], pad_cb, LV_EVENT_ALL, (void *)(intptr_t)i);
+        }
     }
+
+    /*
+     * 高亮刷新自带一个定时器，挂在 pad[0] 的删除事件上自毁。放在这里而不是让
+     * 各页面自己轮询，是因为电键页、对练页、手法页都铺这同一组桨——按外接电键
+     * 时屏幕跟着亮，三个页面一行都不用改就都有了。
+     *
+     * 触摸按下的高亮不归它管：make_btn() 已经给 LV_STATE_PRESSED 配了
+     * UI_GRAY_DOWN，这里走 LV_PART_MAIN 的默认态，同色，两条路径看起来一样。
+     */
+    pad_hl_t *hl = lv_mem_alloc(sizeof *hl);
+    if (hl) {
+        hl->pad[0] = pad[0];
+        hl->pad[1] = pad[1];
+        hl->last[0] = hl->last[1] = false;
+        hl->timer = lv_timer_create(hl_tick, 50, hl);
+        lv_obj_add_event_cb(pad[0], hl_free, LV_EVENT_DELETE, hl);
+    }
+
+    if (out) { out[0] = pad[0]; out[1] = pad[1]; }
 }
 
 static void clear_cb(lv_event_t *e) { (void)e; s_buf[0] = 0; lv_label_set_text(s_text, ""); }
 /* 手法分析从电键页进：它讲的是你发出去的时序，走到这一页的人正好在发报。 */
 static void go_fist(lv_event_t *e) { (void)e; ui_nav_show(ui_fist_create); }
 static void back(lv_event_t *e) { (void)e; ui_nav_show(ui_home_create); }
-static void on_delete(lv_event_t *e) { (void)e; key_input_stop_if((void *)&KEYER_OWNER); lv_timer_del(s_timer); s_timer = NULL; s_scr = NULL; s_pad[0] = s_pad[1] = NULL; }
+static void on_delete(lv_event_t *e) { (void)e; key_input_stop_if((void *)&KEYER_OWNER); lv_timer_del(s_timer); s_timer = NULL; s_scr = NULL; }
 
 lv_obj_t *ui_keyer_create(void)
 {
@@ -148,39 +228,35 @@ lv_obj_t *ui_keyer_create(void)
     lv_obj_align(s_seq, LV_ALIGN_TOP_MID, 0, top + 89);
     lv_label_set_text(s_seq, "");
 
-    /* s_pad[] 是跨页面存活的文件级 static；下面三条布局分支里，仅"外接+直键"
-     * 分支只写 s_pad[0]（循环上限 1），不会碰 s_pad[1]。如果上一次进入本页时
-     * 走的是双桨分支（触摸或外接），s_pad[1] 会指向那次创建、现在已经随旧屏幕
-     * 一起被删除的对象；不在这里清零的话它就是一个悬空指针，一旦这次又是外接
-     * 模式，poll() 里 "if (s_pad[i])" 判断会认为它还有效，对已释放对象调用
-     * lv_obj_set_style_bg_color——use-after-free。三条分支各自负责写自己要用的
-     * 下标，这里统一先清零，保证没被某条分支写到的下标一定是 NULL 而不是历史
-     * 残留值。 */
-    s_pad[0] = s_pad[1] = NULL;
-
-    /* 电键高度和对练页统一，见 ui_keyer.h 的 UI_PADDLE_H。 */
-    int py = 240 - UI_PADDLE_H, ph = UI_PADDLE_H;
-    bool straight = cfg->keyer_mode == KEYER_MODE_STRAIGHT;
-    bool ext = cfg->key_input == CW_KEY_INPUT_EXT;
-    if (ext) {
-        lv_obj_t *l = lv_label_create(s_scr); lv_label_set_text(l, "外接电键已就绪"); lv_obj_align(l, LV_ALIGN_TOP_MID, 0, py + 2);
-        /* 指示块的尺寸跟着 ph 算，不能写死——py 下移之后写死的 44+60 会顶出屏幕。 */
-        for (int i = 0; i < (straight ? 1 : 2); i++) {
-            s_pad[i] = ui_cell(s_scr, straight ? "键" : (i == 0 ? "点" : "划"), UI_FONT_CN, NULL, NULL);
-            lv_obj_set_size(s_pad[i], 90, ph - 34);
-            lv_obj_set_pos(s_pad[i], straight ? 115 : 60 + i * 110, py + 30);
-            lv_obj_clear_flag(s_pad[i], LV_OBJ_FLAG_CLICKABLE);
-        }
-    } else if (straight) {
-        s_pad[0] = ui_cell(s_scr, "直键（按住）", UI_FONT_CN, NULL, NULL);
-        lv_obj_set_pos(s_pad[0], 0, py); lv_obj_set_size(s_pad[0], 320, ph);
-        lv_obj_add_event_cb(s_pad[0], pad_cb, LV_EVENT_ALL, (void *)0);
-        s_pad[1] = NULL;
-    } else {
-        ui_keyer_paddles(s_scr, py, ph, s_pad);
-    }
+    /* 电键高度和对练页统一，见 ui_keyer.h 的 UI_PADDLE_H。布局（直键一整条 /
+       双桨两块 / 对调后的标签）全部由 ui_keyer_paddles() 自己决定，本页不再分支
+       ——三个铺电键的页面从此长得一模一样。 */
+    ui_keyer_paddles(s_scr, 240 - UI_PADDLE_H, UI_PADDLE_H, NULL);
 
     key_input_start(char_cb, (void *)&KEYER_OWNER);
+
+    /*
+     * 有外接线被门闩挡住就说出来。静默忽略一根坏线，表现是"按了没反应且毫无
+     * 线索"，那正是 GPIO27 那次最难查的地方。
+     *
+     * 写点划行而不是解码文本区：解码文本区用的是 UI_FONT_MID(font28)，只有 96 个
+     * ASCII 字形、不含中文，中文会静默渲染成一排豆腐块。点划行是本页唯一能显示
+     * 中文、进页面时又为空的位置。
+     *
+     * 文案带引脚号：开了左右对调之后"点线/划线"指的是哪根物理线会含糊，IO18 /
+     * IO23 不会。
+     */
+    uint8_t blocked = key_input_ext_blocked();
+    if (blocked) {
+        const char *msg = blocked == 3 ? "外接两根线都一直按下"
+                        : blocked == 1 ? "外接点线(IO18)一直按下"
+                                       : "外接划线(IO23)一直按下";
+        lv_label_set_text(s_seq, msg);
+        s_warn = true;
+    } else {
+        s_warn = false;
+    }
+
     s_timer = lv_timer_create(poll, 50, NULL);
     return s_scr;
 }

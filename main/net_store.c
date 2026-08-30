@@ -252,7 +252,7 @@ esp_err_t net_store_init(void)
 
 const char *cw_net_wire_label(int16_t wire)
 {
-    if (wire == CW_NET_QSO_WIRE)  return "QSO 陪练";
+    if (wire == CW_NET_QSO_WIRE)  return "AI 陪练";
     if (wire == CW_NET_ECHO_WIRE) return "回声";
     return NULL;
 }
