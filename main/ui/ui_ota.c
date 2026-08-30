@@ -67,10 +67,6 @@ static void refresh(void)
         lv_label_set_text(lbl, "进行中");
     else if (ota_check_busy()) lv_label_set_text(lbl, "检查中");
     else if (ck->checked && ck->available) lv_label_set_text(lbl, "升级");
-    /* 服务器版本比本机旧时按钮说"装旧版"，不说"升级"——那不是升级。
-       这条路留着是有用的（出问题时挂回旧版把设备拉回去），但必须让人
-       看清楚自己在做什么，不能拿"升级"两个字骗他按下去。 */
-    else if (ck->checked && ck->differs && !ck->err[0]) lv_label_set_text(lbl, "装旧版");
     else lv_label_set_text(lbl, "重新检查");
 }
 
@@ -85,10 +81,10 @@ static void btn_cb(lv_event_t *e)
     if (ota_check_busy()) return;
 
     const ota_check_t *ck = ota_check_result();
-    /* 服务器版本更新（升级）或更旧（手动装旧版）都装；两者都不是——也就是
-       版本相同、没查过、查失败——这个按钮的意思才是"再查一次"，比灰掉一个
-       按钮让用户无事可做要好。 */
-    if (ck->checked && !ck->err[0] && (ck->available || ck->differs)) ota_start(NULL);
+    /* 只有服务器版本更新时才装。其余情况——版本相同、服务器更旧、没查过、
+       查失败——这个按钮的意思都是"再查一次"，比灰掉一个按钮让用户无事可做
+       要好。**不提供降级入口**，见 ota.h 里 available 的说明。 */
+    if (ck->checked && !ck->err[0] && ck->available) ota_start(NULL);
     else ota_check_start();
     refresh();
 }

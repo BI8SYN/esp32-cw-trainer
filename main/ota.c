@@ -116,22 +116,25 @@ static void check_task(void *arg)
      *     '1' < '9'。这个工程迟早会到 v1.10，到那天所有设备都会拒绝升级且
      *     没有任何报错。
      *
-     * 改成语义比较，并把"更新"和"不同"拆成两个标志：available 用来主动提示，
-     * differs 让升级页仍能手动装一个更旧的版本——服务器上挂回旧版把设备拉回去
-     * 是真实有用的救急手段（这是原注释里唯一站得住的那半句），不能一起堵死。
+     * 改成语义比较，且**只往前走**：只有服务器版本严格更新才算有更新。清单上
+     * 挂着更旧的版本时设备就当自己已是最新，界面上不给任何往回装的入口。
+     *
+     * 原注释说"服务器放旧版本时降级也是有用的操作"——这条不再采纳。要把设备
+     * 拉回旧代码，正确做法是发一个**版本号更高的回退包**（v1.5.1 的内容是
+     * v1.5.0 的回滚），这样版本号只往前走，设备上装了什么永远能由版本号唯一
+     * 确定；而开放降级入口的代价是普通用户会在不理解后果的情况下按下去。
      *
      * 版本号解析不了时**不猜**：available 保持 false。把看不懂的版本号猜成
-     * "更新"，代价是把用户降级到一个不知道是什么的固件。
+     * "更新"，代价是把用户装上一个不知道是什么的固件。
      */
     int rel = version_cmp(s_chk.latest, ota_current_version());
-    s_chk.differs   = strcmp(s_chk.latest, ota_current_version()) != 0;
     s_chk.available = rel != VERSION_CMP_BAD && rel > 0;
     if (rel == VERSION_CMP_BAD)
         ESP_LOGW(TAG, "版本号无法解析：服务器 \"%s\"，本机 \"%s\"——不提示升级",
                  s_chk.latest, ota_current_version());
     ESP_LOGI(TAG, "服务器版本 %s，本机 %s，%s",
              s_chk.latest, ota_current_version(),
-             s_chk.available ? "有更新" : (s_chk.differs ? "服务器版本更旧" : "已是最新"));
+             s_chk.available ? "有更新" : (rel < 0 ? "服务器版本更旧，不降级" : "已是最新"));
 
 cleanup:
     esp_http_client_close(cli);
