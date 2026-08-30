@@ -9,6 +9,7 @@ idf_component_register(
         "core/morse_timing.c"
         "core/keyer.c"
         "core/key_merge.c"
+        "core/version_cmp.c"
         "core/cw_decoder.c"
         "core/koch_engine.c"
         "core/callsign_gen.c"

@@ -3,6 +3,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "version_cmp.h"
 #include "esp_ota_ops.h"
 #include "esp_http_client.h"
 #include "esp_https_ota.h"
@@ -106,12 +107,31 @@ static void check_task(void *arg)
         goto cleanup;
     }
 
-    /* 只比"是否不同"，不判大小：版本号是自由字符串，语义比较不可靠，而且
-       服务器放旧版本时"降级"本身也是有用的操作。 */
-    s_chk.available = strcmp(s_chk.latest, ota_current_version()) != 0;
+    /*
+     * 原来这里是 strcmp(...) != 0，"不同即有更新"。两个问题：
+     *
+     * 一、本机跑着比服务器新的版本时（发布前的本地构建就是这样）会一直提示
+     *     有更新，而点下去是**静默降级**。
+     * 二、strcmp 的排序本身就是错的：strcmp("v1.10.0", "v1.9.0") < 0，因为
+     *     '1' < '9'。这个工程迟早会到 v1.10，到那天所有设备都会拒绝升级且
+     *     没有任何报错。
+     *
+     * 改成语义比较，并把"更新"和"不同"拆成两个标志：available 用来主动提示，
+     * differs 让升级页仍能手动装一个更旧的版本——服务器上挂回旧版把设备拉回去
+     * 是真实有用的救急手段（这是原注释里唯一站得住的那半句），不能一起堵死。
+     *
+     * 版本号解析不了时**不猜**：available 保持 false。把看不懂的版本号猜成
+     * "更新"，代价是把用户降级到一个不知道是什么的固件。
+     */
+    int rel = version_cmp(s_chk.latest, ota_current_version());
+    s_chk.differs   = strcmp(s_chk.latest, ota_current_version()) != 0;
+    s_chk.available = rel != VERSION_CMP_BAD && rel > 0;
+    if (rel == VERSION_CMP_BAD)
+        ESP_LOGW(TAG, "版本号无法解析：服务器 \"%s\"，本机 \"%s\"——不提示升级",
+                 s_chk.latest, ota_current_version());
     ESP_LOGI(TAG, "服务器版本 %s，本机 %s，%s",
              s_chk.latest, ota_current_version(),
-             s_chk.available ? "有更新" : "已是最新");
+             s_chk.available ? "有更新" : (s_chk.differs ? "服务器版本更旧" : "已是最新"));
 
 cleanup:
     esp_http_client_close(cli);

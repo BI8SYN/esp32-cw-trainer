@@ -268,6 +268,9 @@ static void fmt_val(const item_t *it, char *out, size_t n)
         else if (!ck->checked)  snprintf(out, n, "未检查");
         else if (ck->err[0])    snprintf(out, n, "检查失败");
         else if (ck->available) snprintf(out, n, "有 %s", ck->latest);
+        /* 服务器挂着更旧的版本时不能说"已最新"——那会让人以为服务器上
+           就是这个版本。说清楚方向，用户才知道进去看到的是什么。 */
+        else if (ck->differs)   snprintf(out, n, "服务器 %s", ck->latest);
         else                    snprintf(out, n, "已最新");
         break;
     }

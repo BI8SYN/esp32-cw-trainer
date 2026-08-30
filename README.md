@@ -31,7 +31,7 @@ ESP_PORT=/dev/cu.usbserial-XXXX PROJECT=firmware/cw-trainer tools/idf.sh flash m
 make -C firmware/cw-trainer/test
 ```
 
-`main/core/` 下的模块不依赖 ESP-IDF，可在 macOS 直接编译测试。目前 12 个测试程序、119 个用例，全部通过、编译无警告。
+`main/core/` 下的模块不依赖 ESP-IDF，可在 macOS 直接编译测试。目前 13 个测试程序、127 个用例，全部通过、编译无警告。
 
 ## 结构
 
