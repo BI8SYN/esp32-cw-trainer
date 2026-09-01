@@ -49,6 +49,37 @@ static void hash_bytes(const uint8_t *p, size_t n)
     s_hash = h;
 }
 
+#if CW_SCREENSHOT_DUMP
+/*
+ * 导图模式：除了指纹，还把像素本身 base64 出来，主机端拼回 PNG。
+ *
+ * 平时不开——一张 320x240 的 RGB565 是 150KB，base64 之后 205KB，115200 的
+ * 串口要走十八秒。指纹回答「变了没有」够用且是秒回；只有在需要**看**的时候
+ * （比如换色之后确认长什么样）才值得花这个时间，而且只导几页。
+ */
+static const char B64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+static void emit_b64(const uint8_t *p, size_t n)
+{
+    /* 每 60 字节输出一行，避免主机端行缓冲被撑爆 */
+    size_t col = 0;
+    uint32_t acc = 0; int bits = 0;
+    for (size_t i = 0; i < n; i++) {
+        acc = (acc << 8) | p[i]; bits += 8;
+        while (bits >= 6) {
+            bits -= 6;
+            putchar(B64[(acc >> bits) & 0x3F]);
+            if (++col == 76) { putchar('\n'); col = 0; }
+        }
+    }
+    if (bits) {
+        putchar(B64[(acc << (6 - bits)) & 0x3F]);
+        col++;
+    }
+    if (col) putchar('\n');
+}
+#endif
+
 static void cap_flush(lv_disp_drv_t *d, const lv_area_t *a, lv_color_t *c)
 {
     if (s_capturing) {
@@ -59,6 +90,10 @@ static void cap_flush(lv_disp_drv_t *d, const lv_area_t *a, lv_color_t *c)
         uint32_t n = lv_area_get_size(a);
         hash_bytes((const uint8_t *)c, n * sizeof(lv_color_t));
         s_px += n;
+#if CW_SCREENSHOT_DUMP
+        printf("CHUNK %d %d %d %d\n", a->x1, a->y1, a->x2, a->y2);
+        emit_b64((const uint8_t *)c, n * sizeof(lv_color_t));
+#endif
     }
     s_orig_flush(d, a, c);
 }
@@ -125,10 +160,19 @@ void screenshot_tour(void)
     };
     const int n = (int)(sizeof pages / sizeof pages[0]);
 
+#if CW_SCREENSHOT_DUMP
+    /* 导图只跑一遍、且只导五页：全导十页要三分钟串口时间。这五页覆盖了
+       卡片 / 整宽列表 / tab+列表 / 图表 / 黄铜材质五种版式，够看长相了。 */
+    printf("SNAP-PASS 1\n");
+    const int want[] = { 0, 1, 2, 3, 4 };   /* home more settings stats keyer */
+    for (unsigned i = 0; i < sizeof want / sizeof want[0]; i++)
+        if (want[i] < n) shot(pages[want[i]].name, pages[want[i]].fn);
+#else
     for (int pass = 1; pass <= 2; pass++) {
         printf("SNAP-PASS %d\n", pass);
         for (int i = 0; i < n; i++) shot(pages[i].name, pages[i].fn);
     }
+#endif
     printf("SNAP-DONE\n");
 
     /* 巡完把屏幕交还给主页，否则用户拿到手是最后一页 */

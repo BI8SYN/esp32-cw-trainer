@@ -13,7 +13,9 @@
 #
 # 环境变量：
 #   REMOTE       默认 liyongsheng@10.11.26.88
-#   REMOTE_PORT  默认 /dev/cu.usbserial-2110（那台机器上的实测值，换线会变）
+#   REMOTE_PORT  串口。**默认自动探测**，不写死——USB 重新枚举一次名字就会变
+#                （实测 -2110 变成了 -2120），而这正是本仓库 README 反复警告
+#                的那个坑。探测到 0 个或多于 1 个才需要手动指定。
 #   REMOTE_PY    远端 esptool 所在的 python，默认自动找 ~/.espressif 下的 IDF 环境
 #   ESP_BAUD     默认 460800。写入每段都有 MD5 校验，出错会当场失败、不会静默写坏
 set -euo pipefail
@@ -22,7 +24,7 @@ cd "$(dirname "$0")/.."
 
 PROJECT="${PROJECT:-firmware/cw-trainer}"
 REMOTE="${REMOTE:-liyongsheng@10.11.26.88}"
-PORT="${REMOTE_PORT:-/dev/cu.usbserial-2110}"
+PORT="${REMOTE_PORT:-}"
 BAUD="${ESP_BAUD:-460800}"
 BUILD="$PROJECT/build"
 MONITOR=0
@@ -51,6 +53,23 @@ if [[ -z "$REMOTE_PY" ]]; then
   [[ -n "$REMOTE_PY" ]] || { echo "错误：远端找不到 ESP-IDF 的 python 环境（esptool 在那里面）" >&2; exit 1; }
 fi
 
+if [[ -z "$PORT" ]]; then
+  # 不用通配符：远端登录 shell 是 zsh，通配符没匹配到会中止整条命令而不是
+  # 静默返回空。列目录再 grep 才是与 shell 无关的写法。
+  # 不用 mapfile：macOS 自带的是 bash 3.2，没有这个内建。
+  ports=()
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && ports+=("/dev/$line")
+  done < <(ssh -o BatchMode=yes "$REMOTE" \
+    "ls /dev | grep -E '^cu\\.(usbserial|wchusbserial|SLAB_USBtoUART)'" || true)
+  case ${#ports[@]} in
+    0) echo "错误：远端没有 USB 串口。板子插着吗？" >&2; exit 1 ;;
+    1) PORT="${ports[0]}"; echo "   自动探测到串口 $PORT" ;;
+    *) echo "错误：远端有多个 USB 串口，用 REMOTE_PORT 指定其中之一：" >&2
+       printf '   %s\n' "${ports[@]}" >&2; exit 1 ;;
+  esac
+fi
+
 TMP="/tmp/cw-flash-$$"
 echo "== 传输到 $REMOTE:$TMP =="
 ssh -o BatchMode=yes "$REMOTE" "mkdir -p $TMP/bootloader $TMP/partition_table"
@@ -70,12 +89,12 @@ ssh -o BatchMode=yes "$REMOTE" "cd $TMP && '$REMOTE_PY' -m esptool \
   0x20000 $APP"
 
 if [[ $MONITOR == 1 ]]; then
-  echo "== 串口输出（20 秒，控制台固定 115200）=="
+  echo "== 串口输出（${MON_SECS:-20} 秒，控制台固定 115200）=="
   # miniterm 要 TTY，这里只要单向读，用 pyserial 直接读更省事
   ssh -o BatchMode=yes "$REMOTE" "'$REMOTE_PY' - <<'PY'
 import serial, time
 s = serial.Serial('$PORT', 115200, timeout=1)
-end = time.time() + 20
+end = time.time() + ${MON_SECS:-20}
 while time.time() < end:
     d = s.read(4096)
     if d:
