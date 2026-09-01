@@ -748,6 +748,13 @@ footer{font-family:var(--mono);font-size:11.5px;color:var(--t2);text-align:cente
     <p style="margin-top:8px">信息条高度提到 32 并进了 <code>ui_theme.h</code>（原来对练页自己写死 28）：与顶栏、提示条同在 8px 网格上，且 &gt;= <code>UI_FONT_CN</code> 的行高 26。文字改居中——它是一行状态提示，不是要从左边读起的正文，而且下面就是左右对称的两块桨，左对齐会把整页重心拉偏。</p>
   </div>
 
+  <div class="note">
+    <b>第八轮：内容井要缩进才看得出是井</b>
+    <p>反馈是「报文区不够下沉，想给左右加竖边框」。量下来<strong>左右两条边其实一直画着</strong>，只是都看不见：左边那条落在 <code>x=0</code>——屏幕最边缘，读起来是「屏幕边框」而不是「井壁」；右边那条落在 <code>x=319</code>，还被宽 4px 的滚动条整条盖住了。</p>
+    <p style="margin-top:8px">所以不是加边框，是<strong>把井从页面边缘缩进来</strong>（<code>UI_WELL_INSET = 6</code>），两侧各露一条纸底，边线才有参照物可以「相对于它凹进去」。滚动条同时往里挪 2px 让开边线。像素实测：<code>x=0..5</code> 纸底 → <code>x=6</code> 暗线 → 井面 → <code>x=313</code> 亮线 → <code>x=314..319</code> 纸底，两个页面完全一致。</p>
+    <p style="margin-top:8px">电键桨不跟着缩：它们是手指要按的地方，宽度就是触控面积，而且在层次上属于「页面之下的器件」，本来就该顶满。<code>UI_WELL_INSET</code> 取 6 而不是 8：8 会把本来就紧张的横向内容再挤掉 4px，而这条纸底只要看得见就够了，不承担分组任务。</p>
+  </div>
+
   <h3>怎么再看一次</h3>
   <p>指纹巡检（快，秒回，回答「变了没有」）：</p>
   <p><code>PROJECT=firmware/cw-trainer tools/idf.sh -DCW_SCREENSHOT=ON build &amp;&amp; tools/flash_remote.sh --monitor</code></p>

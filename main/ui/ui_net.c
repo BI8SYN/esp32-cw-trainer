@@ -699,8 +699,18 @@ lv_obj_t *ui_net_create(void)
        不再定死列数——定死就会像初版那样把超出的部分直接裁掉。 */
     s_box = lv_obj_create(s_scr);
     lv_obj_remove_style_all(s_box);
-    lv_obj_set_pos(s_box, 0, UI_TOPBAR_H);
-    lv_obj_set_size(s_box, 320, LOG_H);
+    /*
+     * 左右各缩进 WELL_INSET。
+     *
+     * 浮雕本来就画了左右两条边，但井贴满整宽时它们落在 x=0 和 x=319——那是
+     * 屏幕的最边缘，读起来是「屏幕边框」而不是「井壁」，整块区域因此看着不
+     * 下沉。缩进之后两侧各露出一条纸底，边线才有东西可以「相对于它」凹进去。
+     *
+     * 电键桨不跟着缩：它们是手指要按的地方，宽度就是触控面积，而且在层次上
+     * 属于「页面之下的器件」，本来就该顶满。
+     */
+    lv_obj_set_pos(s_box, UI_WELL_INSET, UI_TOPBAR_H);
+    lv_obj_set_size(s_box, 320 - UI_WELL_INSET * 2, LOG_H);
     lv_obj_set_style_pad_left(s_box, 6, 0);
     lv_obj_set_style_pad_right(s_box, 6, 0);
     lv_obj_set_style_pad_top(s_box, 2, 0);
@@ -731,6 +741,9 @@ lv_obj_t *ui_net_create(void)
     lv_obj_set_style_bg_opa(s_box, LV_OPA_30, LV_PART_SCROLLBAR);
     lv_obj_set_style_width(s_box, 4, LV_PART_SCROLLBAR);
     lv_obj_set_style_radius(s_box, 2, LV_PART_SCROLLBAR);
+    /* 滚动条默认贴着对象右缘画，正好盖住浮雕的右边线——实测右侧那条亮线整条
+       都被它吃掉了。往里挪 2px，让边线露出来。 */
+    lv_obj_set_style_pad_right(s_box, 2, LV_PART_SCROLLBAR);
 
     /* 页面重建，记录和行控件一起从头来。控件的宿主 s_box 是刚建的，旧的那些
        已经随上一屏被删掉了，这里只清指针数组。 */

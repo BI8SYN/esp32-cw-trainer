@@ -303,8 +303,8 @@ lv_obj_t *ui_keyer_create(void)
      */
     lv_obj_t *well = lv_obj_create(s_scr);
     lv_obj_remove_style_all(well);
-    lv_obj_set_pos(well, 0, top);
-    lv_obj_set_size(well, 320, 240 - UI_PADDLE_H - UI_BAND_H - top);
+    lv_obj_set_pos(well, UI_WELL_INSET, top);
+    lv_obj_set_size(well, 320 - UI_WELL_INSET * 2, 240 - UI_PADDLE_H - UI_BAND_H - top);
     lv_obj_clear_flag(well, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_pad_left(well, 6, 0);
     lv_obj_set_style_pad_right(well, 6, 0);
@@ -316,7 +316,7 @@ lv_obj_t *ui_keyer_create(void)
 
     s_text = lv_label_create(well);
     lv_obj_set_style_text_font(s_text, UI_FONT_MID, 0);
-    lv_obj_set_width(s_text, 302);
+    lv_obj_set_width(s_text, 320 - UI_WELL_INSET * 2 - 14);   /* 减去井的左右内边距和边框 */
     lv_label_set_long_mode(s_text, LV_LABEL_LONG_WRAP);
     lv_obj_align(s_text, LV_ALIGN_TOP_LEFT, 0, 0);
     lv_label_set_text(s_text, "");
