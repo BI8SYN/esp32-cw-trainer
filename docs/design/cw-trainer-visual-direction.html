@@ -26,7 +26,7 @@
   --danger:#9C2B1B;  /* 危险 */
   /* ── 拟物层：浮雕的两条 1px 线 ── */
   --hilite:#FFFBF0;  /* 受光边 */
-  --shade:#B5A88C;   /* 背光边 */
+  --shade:#9C8C6E;   /* 背光边 */
   /* ── 材质：黄铜。是 copper 同色相的明暗档，不是新增 accent ── */
   --brass:#A8763C;
   --brass-dk:#6E4A18;
@@ -197,7 +197,7 @@ footer{font-family:var(--mono);font-size:11.5px;color:var(--t2);text-align:cente
   <p class="sub">把这台机器做成一张摊在电报房桌上的纸：纸底墨字，铜色只用来说明「现在轮到这里」。</p>
   <div class="meta">
     <span>320×240 横屏</span><span>LVGL 8.3.11</span><span>RGB565</span>
-    <span>ST7789 + XPT2046 电阻触摸</span><span>阶段 7 · 视觉风格</span><span>分层拟物</span><span>真机实测已回填</span><span>2026-09-01</span>
+    <span>ST7789 + XPT2046 电阻触摸</span><span>阶段 7 · 视觉风格</span><span>分层拟物</span><span>真机实测已回填</span><span>2026-09-01 已落地</span><span>2026-09-01</span>
   </div>
 </header>
 
@@ -654,14 +654,15 @@ footer{font-family:var(--mono);font-size:11.5px;color:var(--t2);text-align:cente
       <tr><td><code>UI_PAPER</code></td><td class="hex">#FFFFFF</td><td class="num">6</td><td class="hex">#EFE6D4</td><td>页面底、遮罩、墨底上翻白的字</td></tr>
       <tr><td><code>UI_DISABLED</code></td><td class="hex">#999999</td><td class="num">6</td><td class="hex">#8F7F67</td><td>禁用的字与边、未激活的信号格</td></tr>
       <tr><td><code>UI_SUNK</code></td><td class="hex">#EEEEEE</td><td class="num">4</td><td class="hex">#E4D9C3</td><td>提示条底、卡片按下、对练状态带</td></tr>
-      <tr><td><code>UI_SELECTED</code></td><td class="hex">#999999</td><td class="num">4</td><td class="na">待定</td><td>设置/统计的当前 tab、选中的选项</td></tr>
-      <tr><td><code>UI_FILL</code></td><td class="hex">#999999</td><td class="num">3</td><td class="hex">#945418</td><td>OTA 进度条、统计柱状图</td></tr>
+      <tr><td><code>UI_SELECTED</code></td><td class="hex">#999999</td><td class="num">4</td><td class="hex">#E4D9C3</td><td>设置/统计的当前 tab、选中的选项</td></tr>
+      <tr><td><code>UI_FILL</code></td><td class="hex">#999999</td><td class="num">1</td><td class="hex">#945418</td><td>OTA 进度条（「正在进行」）</td></tr>
+      <tr><td><code>UI_DATA</code></td><td class="na">—</td><td class="num">2</td><td class="hex">#6B5D4A</td><td>图表柱子。<strong>真机导图后从铜色改过来的</strong></td></tr>
       <tr><td><code>UI_PRESSED</code></td><td class="hex">#999999</td><td class="num">2</td><td class="hex">#E4D9C3</td><td>按钮按下的底、电键桨按下</td></tr>
       <tr><td><code>UI_INK2</code></td><td class="hex">#000000</td><td class="num">2</td><td class="hex">#6B5D4A</td><td>主页卡片的字符表与「上次 82%」</td></tr>
       <tr><td><code>UI_GRID</code></td><td class="hex">#999999</td><td class="num">2</td><td class="hex">#D3C6AC</td><td>手法分析的参考线、统计的 90% 达标线</td></tr>
       <tr><td><code>UI_RULE</code></td><td class="hex">#000000</td><td class="num">1</td><td class="hex">#D3C6AC</td><td>练习页的分隔线</td></tr>
       <tr><td><code>UI_ACCENT</code></td><td class="hex">#000000</td><td class="num">1</td><td class="hex">#945418</td><td>主页「继续练习 &gt;」</td></tr>
-      <tr><td><code>UI_DANGER</code></td><td class="hex">#000000</td><td class="num fail">0</td><td class="hex">#9C2B1B</td><td class="fail">无</td></tr>
+      <tr><td><code>UI_DANGER</code></td><td class="hex">#000000</td><td class="num">1</td><td class="hex">#9C2B1B</td><td>「恢复出厂设置」列表项（已补）</td></tr>
     </tbody>
   </table>
   </div>
@@ -672,7 +673,40 @@ footer{font-family:var(--mono);font-size:11.5px;color:var(--t2);text-align:cente
     <p style="margin-top:8px"><strong>danger 一个落点都没有。</strong>「恢复出厂设置」在设置列表里和「屏幕亮度」长得一模一样——有二次确认，但没有任何视觉警示，工艺规则那条「危险操作 = 二次确认 + 红色」只做到了一半。<strong>这是换色时要补的，不是换个颜色就完事的。</strong></p>
   </div>
 
-  <p style="margin-top:14px"><code>UI_SELECTED</code> 的去向还没定：选中态既可以是凹陷面（<code>sunk</code>，读作「按进去了」），也可以是 accent（读作「现在在这里」）。设置页三个 tab 和统计页的 tab 用哪种，等浮雕落地后一起看——那时候「凹陷」才真的画得出来。</p>
+  <p style="margin-top:14px"><code>UI_SELECTED</code> 定成凹陷面（<code>#E4D9C3</code>）而不是 accent：有了浮雕之后「凹进去」本身就读作「按住了 / 现在在这里」，而铜色要留给每屏唯一的那个主操作，不能被 tab 抢走。</p>
+</section>
+
+<section>
+  <div class="eyebrow">Shipped</div>
+  <h2>落地结果</h2>
+  <p>2026-09-01 全部实现并在真机验证。10 个页面指纹全部改变（换色的正确表现——全绿反而说明没生效）、每页两遍自稳、无崩溃。</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>项</th><th>结果</th></tr></thead>
+    <tbody>
+      <tr><td>发布版固件</td><td class="num">1 528 976 字节（+119 KB），OTA 单槽余量 235 KB</td></tr>
+      <tr><td>标题字体</td><td>思源宋 SC 28px / 4bpp / 368 字形，OFL 许可。<code>tools/gen_title_font.sh</code> 可重跑</td></tr>
+      <tr><td>纹理</td><td>纸纤维 &sigma;=4 + 黄铜拉丝，各 32×32 平铺，合计 4 KB。<code>tools/gen_ui_assets.py</code></td></tr>
+      <tr><td>浮雕</td><td><code>ui_bevel()</code>，每个元素多 1 个对象（不是 4 个）。最坏是练习页 41 个键</td></tr>
+      <tr><td>黄铜</td><td>电键桨：平涂 + 拉丝纹 + 2px 浮雕，无渐变。刻字 <code>#1F1608</code>（铜面上 4.70:1）</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <b>两处只有看真机导图才发现的问题</b>
+    <p><strong>统计页一屏八根铜色柱子。</strong>直接违反本文自己定的「整屏铜色不超过两处」。数据是墨不是 accent——铜色要留给「现在轮到这里」。于是拆出 <code>UI_DATA</code>（<code>#6B5D4A</code>，5.19:1），<code>UI_FILL</code> 的铜色只留给 OTA 进度条那一处真正的「正在进行」。</p>
+    <p style="margin-top:8px"><strong>浮雕暗线定浅了。</strong>原定 <code>#B5A88C</code> 对纸底只有 1.88:1，而抬高面和纸底本来就只差 1.11:1——「更多练习」那种整宽格子于是糊成一整片。改成 <code>#9C8C6E</code>（2.63:1）：像素实测边界是「一条暗线 + 一条亮线」的 2px 凹槽，正是压印该有的样子；再深就要开始和正文抢注意力。</p>
+    <p style="margin-top:8px">这两条都是指纹查不出来的——指纹只回答「变了没有」，回答不了「变得对不对」。所以给巡检加了导图模式（<code>-DCW_SCREENSHOT_DUMP=ON</code>），把像素 base64 出串口，<code>tools/screendump_to_png.py</code> 拼回 PNG。慢（每页约 18 秒），但这是唯一能看见真机长相的路。</p>
+  </div>
+
+  <h3>怎么再看一次</h3>
+  <p>指纹巡检（快，秒回，回答「变了没有」）：</p>
+  <p><code>PROJECT=firmware/cw-trainer tools/idf.sh -DCW_SCREENSHOT=ON build &amp;&amp; tools/flash_remote.sh --monitor</code></p>
+  <p style="margin-top:10px">导图（慢，约 90 秒，回答「长什么样」）：</p>
+  <p><code>PROJECT=firmware/cw-trainer tools/idf.sh -DCW_SCREENSHOT=ON -DCW_SCREENSHOT_DUMP=ON build &amp;&amp; MON_SECS=130 tools/flash_remote.sh --monitor &gt; dump.txt &amp;&amp; python3 tools/screendump_to_png.py dump.txt shots/</code></p>
+  <p style="margin-top:10px" class="dim">串口不是可靠传输，导出的 PNG 上偶尔有几条横向错位彩条（实测 10739 行里坏 7 行，都是掉字符导致的整段像素偏移）。看版式和配色够用；要做像素级判断请用指纹。</p>
 </section>
 
 <section>
@@ -682,10 +716,10 @@ footer{font-family:var(--mono);font-size:11.5px;color:var(--t2);text-align:cente
     <li><span class="pass">[已完成 2026-09-01]</span> <strong>跑样机六页，定素材工艺。</strong>结论已写入上方「实测结果」，风格据此收紧为平涂 + 浮雕 + 纹理。</li>
     <li><span class="pass">[已完成 2026-09-01]</span> <strong>建样式层，不改观感。</strong> 把散落在 14 个文件里的 80+ 处 <code>lv_obj_set_style_*</code> 收进一份 <code>ui_theme.h/.c</code>，token 用本文的名字。这一步是纯机械重构，改完屏幕应当和现在一模一样——这就是它的验收标准。</li>
     <li><strong>再搭 SDL 模拟器。</strong> <code>firmware/cw-trainer/sim/</code>：把 sdkconfig 里的 <code>CONFIG_LV_*</code> 誊成一份 <code>lv_conf.h</code>（板子上 <code>LV_CONF_SKIP=y</code> 走的是 Kconfig，不誊会渲染不一致）+ 硬件模块桩 + Makefile。之后改一行两秒看到结果。</li>
-    <li><strong>做字体。</strong> 选定 TTF，用 <code>lv_font_conv</code> 出 20px 与 28px 两份子集，在模拟器里对比宋体/黑体两版标题，定稿。</li>
-    <li><strong>套色。</strong> 只改 <code>ui_theme.c</code> 里的 token 值和字号绑定，页面代码基本不动。</li>
+    <li><span class="pass">[已完成 2026-09-01]</span> <strong>做字体。</strong> 选定 TTF，用 <code>lv_font_conv</code> 出 20px 与 28px 两份子集，在模拟器里对比宋体/黑体两版标题，定稿。</li>
+    <li><span class="pass">[已完成 2026-09-01]</span> <strong>套色。</strong> 只改 <code>ui_theme.c</code> 里的 token 值和字号绑定，页面代码基本不动。</li>
     <li><strong>逐页微调布局</strong>，从主页开始；<code>ui_net.c</code> 单独按评审模式过。</li>
-    <li><strong>做电键页拟物素材。</strong> 黄铜双桨与木纹底座，<code>INDEXED_4BIT</code>，走材质纹理而非渐变。</li>
+    <li><span class="pass">[已完成 2026-09-01]</span> <strong>做电键页拟物素材。</strong> 黄铜双桨与木纹底座，<code>INDEXED_4BIT</code>，走材质纹理而非渐变。</li>
     <li><strong>真机校色。</strong> 电阻屏有雾面层、可视角一般，纸底和铜色到屏上一定会比这里发灰。以真机为准回调 token，本文同步更新。</li>
   </ul>
 </section>
