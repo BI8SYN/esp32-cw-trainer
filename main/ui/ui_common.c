@@ -139,8 +139,15 @@ static void bevel_state_cb(lv_event_t *e)
  * **必须在设好 padding 之后调用。** 子对象用 LV_PCT(100)，而 LVGL 的百分比是
  * 相对**内容区**的：父对象有 pad 时内容区会缩进去，子对象跟着缩，浮雕线就画在
  * 距离边缘 pad 那么远的地方。首页那张 pad_all(8) 的大卡片就是这么错的——按下
- * 变色时那个内缩的框一下就暴露了。这里按调用时的实际 pad 反推 transform，
- * 所以顺序不能反。要求 padding 左右对称、上下对称（transform 是对称扩张）。
+ * 变色时那个内缩的框一下就暴露了。这里按调用时的实际 pad 反推，所以顺序不能反。
+ *
+ * padding 上下左右不必对称：transform_* 只能对称扩张，四边不等时用 translate_*
+ * 把整体挪回去。（曾经这里只写「要求对称」当免责声明，结果对练页收报井
+ * pad_top=2 / pad_bottom=0，下沿的亮线直接被推到盒子外面、根本没画出来。）
+ *
+ *   内容区 = 盒子 - 边框 - padding，所以要贴回盒子边缘：
+ *     transform = 边框 + (两侧 padding 的均值)      —— 把宽高补回去
+ *     translate = (后侧 padding - 前侧 padding) / 2 —— 把不对称的偏移抵消掉
  */
 void ui_bevel(lv_obj_t *o, bool raised)
 {
@@ -152,15 +159,31 @@ void ui_bevel(lv_obj_t *o, bool raised)
     lv_obj_remove_style_all(in);
     lv_obj_set_size(in, LV_PCT(100), LV_PCT(100));
     lv_obj_align(in, LV_ALIGN_TOP_LEFT, 0, 0);
-    /* 内容区比盒子四周各小「边框 1px + pad」，往外扩这么多才贴回盒子边缘 */
-    lv_obj_set_style_transform_width(in, 1 + lv_obj_get_style_pad_left(o, LV_PART_MAIN), 0);
-    lv_obj_set_style_transform_height(in, 1 + lv_obj_get_style_pad_top(o, LV_PART_MAIN), 0);
+    const lv_coord_t bw = 1;
+    const lv_coord_t pl = lv_obj_get_style_pad_left(o, LV_PART_MAIN);
+    const lv_coord_t pr = lv_obj_get_style_pad_right(o, LV_PART_MAIN);
+    const lv_coord_t pt = lv_obj_get_style_pad_top(o, LV_PART_MAIN);
+    const lv_coord_t pb = lv_obj_get_style_pad_bottom(o, LV_PART_MAIN);
+    lv_obj_set_style_transform_width(in, bw + (pl + pr) / 2, 0);
+    lv_obj_set_style_transform_height(in, bw + (pt + pb) / 2, 0);
+    lv_obj_set_style_translate_x(in, (pr - pl) / 2, 0);
+    lv_obj_set_style_translate_y(in, (pb - pt) / 2, 0);
     lv_obj_set_style_border_width(in, 1, 0);
     lv_obj_set_style_border_side(in, LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_RIGHT, 0);
     lv_obj_set_style_border_color(in, raised ? UI_SHADE : UI_HILITE, 0);
     /* lv_obj_create 默认带 CLICKABLE，不清掉会把父按钮的点击吃掉 */
     lv_obj_clear_flag(in, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(in, LV_OBJ_FLAG_SCROLLABLE);
+    /*
+     * FLOATING = 不参与布局 + 不跟随父对象滚动。两件事都是必须的：
+     *
+     * 不参与布局——父对象要是个 flex 容器（对练页的收报井就是），这个子对象
+     * 会被当成**第一个 flex item** 排进去，它的下沿亮线就露在第一条消息上面，
+     * 看着像凭空多了一条白线。这是实测报出来的。
+     *
+     * 不跟随滚动——收报井能滚，浮雕是画在井壁上的，不该跟着内容滚走。
+     */
+    lv_obj_add_flag(in, LV_OBJ_FLAG_FLOATING);
     lv_obj_set_user_data(in, (void *)(uintptr_t)raised);
 
     lv_obj_add_event_cb(o, bevel_state_cb, LV_EVENT_PRESSED, in);

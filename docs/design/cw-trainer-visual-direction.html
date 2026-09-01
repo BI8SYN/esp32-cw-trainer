@@ -734,6 +734,12 @@ footer{font-family:var(--mono);font-size:11.5px;color:var(--t2);text-align:cente
     <p style="margin-top:8px"><strong>工具链的一个洞：</strong><code>check_charset.py</code> 扫 <code>main/**</code> 全部文件，<strong>开发专用的文件也能撑大发布版字库</strong>——实测 <code>screenshot.c</code> 里一句中文调试 printf 就让自检报错、逼着往字库里加字。已排除 <code>screenshot.c</code> / <code>ui_probe.c</code>，并把那句 printf 改成 ASCII（串口诊断本来也不该用中文）。</p>
   </div>
 
+  <div class="note">
+    <b>第六轮：ui_bevel 的两个后续 bug</b>
+    <p><strong>1. 浮雕的子对象会被父容器当成布局成员。</strong>对练页的收报井是 flex 容器，那个子对象被排成了<strong>第一个 flex item</strong>，它的下沿亮线就露在第一条消息上面，看着像凭空多了一条白线。加 <code>LV_OBJ_FLAG_FLOATING</code>——它同时解决两件事：不参与布局，且不跟随父对象滚动（浮雕是画在井壁上的，不该跟着内容滚走）。</p>
+    <p style="margin-top:8px"><strong>2. padding 不对称时下沿画不出来。</strong>收报井 <code>pad_top=2</code> 而 <code>pad_bottom=0</code>，而 <code>transform_*</code> 只能对称扩张，下沿的亮线被推到盒子外面。<strong>我当初把「要求 padding 对称」写成注释当免责声明，而不是去解决它</strong>——那条注释后来就成了这个 bug 的温床。现在用 <code>translate_*</code> 抵消不对称：<code>transform = 边框 + 两侧 padding 均值</code>，<code>translate = (后侧 - 前侧) / 2</code>。像素实测井上沿 <code>#9C8D6A</code> → 井面 <code>#E6DAC5</code> → 下沿 <code>#FFFAF6</code>，完整凹槽。</p>
+  </div>
+
   <h3>怎么再看一次</h3>
   <p>指纹巡检（快，秒回，回答「变了没有」）：</p>
   <p><code>PROJECT=firmware/cw-trainer tools/idf.sh -DCW_SCREENSHOT=ON build &amp;&amp; tools/flash_remote.sh --monitor</code></p>

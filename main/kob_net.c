@@ -45,6 +45,7 @@ static volatile int      s_tx_n;
 static volatile uint32_t s_tx_last_edge_ms;
 static volatile bool     s_tx_have_edge;
 static volatile bool     s_tx_flush;      /* 字符边界到了，请 socket 任务发出 */
+static volatile bool     s_tx_space;      /* 词间隔到了：不发包，但要进本机日志 */
 static volatile bool     s_tx_break_req;  /* 请求发一个打断包 */
 static char              s_tx_txt[8];
 
@@ -284,7 +285,21 @@ static void on_key_edge(bool down, uint32_t t_ms, void *user)
 static void on_key_char(char c, void *user)
 {
     (void)user;
-    if (c == ' ') return;               /* 词间隔不单独发包 */
+    if (c == ' ') {
+        /*
+         * 词间隔不进网络包——KOB 协议里词间隔是靠时序表达的，对端解自己收到的
+         * 时序就能还原出空格；再单独发一个空格字符，对端会平白多出一个孤立元素。
+         *
+         * **但本机日志必须留这个空格。** 本机日志是「我刚发了什么」的回显，
+         * 少了空格就是一串连着的字母，而电键页那边有空格——同一个人发同样的报，
+         * 两个页面显示得不一样，这是实测报出来的问题。
+         *
+         * 不在这里直接 push_line()：那个环形缓冲由 socket 任务写，而这里是电键
+         * 解码的上下文。用标志位交给任务侧处理，和 s_tx_flush 一个路数。
+         */
+        s_tx_space = true;
+        return;
+    }
     s_tx_txt[0] = c;
     s_tx_txt[1] = '\0';
     s_tx_flush = true;
@@ -430,6 +445,7 @@ static void task(void *arg)
     s_tx_n = 0;
     s_tx_have_edge = false;
     s_tx_flush = false;
+    s_tx_space = false;
     /* 先 start 再挂边沿：start 会清掉上一个页面留下的边沿回调。 */
     key_input_start(on_key_char, (void *)&NET_OWNER);
     key_input_set_edge_cb(on_key_edge, NULL);
@@ -470,6 +486,8 @@ static void task(void *arg)
 
         if (s_tx_break_req) send_break();
         if (s_tx_flush) flush_tx();
+        /* 排在 flush_tx() 之后：空格总是跟在某个字符后面，顺序不能颠倒。 */
+        if (s_tx_space) { s_tx_space = false; push_line("", " "); }
 
         peer_sweep();
 
