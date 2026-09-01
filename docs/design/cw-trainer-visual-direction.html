@@ -15,7 +15,7 @@
   --line:#C9CDD1; --line-soft:#DFE2E5;
 
   /* ── 设备调色板 token（本规格的产出，随主题固定不变）── */
-  --paper:#EFE6D4;   /* 纸底 */
+  --paper:#EDE1C8;   /* 纸底（真机校正：#EFE6D4 色度只有 27，满屏铺开被色适应归一成白）*/
   --raise:#F7F1E4;   /* 抬高面：卡片、输入格 */
   --sunk:#E4D9C3;    /* 凹陷面：按下态、禁用底 */
   --ink:#2A2118;     /* 主文 */
@@ -236,8 +236,8 @@ footer{font-family:var(--mono);font-size:11.5px;color:var(--t2);text-align:cente
       <th>Token</th><th>设计值</th><th>RGB565 实显</th><th>纸底对比度</th><th>用途</th>
     </tr></thead>
     <tbody>
-      <tr><td><span class="chip" style="background:#EFE6D4"></span><code>paper</code></td>
-          <td class="hex">#EFE6D4</td><td class="hex">#EFE7D6</td><td class="num na">—</td><td>页面底色</td></tr>
+      <tr><td><span class="chip" style="background:#EDE1C8"></span><code>paper</code></td>
+          <td class="hex">#EDE1C8</td><td class="hex">#EFE3CE</td><td class="num na">—</td><td>页面底色。<strong>真机校正过，见下</strong></td></tr>
       <tr><td><span class="chip" style="background:#F7F1E4"></span><code>raise</code></td>
           <td class="hex">#F7F1E4</td><td class="hex">#F7F3E6</td><td class="num na">1.11:1 对纸底</td><td>抬高面：输入格、按钮、键帽</td></tr>
       <tr><td><span class="chip" style="background:#E4D9C3"></span><code>sunk</code></td>
@@ -652,7 +652,7 @@ footer{font-family:var(--mono);font-size:11.5px;color:var(--t2);text-align:cente
     <tbody>
       <tr><td><code>UI_INK</code></td><td class="hex">#000000</td><td class="num">25</td><td class="hex">#2A2118</td><td>主文、主结构线</td></tr>
       <tr><td><code>UI_RAISE</code></td><td class="hex">#FFFFFF</td><td class="num">14</td><td class="hex">#F7F1E4</td><td>按钮、键帽、卡片、对话框</td></tr>
-      <tr><td><code>UI_PAPER</code></td><td class="hex">#FFFFFF</td><td class="num">6</td><td class="hex">#EFE6D4</td><td>页面底、遮罩、墨底上翻白的字</td></tr>
+      <tr><td><code>UI_PAPER</code></td><td class="hex">#FFFFFF</td><td class="num">6</td><td class="hex">#EDE1C8</td><td>页面底、遮罩、墨底上翻白的字</td></tr>
       <tr><td><code>UI_DISABLED</code></td><td class="hex">#999999</td><td class="num">6</td><td class="hex">#8F7F67</td><td>禁用的字与边、未激活的信号格</td></tr>
       <tr><td><code>UI_SUNK</code></td><td class="hex">#EEEEEE</td><td class="num">4</td><td class="hex">#E4D9C3</td><td>提示条底、卡片按下、对练状态带</td></tr>
       <tr><td><code>UI_SELECTED</code></td><td class="hex">#999999</td><td class="num">4</td><td class="hex">#C8B996</td><td>设置/统计的当前 tab、选中的选项</td></tr>
@@ -753,6 +753,16 @@ footer{font-family:var(--mono);font-size:11.5px;color:var(--t2);text-align:cente
     <p>反馈是「报文区不够下沉，想给左右加竖边框」。量下来<strong>左右两条边其实一直画着</strong>，只是都看不见：左边那条落在 <code>x=0</code>——屏幕最边缘，读起来是「屏幕边框」而不是「井壁」；右边那条落在 <code>x=319</code>，还被宽 4px 的滚动条整条盖住了。</p>
     <p style="margin-top:8px">所以不是加边框，是<strong>把井从页面边缘缩进来</strong>（<code>UI_WELL_INSET = 6</code>），两侧各露一条纸底，边线才有参照物可以「相对于它凹进去」。滚动条同时往里挪 2px 让开边线。像素实测：<code>x=0..5</code> 纸底 → <code>x=6</code> 暗线 → 井面 → <code>x=313</code> 亮线 → <code>x=314..319</code> 纸底，两个页面完全一致。</p>
     <p style="margin-top:8px">电键桨不跟着缩：它们是手指要按的地方，宽度就是触控面积，而且在层次上属于「页面之下的器件」，本来就该顶满。<code>UI_WELL_INSET</code> 取 6 而不是 8：8 会把本来就紧张的横向内容再挤掉 4px，而这条纸底只要看得见就够了，不承担分组任务。</p>
+  </div>
+
+  <div class="note">
+    <b>第九轮：纸味在真机上几乎认不出来——而这不全是屏幕的锅</b>
+    <p>帧缓冲实测均值 <code>#EFE5D3</code>、色差 27.7（设计值 27），说明<strong>颜色一点没丢</strong>，问题在屏幕之后。三个原因里最大的一个和屏幕素质无关：</p>
+    <p style="margin-top:8px"><strong>整屏没有一个中性色可以当参照。</strong>paper / raise / sunk / selected 的色度分别是 27 / 19 / 33 / 50，<strong>清一色暖调</strong>。人眼对满视野的低饱和色会做色适应，直接把它归一成白。而这份规格页的底是中性石板灰、卡片是近白，色块摆在中性色旁边，暖味一眼就出来——<strong>那是设计稿在骗人，不是屏幕在骗人</strong>。把色板放在中性灰上展示，恰恰是最有利于它显暖的方式，这是本文档自身的一个误导。</p>
+    <p style="margin-top:8px">其次才是屏幕：雾面触摸层散射环境光（混进来的通常偏冷偏白）、这块屏白平衡本身偏冷、背光越亮低饱和色越容易被冲淡。RGB565 量化这一项已排除。</p>
+    <p style="margin-top:8px">纸底加深到 <code>#EDE1C8</code>，色度 27 → 37（+37%），帧缓冲实测 <code>#EDE0C7</code>、色差 37.4。<strong>这是不破 4.5:1 的极限</strong>：再深一档铜色就跌到 4.47，得连铜色一起重调。改完 ink 12.59 / ink2 5.03 / copper 4.63 / danger 6.06，全部在线。</p>
+    <p style="margin-top:8px">副作用：纸底与凹陷面的差从 1.116 压到 1.081，井的填充色差变小——但井现在有缩进和可见井壁撑着，不再只靠填充色。</p>
+    <p style="margin-top:8px" class="dim">又一次踩到同一个坑：页面底铺的是<strong>不透明的</strong> <code>ui_grain_paper</code> 平铺图，它把 <code>bg_color</code> 完全盖住，只改 <code>UI_PAPER</code> 宏屏上不会有任何变化——真正看得见的纸色在 <code>tools/gen_ui_assets.py</code> 里。黄铜已经栽过一次，这次两处一起改。</p>
   </div>
 
   <h3>怎么再看一次</h3>
