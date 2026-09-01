@@ -6,6 +6,19 @@
 option(CW_STYLE_PROBE "编入拟物素材样机页面" OFF)
 set(probe_srcs "")
 if(CW_STYLE_PROBE)
+    # probe_assets.c 是生成物、不进 git（见 .gitignore），所以新克隆的仓库里
+    # 它不存在。缺了直接 list() 进去，CMake 只会报一句「找不到源文件」，看不出
+    # 该怎么办——这里替调用者跑一次生成脚本。脚本是纯函数，重跑无副作用。
+    if(NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/ui/probe_assets.c")
+        message(STATUS "生成样机位图：tools/gen_probe_assets.py")
+        execute_process(
+            COMMAND python3 "${CMAKE_CURRENT_LIST_DIR}/../../../tools/gen_probe_assets.py"
+            RESULT_VARIABLE gen_rc
+            OUTPUT_VARIABLE gen_out)
+        if(NOT gen_rc EQUAL 0)
+            message(FATAL_ERROR "生成样机位图失败（rc=${gen_rc}）：${gen_out}")
+        endif()
+    endif()
     list(APPEND probe_srcs "ui/ui_probe.c" "ui/probe_assets.c")
 endif()
 
