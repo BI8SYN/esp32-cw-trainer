@@ -117,8 +117,11 @@ static void hl_tick(lv_timer_t *t)
            失效重绘，每 50ms 无脑重写一次会让电键块持续闪烁。 */
         if (down == h->last[i]) continue;
         h->last[i] = down;
-        lv_obj_set_style_bg_color(h->pad[i], down ? UI_BRASS_DK : UI_BRASS, 0);
-        /* 底色一深，铜面上的刻字就得翻浅，否则按住的时候字直接看不见了 */
+        /* 同样走 recolor 而不是 bg_color——贴图不透明，改底色看不见。
+           这条路径是外接电键按下时用的，触摸按下走的是 LV_STATE_PRESSED，
+           两条路的最终观感必须一致，所以参数也得一样（190）。 */
+        lv_obj_set_style_bg_img_recolor(h->pad[i], UI_BRASS_DK, 0);
+        lv_obj_set_style_bg_img_recolor_opa(h->pad[i], down ? 190 : 0, 0);
         lv_obj_set_style_text_color(h->pad[i], down ? UI_PAPER : UI_BRASS_INK, 0);
     }
 }
@@ -143,11 +146,22 @@ static void hl_free(lv_event_t *e)
 static void brass(lv_obj_t *pad)
 {
     lv_obj_set_style_bg_color(pad, UI_BRASS, 0);
-    lv_obj_set_style_bg_color(pad, UI_BRASS_DK, LV_STATE_PRESSED);
     lv_obj_set_style_bg_img_src(pad, &ui_grain_brass, 0);
     lv_obj_set_style_bg_img_tiled(pad, true, 0);
     lv_obj_set_style_text_color(pad, UI_BRASS_INK, 0);
     lv_obj_set_style_text_color(pad, UI_PAPER, LV_STATE_PRESSED);
+    /*
+     * 按下变暗必须走 bg_img_recolor，不能走 bg_color。
+     *
+     * 平铺的黄铜贴图是不透明的，它把 bg_color 完全盖住——原来给
+     * LV_STATE_PRESSED 配的 UI_BRASS_DK 一个像素都没显示出来，**桨按下去
+     * 其实没有任何颜色变化**（hl_tick 里给外接电键写的那次同理）。
+     *
+     * recolor 是把图像往目标色混，opa 控制混多少。190/255 足够暗到一眼看出
+     * 按下了，又保住了颗粒感——拉满 255 就变成一块死平的深色，材质白做了。
+     */
+    lv_obj_set_style_bg_img_recolor(pad, UI_BRASS_DK, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_img_recolor_opa(pad, 190, LV_STATE_PRESSED);
 }
 
 void ui_keyer_paddles(lv_obj_t *parent, int y, int h, lv_obj_t *out[2])
@@ -190,8 +204,8 @@ void ui_keyer_paddles(lv_obj_t *parent, int y, int h, lv_obj_t *out[2])
      * 各页面自己轮询，是因为电键页、对练页、手法页都铺这同一组桨——按外接电键
      * 时屏幕跟着亮，三个页面一行都不用改就都有了。
      *
-     * 触摸按下的高亮不归它管：brass() 已经给 LV_STATE_PRESSED 配了 UI_BRASS_DK，
-     * 这里走 LV_PART_MAIN 的默认态，同色，两条路径看起来一样。
+     * 触摸按下的高亮不归它管：brass() 已经给 LV_STATE_PRESSED 配了同样的
+     * recolor，这里走 LV_PART_MAIN 的默认态，参数相同，两条路径看起来一样。
      */
     pad_hl_t *hl = lv_mem_alloc(sizeof *hl);
     if (hl) {

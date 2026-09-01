@@ -108,6 +108,40 @@ void ui_bevel_edge(lv_obj_t *o, bool raised)
     lv_obj_set_style_border_color(o, UI_SHADE, 0);
 }
 
+/*
+ * 按下时把浮雕翻过来：凸起变凹陷。
+ *
+ * 当初写死「按下不翻转、只塌背景色」，理由是 LVGL 的状态不向子对象传播——
+ * 那个理由站不住，挂个事件回调就行。而「按下去要陷下去」正是压印风格里最该
+ * 有的一下反馈，不该省。
+ *
+ * 基础朝向存在子对象的 user_data 里：一个浮雕的两条边分属父子两个对象，
+ * 回调里得知道「原本是凸还是凹」才能算出翻转后的样子。
+ */
+static void bevel_state_cb(lv_event_t *e)
+{
+    lv_obj_t *o  = lv_event_get_target(e);
+    lv_obj_t *in = lv_event_get_user_data(e);
+    bool raised  = (bool)(uintptr_t)lv_obj_get_user_data(in);
+    bool down    = lv_event_get_code(e) == LV_EVENT_PRESSED;
+    bool up      = raised != down;      /* 按下就反过来 */
+    lv_obj_set_style_border_color(o,  up ? UI_HILITE : UI_SHADE, 0);
+    lv_obj_set_style_border_color(in, up ? UI_SHADE  : UI_HILITE, 0);
+}
+
+/*
+ * 浮雕要四条边分两种颜色，而 LVGL 一个对象在一个状态下只能有一个 border_color。
+ * 所以拆成两层：对象自己画上左，再叠一个背景透明的子对象画下右。
+ *
+ * 一个元素多一个对象——不是四个。最坏是练习页 41 个键，这个量级完全吃得下
+ * （这块板没有 PSRAM，可用堆约 100KB，必须掐着算）。
+ *
+ * **必须在设好 padding 之后调用。** 子对象用 LV_PCT(100)，而 LVGL 的百分比是
+ * 相对**内容区**的：父对象有 pad 时内容区会缩进去，子对象跟着缩，浮雕线就画在
+ * 距离边缘 pad 那么远的地方。首页那张 pad_all(8) 的大卡片就是这么错的——按下
+ * 变色时那个内缩的框一下就暴露了。这里按调用时的实际 pad 反推 transform，
+ * 所以顺序不能反。要求 padding 左右对称、上下对称（transform 是对称扩张）。
+ */
 void ui_bevel(lv_obj_t *o, bool raised)
 {
     lv_obj_set_style_border_width(o, 1, 0);
@@ -118,14 +152,22 @@ void ui_bevel(lv_obj_t *o, bool raised)
     lv_obj_remove_style_all(in);
     lv_obj_set_size(in, LV_PCT(100), LV_PCT(100));
     lv_obj_align(in, LV_ALIGN_TOP_LEFT, 0, 0);
-    lv_obj_set_style_transform_width(in, 1, 0);
-    lv_obj_set_style_transform_height(in, 1, 0);
+    /* 内容区比盒子四周各小「边框 1px + pad」，往外扩这么多才贴回盒子边缘 */
+    lv_obj_set_style_transform_width(in, 1 + lv_obj_get_style_pad_left(o, LV_PART_MAIN), 0);
+    lv_obj_set_style_transform_height(in, 1 + lv_obj_get_style_pad_top(o, LV_PART_MAIN), 0);
     lv_obj_set_style_border_width(in, 1, 0);
     lv_obj_set_style_border_side(in, LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_RIGHT, 0);
     lv_obj_set_style_border_color(in, raised ? UI_SHADE : UI_HILITE, 0);
     /* lv_obj_create 默认带 CLICKABLE，不清掉会把父按钮的点击吃掉 */
     lv_obj_clear_flag(in, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(in, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_user_data(in, (void *)(uintptr_t)raised);
+
+    lv_obj_add_event_cb(o, bevel_state_cb, LV_EVENT_PRESSED, in);
+    lv_obj_add_event_cb(o, bevel_state_cb, LV_EVENT_RELEASED, in);
+    /* 手指划出对象外时 LVGL 只发 PRESS_LOST、收不到 RELEASED——不接这个事件，
+       浮雕会永远卡在按下的样子。 */
+    lv_obj_add_event_cb(o, bevel_state_cb, LV_EVENT_PRESS_LOST, in);
 }
 
 lv_obj_t *ui_topbar(lv_obj_t *parent, const char *title, lv_event_cb_t back_cb)
@@ -201,8 +243,8 @@ static lv_obj_t *make_btn(lv_obj_t *parent, const char *text, const lv_font_t *f
      * ui_practice.c、ui_settings.c、ui_ota.c 共 6 处都在拿 lv_obj_get_child(btn, 0)
      * 当标签用。加在前面会让它们全部错位，且编译不报错。
      *
-     * 按下时不翻转浮雕、只塌背景色：翻转要给子对象也挂按下态样式，而 LVGL 的
-     * 状态不向子对象传播，代价远大于收益。
+     * 按下时浮雕会翻成凹陷（ui_bevel 自己挂的事件回调），配合背景塌成
+     * UI_PRESSED，「按进去了」这件事有两重表达。
      */
     ui_bevel(b, true);
     if (cb) lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, user);

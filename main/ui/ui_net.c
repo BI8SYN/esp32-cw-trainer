@@ -131,12 +131,22 @@ static lv_obj_t *row_make(lv_obj_t *box, const char *who, const char *txt,
 
     lv_obj_t *badge = lv_label_create(row);
     lv_obj_set_style_text_font(badge, UI_FONT_CN, 0);
-    lv_obj_set_style_bg_color(badge, UI_INK, 0);
+    /*
+     * 呼号牌。原来是「黑底白字」——那是上一版高对比主题的写法，搬到纸面上
+     * 就是一块块突兀的黑疤，而且日志区每一行都有一个，越多越吵。
+     *
+     * 改成压进纸里的一枚戳：凹陷面加凹陷浮雕，字仍是墨色（11.64:1）。既保住
+     * 了「呼号是可扫读的一块」，又不再和正文抢明度。
+     *
+     * 不用铜色：铜色的语义是「现在轮到这里」，而这里每条历史记录都有一个，
+     * 一屏能出七八个，那就等于没有 accent 了。
+     */
+    lv_obj_set_style_bg_color(badge, UI_SUNK, 0);
     lv_obj_set_style_bg_opa(badge, LV_OPA_COVER, 0);
-    lv_obj_set_style_text_color(badge, UI_PAPER, 0);
+    lv_obj_set_style_text_color(badge, UI_INK, 0);
     lv_obj_set_style_pad_hor(badge, 4, 0);
-    lv_obj_set_style_radius(badge, 2, 0);
-    ui_bevel_edge(badge, true);   /* 呼号牌是钉在纸上的一小块，不是一段文字 */
+    lv_obj_set_style_radius(badge, 0, 0);
+    ui_bevel_edge(badge, false);
     lv_label_set_text(badge, who);
 
     lv_obj_t *lb = lv_label_create(row);
@@ -674,9 +684,9 @@ lv_obj_t *ui_net_create(void)
     lv_label_set_text(s_title, wire_name());
     lv_obj_set_style_pad_hor(s_title, 8, 0);
     lv_obj_set_style_pad_ver(s_title, 2, 0);
-    lv_obj_set_style_border_width(s_title, 1, 0);
-    lv_obj_set_style_border_color(s_title, UI_INK, 0);
-    lv_obj_set_style_radius(s_title, 3, 0);
+    lv_obj_set_style_bg_color(s_title, UI_RAISE, 0);
+    lv_obj_set_style_bg_opa(s_title, LV_OPA_COVER, 0);
+    ui_bevel_edge(s_title, true);
     lv_obj_align(s_title, LV_ALIGN_RIGHT_MID, -6, 0);
     lv_obj_add_flag(s_title, LV_OBJ_FLAG_CLICKABLE);
     /* 电阻屏漏点常见，扩大可点区域（视觉大小不变） */

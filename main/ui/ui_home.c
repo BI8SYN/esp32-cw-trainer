@@ -220,9 +220,11 @@ lv_obj_t *ui_home_create(void)
     lv_obj_set_style_shadow_width(card, 0, 0);
     lv_obj_set_style_bg_color(card, UI_RAISE, 0);
     lv_obj_set_style_bg_color(card, UI_SUNK, LV_STATE_PRESSED);
-    /* 卡片是抬起来的一块纸，不是画了右边线的一个区域 */
-    ui_bevel(card, true);
     lv_obj_set_style_pad_all(card, 8, 0);
+    /* 卡片是抬起来的一块纸，不是画了右边线的一个区域。
+       **必须在 pad_all 之后调**——ui_bevel 要按实际 pad 反推子对象的扩张量，
+       顺序反了浮雕线会内缩 8px，原来就是这么错的。 */
+    ui_bevel(card, true);
     /* 默认主题给按下状态加了 transform_width/height 放大 + 80ms 缓动动画；
        phase 1 禁止任何动画，这里显式清零覆盖 */
     lv_obj_set_style_transform_width(card, 0, LV_STATE_PRESSED);
@@ -275,12 +277,10 @@ lv_obj_t *ui_home_create(void)
     /* 全屏最重要的那个操作，此前只是一行铜色的字——没有面、没有边，读不出
        「这是个可以按的东西」。给它抬高面和浮雕：整张卡片本来就可点，这个键
        是把「可点」这件事说出来。 */
-    lv_obj_set_style_bg_color(l4, UI_RAISE, 0);
-    lv_obj_set_style_bg_opa(l4, LV_OPA_COVER, 0);
-    lv_obj_set_style_pad_hor(l4, 6, 0);
-    lv_obj_set_style_pad_ver(l4, 2, 0);
-    ui_bevel_edge(l4, true);
-    lv_obj_align(l4, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    /* 不做成按钮：整张卡片本身就是那个按钮，在它内部再画一个键，等于告诉用户
+       「只有这一小块能点」——反而把可点区域说小了。它是卡片的行动号召文字，
+       靠铜色和位置承担分量就够。往内缩 2px，别贴着卡片的浮雕边线。 */
+    lv_obj_align(l4, LV_ALIGN_BOTTOM_RIGHT, -2, -2);
 
     /* 右：四个入口 */
     /* 四项各 (240-28)/4 = 53px，达到 44px 触控下限；原来五项只有 42px。

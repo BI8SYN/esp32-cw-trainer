@@ -709,6 +709,15 @@ footer{font-family:var(--mono);font-size:11.5px;color:var(--t2);text-align:cente
     <p style="margin-top:8px"><strong>4. 对练页状态带该下沉。</strong>它下面紧接着就是抬起来的电键桨，一凹一凸层次才立得住。改 <code>ui_bevel(bandbg, false)</code>，像素实测上沿 <code>#9C8D6A</code> 暗线 → 面 <code>#E6DAC5</code> → 下沿 <code>#FFFAF6</code> 亮线，标准凹槽。</p>
   </div>
 
+  <div class="note">
+    <b>第三轮真机反馈：一个真 bug，一个更隐蔽的真 bug</b>
+    <p><strong>1. <code>ui_bevel()</code> 遇到有 padding 的对象就画错。</strong>子对象用 <code>LV_PCT(100)</code>，而 LVGL 的百分比相对的是<strong>内容区</strong>：父对象有 pad 时内容区缩进去，浮雕线就画在距边缘 pad 那么远的地方。首页那张 <code>pad_all(8)</code> 的大卡片正是如此，按下变色时那个内缩 8px 的框一下就暴露了。改成按调用时的实际 pad 反推 transform，并要求<strong>必须在设好 padding 之后调用</strong>。</p>
+    <p style="margin-top:8px"><strong>2. 黄铜的颜色根本不来自 <code>UI_BRASS</code>。</strong>桨上铺的是不透明的平铺贴图，它把 <code>bg_color</code> 完全盖住——改宏对观感毫无影响（改了之后电键页指纹一个字节没变，这才发现）。真正的颜色写死在 <code>tools/gen_ui_assets.py</code> 里。<br><strong>连带后果更严重：电键桨按下时没有任何颜色变化</strong>，因为按下态改的也是 <code>bg_color</code>。改走 <code>bg_img_recolor</code>（opa 190——拉满 255 会变成一块死平的深色，材质白做了）。</p>
+    <p style="margin-top:8px"><strong>3. 按钮按下没有下沉。</strong>当初写死「按下不翻转浮雕」，理由是 LVGL 状态不向子对象传播——那个理由站不住，挂个事件回调就行。现在按下时浮雕真的翻成凹陷，像素实测：上左 <code>#FFFAF6</code>→<code>#83795A</code>、右下 <code>#9C8D6A</code>→<code>#DED6D5</code>。必须同时接 <code>LV_EVENT_PRESS_LOST</code>，否则手指划出对象外会永远卡在按下的样子。</p>
+    <p style="margin-top:8px"><strong>4. 三处语言不统一。</strong>首页「开始练习 &gt;」撤掉了按钮外观——整张卡片本身就是那个按钮，在它内部再画一个键等于把可点区域说小了。对练页的 wire 选择器改成和电键页「清屏」同一副长相（抬高面 + 浮雕），全工程的可点元素只讲一种话。呼号牌从「黑底白字」改成压进纸里的一枚戳（凹陷面 + 墨字 11.64:1）——黑底白字是上一版高对比主题的写法，搬到纸面上就是一块块黑疤，而日志区每行都有一个。</p>
+    <p style="margin-top:8px" class="dim">导图也补了「按下态」：对页面里第一个 <code>lv_btn</code> 发一次按下事件再导一张。注意不能按 <code>LV_OBJ_FLAG_CLICKABLE</code> 找——LVGL 8 里 <code>lv_obj_create</code> 默认就带这个标志，第一版因此选中了顶栏那个纯容器，导出来的「按下态」和常态一模一样。</p>
+  </div>
+
   <h3>怎么再看一次</h3>
   <p>指纹巡检（快，秒回，回答「变了没有」）：</p>
   <p><code>PROJECT=firmware/cw-trainer tools/idf.sh -DCW_SCREENSHOT=ON build &amp;&amp; tools/flash_remote.sh --monitor</code></p>

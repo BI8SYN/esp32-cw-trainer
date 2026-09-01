@@ -22,7 +22,11 @@ OUT = "firmware/cw-trainer/main/ui/ui_assets.c"
 TILE = 32
 
 PAPER = (0xEF, 0xE6, 0xD4)
-BRASS = (0xA8, 0x76, 0x3C)
+# **这里才是黄铜在屏上的真实颜色。** 桨上铺的是不透明的平铺图，它把
+# bg_color 完全盖住了——改 ui_theme.h 里的 UI_BRASS 宏对观感毫无影响
+# （实测改了之后电键页指纹一个字节没变）。两处要手工保持一致：
+# 宏用于按下态的 recolor 目标，这里用于贴图本身。
+BRASS = (0xC4, 0x9A, 0x5C)
 
 
 def quant(c):

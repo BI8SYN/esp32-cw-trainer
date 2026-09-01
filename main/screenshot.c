@@ -144,6 +144,49 @@ static void shot(const char *name, ui_screen_builder_t build)
     printf("SNAP %-9s px=%6u hash=%08X\n", name, (unsigned)s_px, (unsigned)s_hash);
 }
 
+#if CW_SCREENSHOT_DUMP
+/* 找页面里第一个可点的对象（深度优先）。用来把「按下去的样子」也导一张出来
+   ——浮雕的翻转是挂在 LV_EVENT_PRESSED 上的，巡检自己不会去点，不模拟一下
+   就永远验证不到那条路径。 */
+static lv_obj_t *pick_clickable(lv_obj_t *o, bool last, lv_obj_t *found)
+{
+    uint32_t n = lv_obj_get_child_cnt(o);
+    for (uint32_t i = 0; i < n; i++) {
+        lv_obj_t *c = lv_obj_get_child(o, i);
+        /* 认 lv_btn 而不是 CLICKABLE 标志：LVGL 8 里 lv_obj_create 默认就带
+           CLICKABLE，于是顶栏那个纯容器也算「可点」——第一版就是这么选中它的，
+           而它没有任何按下样式，导出来的「按下态」和常态一模一样。 */
+        if (lv_obj_check_type(c, &lv_btn_class)) {
+            if (!last) return c;
+            found = c;
+        }
+        lv_obj_t *d = pick_clickable(c, last, found);
+        if (d && !last) return d;
+        if (d) found = d;
+    }
+    return found;
+}
+
+/* last=false 取第一个可点对象（顶栏的返回箭头之类），true 取最后一个
+   ——电键页要按的是桨，而桨是最后才建的，取第一个只会按到返回箭头。 */
+static void shot_pressed(const char *name, bool last)
+{
+    lv_obj_t *btn = pick_clickable(lv_scr_act(), last, NULL);
+    if (!btn) { printf("SNAP-SKIP %s 无可点对象\n", name); return; }
+    /* 两条路都要走：背景色是状态驱动的（LV_STATE_PRESSED），浮雕翻转是事件
+       驱动的（LV_EVENT_PRESSED）。真手指按下时 LVGL 两者都会给，这里补齐。 */
+    lv_obj_add_state(btn, LV_STATE_PRESSED);
+    lv_event_send(btn, LV_EVENT_PRESSED, NULL);
+    lv_obj_invalidate(lv_scr_act());
+    s_hash = FNV_OFFSET; s_px = 0; s_capturing = true;
+    lv_refr_now(NULL);
+    s_capturing = false;
+    printf("SNAP %-9s px=%6u hash=%08X\n", name, (unsigned)s_px, (unsigned)s_hash);
+    lv_event_send(btn, LV_EVENT_RELEASED, NULL);
+    lv_obj_clear_state(btn, LV_STATE_PRESSED);
+}
+#endif
+
 void screenshot_tour(void)
 {
     static const struct { const char *name; ui_screen_builder_t fn; } pages[] = {
@@ -165,8 +208,12 @@ void screenshot_tour(void)
        卡片 / 整宽列表 / tab+列表 / 图表 / 黄铜材质五种版式，够看长相了。 */
     printf("SNAP-PASS 1\n");
     const int want[] = { 0, 2, 4, 9 };   /* home settings keyer net */
-    for (unsigned i = 0; i < sizeof want / sizeof want[0]; i++)
-        if (want[i] < n) shot(pages[want[i]].name, pages[want[i]].fn);
+    for (unsigned i = 0; i < sizeof want / sizeof want[0]; i++) {
+        if (want[i] >= n) continue;
+        shot(pages[want[i]].name, pages[want[i]].fn);
+        if (want[i] == 0) shot_pressed("homedown", false);  /* 主页大卡片按下 */
+        if (want[i] == 4) shot_pressed("keyerdown", true);  /* 电键桨按下 */
+    }
 #else
     for (int pass = 1; pass <= 2; pass++) {
         printf("SNAP-PASS %d\n", pass);
