@@ -164,7 +164,7 @@ void screenshot_tour(void)
     /* 导图只跑一遍、且只导五页：全导十页要三分钟串口时间。这五页覆盖了
        卡片 / 整宽列表 / tab+列表 / 图表 / 黄铜材质五种版式，够看长相了。 */
     printf("SNAP-PASS 1\n");
-    const int want[] = { 0, 1, 2, 3, 4 };   /* home more settings stats keyer */
+    const int want[] = { 0, 2, 4, 9 };   /* home settings keyer net */
     for (unsigned i = 0; i < sizeof want / sizeof want[0]; i++)
         if (want[i] < n) shot(pages[want[i]].name, pages[want[i]].fn);
 #else

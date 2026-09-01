@@ -89,6 +89,25 @@ void ui_rule(lv_obj_t *o, lv_border_side_t side, lv_color_t color)
  * 各向外扩 1px，绘制范围正好回到 (0,0)-(w-1,h-1)，与父对象的盒子严丝合缝。
  * 直接写死尺寸不行——建的时候布局还没跑，宽高还取不到。
  */
+/*
+ * 廉价版浮雕：只画背光的那两条边。
+ *
+ * 为什么需要两个版本：ui_bevel() 的子对象用 LV_PCT(100) 贴合父对象，这要求
+ * 父对象有确定的尺寸。而界面里有一批**看着像按钮、其实是加了背景色的 label**
+ * （首页的「继续练习 >」、顶栏返回箭头、对练页的呼号 badge），它们是
+ * LV_SIZE_CONTENT 自适应的，子对象贴不准。
+ *
+ * 少一条受光边，立体感弱一点，但「下右有一条暗边」本身就是光从左上来时该有的
+ * 样子，读作凸起没有问题。凹陷则反过来画上左。
+ */
+void ui_bevel_edge(lv_obj_t *o, bool raised)
+{
+    lv_obj_set_style_border_width(o, 1, 0);
+    lv_obj_set_style_border_side(o, raised ? (LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_RIGHT)
+                                           : (LV_BORDER_SIDE_TOP | LV_BORDER_SIDE_LEFT), 0);
+    lv_obj_set_style_border_color(o, UI_SHADE, 0);
+}
+
 void ui_bevel(lv_obj_t *o, bool raised)
 {
     lv_obj_set_style_border_width(o, 1, 0);
@@ -133,6 +152,12 @@ lv_obj_t *ui_topbar(lv_obj_t *parent, const char *title, lv_event_cb_t back_cb)
         lv_obj_set_size(back, 36, UI_TOPBAR_H);
         lv_obj_clear_flag(back, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_style_pad_left(back, 6, 0);
+        /* 原来它就是一行光秃秃的「<」——在每一页都存在的主导航控件，却是全屏
+           唯一一个没有任何「可按」外观的东西。给它一个抬高面加浮雕，和别的
+           按钮讲同一种话。 */
+        lv_obj_set_style_bg_color(back, UI_RAISE, 0);
+        lv_obj_set_style_bg_opa(back, LV_OPA_COVER, 0);
+        ui_bevel_edge(back, true);
         lv_obj_align(back, LV_ALIGN_LEFT_MID, 0, 0);
         lv_obj_add_flag(back, LV_OBJ_FLAG_CLICKABLE);
         /* 电阻屏漏点比电容屏更常见，返回箭头在每一页都存在；扩大到短边 >=48px

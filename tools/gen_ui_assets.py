@@ -61,16 +61,22 @@ def grain(base, sigma, seed):
                     for _ in range(TILE)] for _ in range(TILE)])
 
 
+# 这里本来是「拉丝」：每行取一个随机亮度偏移，模拟金属的方向性纹理。
+# **真机上它变成了明显的横向台阶**，看着就像一段没做好的渐变。
+#
+# 原因是量化，不是噪声强度：黄铜 #A8763C 附近，8 位色差 2 个单位在 RGB565 里
+# 红通道就跳一整级（量化后 #AD753A vs #A5753A）。行偏移 sigma=6 意味着每一行
+# 都稳稳落在不同的量化档上，而「同一行内高度相关」恰恰让这一档铺满整行——
+# 于是每行都是一条干净的色带，32px 瓦片再一平铺，横条就规律地重复出来。
+#
+# 教训：**在 16 位色上，任何行/列相干的低幅变化都会被量化放大成条带。**
+# 要材质就得用各向同性的噪点，让抖动有机会把误差散开——纸纹一直没问题，
+# 正是因为它本来就是各向同性的。
+
+
 def brushed(base, seed):
-    """拉丝：横向拉长的噪声。每一行取一个随机偏移、行内只做很轻的抖动——
-       金属拉丝纹的方向性正来自「同一行的像素高度相关、行与行之间不相关」。"""
-    r = random.Random(seed)
-    px = []
-    for _ in range(TILE):
-        row_bias = r.gauss(0, 6.0)
-        px.append([tuple(base[k] + row_bias + r.gauss(0, 1.2) for k in range(3))
-                   for _ in range(TILE)])
-    return dither(px)
+    """黄铜的细颗粒。曾经是横向拉丝，为什么放弃见上方注释。"""
+    return grain(base, 3.0, seed)
 
 
 def emit(f, name, rows, note):
@@ -101,7 +107,7 @@ def main():
         emit(f, "ui_grain_paper", grain(PAPER, 4.0, 4001),
              "纸纤维 sigma=4。页面底纹整片压着正文，用密集文字区那一档")
         emit(f, "ui_grain_brass", brushed(BRASS, 4002),
-             "黄铜拉丝，横向。只用在电键页的桨上")
+             "黄铜细颗粒 sigma=3。只用在电键页的桨上")
     n = 2 * TILE * TILE * 2
     print(f"已写出 {OUT}，位图数据 {n} 字节 ≈ {n/1024:.1f} KB")
 

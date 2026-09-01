@@ -272,6 +272,14 @@ lv_obj_t *ui_home_create(void)
     /* 含中文（"开始/继续练习"），必须留在屏幕默认的 UI_FONT_CN，不能设成 UI_FONT_MID/UI_FONT_BIG（无中文字形） */
     lv_obj_set_style_text_color(l4, UI_ACCENT, 0);
     lv_label_set_text(l4, last == 0xFF ? "开始练习 >" : "继续练习 >");
+    /* 全屏最重要的那个操作，此前只是一行铜色的字——没有面、没有边，读不出
+       「这是个可以按的东西」。给它抬高面和浮雕：整张卡片本来就可点，这个键
+       是把「可点」这件事说出来。 */
+    lv_obj_set_style_bg_color(l4, UI_RAISE, 0);
+    lv_obj_set_style_bg_opa(l4, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_hor(l4, 6, 0);
+    lv_obj_set_style_pad_ver(l4, 2, 0);
+    ui_bevel_edge(l4, true);
     lv_obj_align(l4, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
 
     /* 右：四个入口 */

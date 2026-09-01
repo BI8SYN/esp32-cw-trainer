@@ -136,6 +136,7 @@ static lv_obj_t *row_make(lv_obj_t *box, const char *who, const char *txt,
     lv_obj_set_style_text_color(badge, UI_PAPER, 0);
     lv_obj_set_style_pad_hor(badge, 4, 0);
     lv_obj_set_style_radius(badge, 2, 0);
+    ui_bevel_edge(badge, true);   /* 呼号牌是钉在纸上的一小块，不是一段文字 */
     lv_label_set_text(badge, who);
 
     lv_obj_t *lb = lv_label_create(row);
@@ -741,9 +742,9 @@ lv_obj_t *ui_net_create(void)
     lv_obj_set_size(bandbg, 320, BAND_H);
     lv_obj_set_style_bg_color(bandbg, UI_SUNK, 0);
     lv_obj_set_style_bg_opa(bandbg, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(bandbg, 1, 0);
-    lv_obj_set_style_border_color(bandbg, UI_INK, 0);
-    lv_obj_set_style_border_side(bandbg, LV_BORDER_SIDE_BOTTOM, 0);
+    /* 状态带是压进纸里的一条凹槽，不是画了条底边的一个区域。它下面紧接着就是
+       抬起来的电键桨，两者一凹一凸，层次才立得住。 */
+    ui_bevel(bandbg, false);
 
     lv_obj_add_flag(bandbg, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(bandbg, band_cb, LV_EVENT_CLICKED, NULL);

@@ -22,6 +22,11 @@ void ui_rule(lv_obj_t *o, lv_border_side_t side, lv_color_t color);
    且 pad 为 0 或自行承担 1px 的内容内缩。 */
 void ui_bevel(lv_obj_t *o, bool raised);
 
+/* 只画背光的那两条边的廉价版浮雕，不新增子对象。
+   给尺寸由内容决定的对象用——ui_bevel 的子对象靠 LV_PCT(100) 对齐，
+   碰上 LV_SIZE_CONTENT 的 label 就对不准了。 */
+void ui_bevel_edge(lv_obj_t *o, bool raised);
+
 void      ui_nav_show(ui_screen_builder_t builder);
 lv_obj_t *ui_screen_create(void);
 /* 返回的顶栏对象可以继续往右侧加控件（主页的齿轮/电量就是这样接上去的）。
