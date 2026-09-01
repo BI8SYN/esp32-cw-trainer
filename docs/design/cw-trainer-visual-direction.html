@@ -686,8 +686,8 @@ footer{font-family:var(--mono);font-size:11.5px;color:var(--t2);text-align:cente
   <table>
     <thead><tr><th>项</th><th>结果</th></tr></thead>
     <tbody>
-      <tr><td>发布版固件</td><td class="num">1 529 136 字节（+119 KB），OTA 单槽余量 235 KB</td></tr>
-      <tr><td>标题字体</td><td>思源宋 SC 28px / 4bpp / 368 字形，OFL 许可。<code>tools/gen_title_font.sh</code> 可重跑</td></tr>
+      <tr><td>发布版固件</td><td class="num">1 415 536 字节，OTA 单槽余量 346 KB</td></tr>
+      <tr><td>标题字体</td><td>思源宋 SC 28px / 4bpp / <strong>17 字形</strong>（只裁标题用到的），回退到 font20。<code>tools/gen_title_font.sh</code> 可重跑</td></tr>
       <tr><td>纹理</td><td>纸纤维 &sigma;=4 + 黄铜拉丝，各 32×32 平铺，合计 4 KB。<code>tools/gen_ui_assets.py</code></td></tr>
       <tr><td>浮雕</td><td><code>ui_bevel()</code>，每个元素多 1 个对象（不是 4 个）。最坏是练习页 41 个键</td></tr>
       <tr><td>黄铜</td><td>电键桨：平涂 + 拉丝纹 + 2px 浮雕，无渐变。刻字 <code>#1F1608</code>（铜面上 4.70:1）</td></tr>
@@ -773,6 +773,16 @@ footer{font-family:var(--mono);font-size:11.5px;color:var(--t2);text-align:cente
     <p style="margin-top:8px">这类错误之前一次都没查过，补了常驻工具 <code>tools/check_palette.py</code>：量化撞车 + 正文对比度。它只硬性检查 <code>UI_INK</code>（屏幕默认文字色，会继承到几乎所有控件），其余组合只做提示——<strong>会误报的检查等于训练人忽略它</strong>，第一版查笛卡尔积产出 7 条全是误报。</p>
     <p style="margin-top:8px"><strong>3. Koch 卡片改成内容井。</strong>整张卡片不再可点，右下角是一个真按钮。卡片不可点了就不该再是凸起的——凸起在这套语言里编码「能按」，那正是呼号牌当初套容器犯的错。改成凹陷，和收报井、解码井同一档：<strong>内容装在井里，控件浮在页面上</strong>。</p>
     <p style="margin-top:8px" class="dim">顺带修了导图的传输：原来远端边读串口边经 ssh 打印，管道背压拖慢读循环、串口缓冲溢出丢字节，表现为整段像素错位、而且专挑要量的地方坏。改成先落盘再回传后基本消失。</p>
+  </div>
+
+  <div class="note">
+    <b>第十一轮：标题字体从 123 KB 裁到 8.6 KB</b>
+    <p>标题字体全工程<strong>只用在一处</strong>（首页「KOCH 第 N 课」），却背着完整的 368 字形、123 KB，占固件 8%。当初留全集的理由是「写了新标题却渲染成空白」是这个项目已经踩过的坑。</p>
+    <p style="margin-top:8px"><strong>那个代价现在不必付了：LVGL 8.3 的 <code>lv_font_t</code> 支持 fallback</strong>（<code>lv_font.c</code> 里递归解析），接到 <code>font20</code> 之后缺字的失败模式从「空白」变成「退成 20px」——字号不对但看得见。而 <code>check_charset.py</code> 已经保证 font20 覆盖全部界面文案，两条合起来是硬保证：<strong>标题字体想裁多小，都不可能渲染成空白。</strong></p>
+    <p style="margin-top:8px">实测验证过：把「练」放进标题、不加进字符集，屏幕上它确实退成了小字并排在「第」「课」旁边，不是空白。</p>
+    <p style="margin-top:8px">裁到 17 个字形，<strong>font28cn 123,072 → 8,858 字节</strong>；固件 1 529 680 → 1 415 536，<strong>OTA 单槽余量 234 → 346 KB</strong>。除首页外 9 个页面指纹逐像素未变。</p>
+    <p style="margin-top:8px">首页变了是意料之外但合理的：<code>lv_font_conv</code> 的 <code>line_height</code>/<code>base_line</code> 按<strong>实际收录的字形</strong>算，完整集是 32/7，裁完变 26/2，标题的位置因此上移。已在生成脚本里写明——往 <code>TITLE_CHARS</code> 里加更高或更深的字会让行高再跳一次。</p>
+    <p style="margin-top:8px" class="dim">顺带修了个尴尬的 bug：<code>gen_title_font.sh</code> 里 <code>$OUT（</code> 的变量名后面紧跟全角括号，bash 把多字节字符的首字节吃进了变量名。这说明我当初写这个「出处记录」脚本时<strong>从来没运行过它</strong>——那次字体是手敲命令生成的。</p>
   </div>
 
   <h3>怎么再看一次</h3>

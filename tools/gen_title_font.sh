@@ -21,6 +21,26 @@
 # 字体选思源宋（Noto Serif SC），OFL 许可，可以嵌进固件分发。系统自带的苹方、
 # 华文黑体是 Apple 授权的，不能用。
 #
+# ── 为什么只裁标题用到的那十几个字 ──
+#
+# 第一版留了完整的 368 字形，理由是「写了新标题却渲染成空白」是这个项目已经踩过
+# 的坑。代价是 **123 KB，而标题字体全工程只用在一处**（首页的「KOCH 第 N 课」），
+# 占固件的 8%。
+#
+# 现在不需要那个代价了：LVGL 8.3 的 lv_font_t 支持 fallback（lv_font.c 里递归
+# 解析），把它接到 font20 之后，**缺字的失败模式从「空白」变成「退成 20px」**
+# ——字号不对但看得见。而 tools/check_charset.py 已经保证 font20 覆盖全部界面
+# 文案，所以这两条合起来是一个硬保证：**标题字体想裁多小，都不可能渲染成空白。**
+#
+# 加新标题时如果字不在下面这行里，屏幕上会是 20px 的小字——看得出来，改一下
+# TITLE_CHARS 重跑本脚本即可。（实测验证过：把「练」放进标题、不加进 TITLE_CHARS，
+# 屏幕上它确实退成了小字，不是空白。）
+#
+# **注意 TITLE_CHARS 会影响版式。** lv_font_conv 的 line_height / base_line 是按
+# 实际收录的字形算出来的：完整字符集时是 32/7，裁到现在这 17 个字形之后变成
+# 26/2。所以往里加一个更高或更深的字，标题的行高会跟着跳、位置会移——改完记得
+# 用指纹巡检看一眼首页有没有变（tools/flash_remote.sh --monitor）。
+#
 # 依赖：node + npx（会临时装 lv_font_conv）、curl
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -29,17 +49,20 @@ REPO="$PWD"
 FONT_URL="https://github.com/notofonts/noto-cjk/raw/main/Serif/SubsetOTF/SC/NotoSerifSC-Regular.otf"
 SIZE=28
 OUT="fonts/font28cn.c"
+FALLBACK="font20"
+
+# 标题实际用到的字符。当前唯一的使用点是 ui_home.c 的「KOCH 第 %u 课」。
+# grep UI_FONT_TITLE 可以找到全部使用点。
+TITLE_CHARS='KOCH第课0123456789 '
+
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-echo "== 导出界面实际用到的字符集 =="
-python3 tools/check_charset.py --dump "$WORK/charset.txt"
-
 echo "== 下载思源宋 =="
 curl -sSL --retry 3 -o "$WORK/serif.otf" "$FONT_URL"
 
-echo "== 生成 $OUT（${SIZE}px, 4bpp, 不压缩）=="
+echo "== 生成 ${OUT} （${SIZE}px, 4bpp, 不压缩）=="
 # --no-compress 是必须的：CONFIG_LV_FONT_COMPRESSED 在本工程是关的，
 # 压缩过的字体运行时解不开，且不会有编译错误——只会渲染成空白。
 npx --yes lv_font_conv@1.5.3 \
@@ -50,8 +73,10 @@ npx --yes lv_font_conv@1.5.3 \
     --no-compress \
     --lv-include lvgl.h \
     --lv-font-name font28cn \
-    --symbols "$(cat "$WORK/charset.txt")" \
+    --lv-fallback "$FALLBACK" \
+    --symbols "$TITLE_CHARS" \
     -o "$REPO/$OUT"
 
 echo "== 完成：$(wc -c < "$REPO/$OUT") 字节源码 =="
-echo "改过中文文案后要重跑本脚本，否则新字在标题里会是空白。"
+echo "标题里出现 TITLE_CHARS 之外的字时，会退回 $FALLBACK 渲染（20px，看得出来）。"
+echo "要恢复大字号，把那个字加进 TITLE_CHARS 再重跑本脚本。"
