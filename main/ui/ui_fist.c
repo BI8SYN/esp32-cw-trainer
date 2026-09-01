@@ -112,7 +112,7 @@ static void draw(void)
         lv_obj_remove_style_all(ln);
         lv_obj_set_pos(ln, 0, y);
         lv_obj_set_size(ln, 320, 1);
-        lv_obj_set_style_bg_color(ln, UI_GRAY_DOWN, 0);
+        lv_obj_set_style_bg_color(ln, UI_GRID, 0);
         lv_obj_set_style_bg_opa(ln, LV_OPA_COVER, 0);
     }
 
@@ -134,11 +134,11 @@ static void draw(void)
         lv_obj_set_size(b, bw - 1, bh);
         /* 键闭合画实心、断开画空心。自动键下要看的是空心那些。 */
         if (down) {
-            lv_obj_set_style_bg_color(b, UI_BLACK, 0);
+            lv_obj_set_style_bg_color(b, UI_INK, 0);
             lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
         } else {
             lv_obj_set_style_border_width(b, 1, 0);
-            lv_obj_set_style_border_color(b, UI_GRAY_DOWN, 0);
+            lv_obj_set_style_border_color(b, UI_DISABLED, 0);
         }
     }
 

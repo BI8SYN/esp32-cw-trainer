@@ -131,9 +131,9 @@ static lv_obj_t *row_make(lv_obj_t *box, const char *who, const char *txt,
 
     lv_obj_t *badge = lv_label_create(row);
     lv_obj_set_style_text_font(badge, UI_FONT_CN, 0);
-    lv_obj_set_style_bg_color(badge, UI_BLACK, 0);
+    lv_obj_set_style_bg_color(badge, UI_INK, 0);
     lv_obj_set_style_bg_opa(badge, LV_OPA_COVER, 0);
-    lv_obj_set_style_text_color(badge, UI_WHITE, 0);
+    lv_obj_set_style_text_color(badge, UI_PAPER, 0);
     lv_obj_set_style_pad_hor(badge, 4, 0);
     lv_obj_set_style_radius(badge, 2, 0);
     lv_label_set_text(badge, who);
@@ -266,7 +266,7 @@ static void pads_enabled(bool on)
         if (!s_pad[i]) continue;
         if (on) lv_obj_add_flag(s_pad[i], LV_OBJ_FLAG_CLICKABLE);
         else    lv_obj_clear_flag(s_pad[i], LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_set_style_text_color(s_pad[i], on ? UI_BLACK : UI_GRAY_DOWN, 0);
+        lv_obj_set_style_text_color(s_pad[i], on ? UI_INK : UI_DISABLED, 0);
     }
 }
 
@@ -493,7 +493,7 @@ static void title_cb(lv_event_t *e)
     s_picker = overlay;
     lv_obj_remove_style_all(overlay);
     lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_style_bg_color(overlay, UI_WHITE, 0);
+    lv_obj_set_style_bg_color(overlay, UI_PAPER, 0);
     lv_obj_set_style_bg_opa(overlay, LV_OPA_80, 0);
     lv_obj_clear_flag(overlay, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -501,10 +501,10 @@ static void title_cb(lv_event_t *e)
     lv_obj_remove_style_all(dlg);
     lv_obj_set_size(dlg, 240, 228);
     lv_obj_center(dlg);
-    lv_obj_set_style_bg_color(dlg, UI_WHITE, 0);
+    lv_obj_set_style_bg_color(dlg, UI_RAISE, 0);
     lv_obj_set_style_bg_opa(dlg, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(dlg, 2, 0);
-    lv_obj_set_style_border_color(dlg, UI_BLACK, 0);
+    lv_obj_set_style_border_color(dlg, UI_INK, 0);
     lv_obj_clear_flag(dlg, LV_OBJ_FLAG_SCROLLABLE);
 
     /* 三行各 56px，远超 44px 触控下限 */
@@ -563,7 +563,7 @@ static void hist_open(lv_event_t *e)
     s_hist = lv_obj_create(lv_scr_act());
     lv_obj_remove_style_all(s_hist);
     lv_obj_set_size(s_hist, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_style_bg_color(s_hist, UI_WHITE, 0);
+    lv_obj_set_style_bg_color(s_hist, UI_PAPER, 0);
     lv_obj_set_style_bg_opa(s_hist, LV_OPA_COVER, 0);
     lv_obj_clear_flag(s_hist, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -578,7 +578,7 @@ static void hist_open(lv_event_t *e)
     lv_obj_set_style_pad_top(box, 2, 0);
     lv_obj_set_scroll_dir(box, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(box, LV_SCROLLBAR_MODE_ON);
-    lv_obj_set_style_bg_color(box, UI_BLACK, LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_color(box, UI_INK, LV_PART_SCROLLBAR);
     lv_obj_set_style_bg_opa(box, LV_OPA_30, LV_PART_SCROLLBAR);
     lv_obj_set_style_width(box, 4, LV_PART_SCROLLBAR);
     lv_obj_set_style_radius(box, 2, LV_PART_SCROLLBAR);
@@ -674,7 +674,7 @@ lv_obj_t *ui_net_create(void)
     lv_obj_set_style_pad_hor(s_title, 8, 0);
     lv_obj_set_style_pad_ver(s_title, 2, 0);
     lv_obj_set_style_border_width(s_title, 1, 0);
-    lv_obj_set_style_border_color(s_title, UI_BLACK, 0);
+    lv_obj_set_style_border_color(s_title, UI_INK, 0);
     lv_obj_set_style_radius(s_title, 3, 0);
     lv_obj_align(s_title, LV_ALIGN_RIGHT_MID, -6, 0);
     lv_obj_add_flag(s_title, LV_OBJ_FLAG_CLICKABLE);
@@ -709,7 +709,7 @@ lv_obj_t *ui_net_create(void)
      * 去掉了，只设 mode 是画不出来的。
      */
     lv_obj_set_scrollbar_mode(s_box, LV_SCROLLBAR_MODE_ON);
-    lv_obj_set_style_bg_color(s_box, UI_BLACK, LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_color(s_box, UI_INK, LV_PART_SCROLLBAR);
     lv_obj_set_style_bg_opa(s_box, LV_OPA_30, LV_PART_SCROLLBAR);
     lv_obj_set_style_width(s_box, 4, LV_PART_SCROLLBAR);
     lv_obj_set_style_radius(s_box, 2, LV_PART_SCROLLBAR);
@@ -739,10 +739,10 @@ lv_obj_t *ui_net_create(void)
     lv_obj_remove_style_all(bandbg);
     lv_obj_set_pos(bandbg, 0, UI_TOPBAR_H + LOG_H);
     lv_obj_set_size(bandbg, 320, BAND_H);
-    lv_obj_set_style_bg_color(bandbg, UI_GRAY_BG, 0);
+    lv_obj_set_style_bg_color(bandbg, UI_SUNK, 0);
     lv_obj_set_style_bg_opa(bandbg, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(bandbg, 1, 0);
-    lv_obj_set_style_border_color(bandbg, UI_BLACK, 0);
+    lv_obj_set_style_border_color(bandbg, UI_INK, 0);
     lv_obj_set_style_border_side(bandbg, LV_BORDER_SIDE_BOTTOM, 0);
 
     lv_obj_add_flag(bandbg, LV_OBJ_FLAG_CLICKABLE);

@@ -131,13 +131,13 @@ lv_obj_t *ui_ota_create(void)
     lv_obj_set_pos(frame, 6, UI_TOPBAR_H + 104);
     lv_obj_set_size(frame, 308, 16);
     lv_obj_set_style_border_width(frame, 1, 0);
-    lv_obj_set_style_border_color(frame, UI_BLACK, 0);
+    lv_obj_set_style_border_color(frame, UI_INK, 0);
 
     s_bar = lv_obj_create(frame);
     lv_obj_remove_style_all(s_bar);
     lv_obj_set_pos(s_bar, 0, 0);
     lv_obj_set_size(s_bar, 4, 14);
-    lv_obj_set_style_bg_color(s_bar, UI_GRAY_DOWN, 0);
+    lv_obj_set_style_bg_color(s_bar, UI_FILL, 0);
     lv_obj_set_style_bg_opa(s_bar, LV_OPA_COVER, 0);
 
     s_btn = ui_button(s_scr, "开始升级", btn_cb, NULL);

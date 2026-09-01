@@ -48,16 +48,16 @@ void ui_nav_show(ui_screen_builder_t builder)
 lv_obj_t *ui_screen_create(void)
 {
     lv_obj_t *scr = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(scr, UI_WHITE, 0);
+    lv_obj_set_style_bg_color(scr, UI_PAPER, 0);
     lv_obj_set_style_pad_all(scr, 0, 0);
     lv_obj_set_style_radius(scr, 0, 0);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_text_color(scr, UI_BLACK, 0);
+    lv_obj_set_style_text_color(scr, UI_INK, 0);
     lv_obj_set_style_text_font(scr, UI_FONT_CN, 0);
     return scr;
 }
 
-static void plain(lv_obj_t *o)
+void ui_plain(lv_obj_t *o)
 {
     lv_obj_set_style_radius(o, 0, 0);
     lv_obj_set_style_shadow_width(o, 0, 0);
@@ -65,16 +65,21 @@ static void plain(lv_obj_t *o)
     lv_obj_clear_flag(o, LV_OBJ_FLAG_SCROLLABLE);
 }
 
+void ui_rule(lv_obj_t *o, lv_border_side_t side, lv_color_t color)
+{
+    lv_obj_set_style_border_width(o, 1, 0);
+    lv_obj_set_style_border_side(o, side, 0);
+    lv_obj_set_style_border_color(o, color, 0);
+}
+
 lv_obj_t *ui_topbar(lv_obj_t *parent, const char *title, lv_event_cb_t back_cb)
 {
     lv_obj_t *bar = lv_obj_create(parent);
-    plain(bar);
+    ui_plain(bar);
     lv_obj_set_size(bar, LV_PCT(100), UI_TOPBAR_H);
     lv_obj_set_pos(bar, 0, 0);
-    lv_obj_set_style_bg_color(bar, UI_WHITE, 0);
-    lv_obj_set_style_border_width(bar, 1, 0);
-    lv_obj_set_style_border_side(bar, LV_BORDER_SIDE_BOTTOM, 0);
-    lv_obj_set_style_border_color(bar, UI_BLACK, 0);
+    lv_obj_set_style_bg_color(bar, UI_PAPER, 0);
+    ui_rule(bar, LV_BORDER_SIDE_BOTTOM, UI_INK);
 
     int x = 6;
     if (back_cb) {
@@ -105,7 +110,7 @@ lv_obj_t *ui_topbar(lv_obj_t *parent, const char *title, lv_event_cb_t back_cb)
 static lv_obj_t *make_btn(lv_obj_t *parent, const char *text, const lv_font_t *font, lv_event_cb_t cb, void *user)
 {
     lv_obj_t *b = lv_btn_create(parent);
-    plain(b);
+    ui_plain(b);
     /* 默认主题（CONFIG_LV_THEME_DEFAULT_GROW）给按下状态加了 transform_width/height
        放大 + 80ms 缓动动画；phase 1 禁止任何动画，这里在本地样式里显式清零覆盖，
        不依赖 Kconfig（谁都可能把那个选项改回去） */
@@ -114,14 +119,14 @@ static lv_obj_t *make_btn(lv_obj_t *parent, const char *text, const lv_font_t *f
     /* 同一件事的另一半：顶掉主题按下/松开两份 transition，见文件顶部注释 */
     lv_obj_set_style_transition(b, no_fade_transition(), LV_STATE_PRESSED);
     lv_obj_set_style_transition(b, no_fade_transition(), 0);
-    lv_obj_set_style_bg_color(b, UI_WHITE, 0);
-    lv_obj_set_style_bg_color(b, UI_GRAY_DOWN, LV_STATE_PRESSED);
-    lv_obj_set_style_bg_color(b, UI_WHITE, LV_STATE_DISABLED);
+    lv_obj_set_style_bg_color(b, UI_RAISE, 0);
+    lv_obj_set_style_bg_color(b, UI_PRESSED, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(b, UI_RAISE, LV_STATE_DISABLED);
     lv_obj_set_style_border_width(b, 1, 0);
-    lv_obj_set_style_border_color(b, UI_BLACK, 0);
-    lv_obj_set_style_border_color(b, UI_GRAY_DOWN, LV_STATE_DISABLED);
-    lv_obj_set_style_text_color(b, UI_BLACK, 0);
-    lv_obj_set_style_text_color(b, UI_GRAY_DOWN, LV_STATE_DISABLED);
+    lv_obj_set_style_border_color(b, UI_INK, 0);
+    lv_obj_set_style_border_color(b, UI_DISABLED, LV_STATE_DISABLED);
+    lv_obj_set_style_text_color(b, UI_INK, 0);
+    lv_obj_set_style_text_color(b, UI_DISABLED, LV_STATE_DISABLED);
     lv_obj_t *l = lv_label_create(b);
     lv_label_set_text(l, text);
     lv_obj_set_style_text_font(l, font, 0);
@@ -145,13 +150,11 @@ lv_obj_t *ui_cell(lv_obj_t *parent, const char *text, const lv_font_t *font, lv_
 lv_obj_t *ui_notice(lv_obj_t *parent, const char *text)
 {
     lv_obj_t *n = lv_obj_create(parent);
-    plain(n);
+    ui_plain(n);
     lv_obj_set_size(n, LV_PCT(100), UI_NOTICE_H);
     lv_obj_set_pos(n, 0, UI_TOPBAR_H);
-    lv_obj_set_style_bg_color(n, UI_GRAY_BG, 0);
-    lv_obj_set_style_border_width(n, 1, 0);
-    lv_obj_set_style_border_side(n, LV_BORDER_SIDE_BOTTOM, 0);
-    lv_obj_set_style_border_color(n, UI_BLACK, 0);
+    lv_obj_set_style_bg_color(n, UI_SUNK, 0);
+    ui_rule(n, LV_BORDER_SIDE_BOTTOM, UI_INK);
     lv_obj_t *l = lv_label_create(n);
     lv_label_set_text(l, text);
     lv_obj_align(l, LV_ALIGN_LEFT_MID, 6, 0);
@@ -167,18 +170,18 @@ static void confirm_close(lv_event_t *e)
 void ui_confirm(const char *text, const char *btn_no, const char *btn_yes, lv_event_cb_t yes_cb, void *user)
 {
     lv_obj_t *overlay = lv_obj_create(lv_scr_act());
-    plain(overlay);
+    ui_plain(overlay);
     lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_style_bg_color(overlay, UI_WHITE, 0);
+    lv_obj_set_style_bg_color(overlay, UI_PAPER, 0);
     lv_obj_set_style_bg_opa(overlay, LV_OPA_80, 0);
 
     lv_obj_t *dlg = lv_obj_create(overlay);
-    plain(dlg);
+    ui_plain(dlg);
     lv_obj_set_size(dlg, 260, 110);
     lv_obj_center(dlg);
-    lv_obj_set_style_bg_color(dlg, UI_WHITE, 0);
+    lv_obj_set_style_bg_color(dlg, UI_RAISE, 0);
     lv_obj_set_style_border_width(dlg, 2, 0);
-    lv_obj_set_style_border_color(dlg, UI_BLACK, 0);
+    lv_obj_set_style_border_color(dlg, UI_INK, 0);
 
     lv_obj_t *l = lv_label_create(dlg);
     lv_label_set_text(l, text);

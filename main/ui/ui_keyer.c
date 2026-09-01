@@ -116,7 +116,7 @@ static void hl_tick(lv_timer_t *t)
            失效重绘，每 50ms 无脑重写一次会让电键块持续闪烁。 */
         if (down == h->last[i]) continue;
         h->last[i] = down;
-        lv_obj_set_style_bg_color(h->pad[i], down ? UI_GRAY_DOWN : UI_WHITE, 0);
+        lv_obj_set_style_bg_color(h->pad[i], down ? UI_PRESSED : UI_RAISE, 0);
     }
 }
 

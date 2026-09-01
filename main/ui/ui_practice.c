@@ -313,7 +313,7 @@ static void build_koch(lv_obj_t *s)
         s_fb = lv_label_create(s); lv_obj_set_pos(s_fb, 8, UI_TOPBAR_H + 60); lv_obj_set_width(s_fb, 156);
         s_replay = ui_button(s, "重播", replay_cb, NULL); lv_obj_set_width(s_replay, 100); lv_obj_set_pos(s_replay, 8, 196);
         lv_obj_t *line = lv_obj_create(s); lv_obj_set_size(line, 1, 240 - UI_TOPBAR_H); lv_obj_set_pos(line, 168, UI_TOPBAR_H);
-        lv_obj_set_style_bg_color(line, UI_BLACK, 0); lv_obj_set_style_border_width(line, 0, 0); lv_obj_set_style_radius(line, 0, 0);
+        lv_obj_set_style_bg_color(line, UI_RULE, 0); lv_obj_set_style_border_width(line, 0, 0); lv_obj_set_style_radius(line, 0, 0);
     } else {
         s_hint = lv_label_create(s); lv_obj_set_pos(s_hint, 8, UI_TOPBAR_H + 8); lv_obj_set_width(s_hint, 110);
         s_input = lv_label_create(s); lv_obj_set_style_text_font(s_input, UI_FONT_MID, 0);
@@ -352,14 +352,14 @@ static void opt_cb(lv_event_t *e)
     int i = (int)(intptr_t)lv_event_get_user_data(e);
     if (s_tr.mode == TRAINER_MODE_CALLSIGN) { submit(s_tr.options[i]); return; }
     s_sel_call = i;
-    for (int k = 0; k < 4; k++) lv_obj_set_style_bg_color(s_opts[k], k == i ? UI_GRAY_DOWN : UI_WHITE, 0);
+    for (int k = 0; k < 4; k++) lv_obj_set_style_bg_color(s_opts[k], k == i ? UI_SELECTED : UI_RAISE, 0);
 }
 static void rst_cb(lv_event_t *e)
 {
     if (s_phase != PH_INPUT && s_phase != PH_PLAYING) return;
     int i = (int)(intptr_t)lv_event_get_user_data(e);
     s_sel_rst = i;
-    for (int k = 0; k < 4; k++) lv_obj_set_style_bg_color(s_rst_opts[k], k == i ? UI_GRAY_DOWN : UI_WHITE, 0);
+    for (int k = 0; k < 4; k++) lv_obj_set_style_bg_color(s_rst_opts[k], k == i ? UI_SELECTED : UI_RAISE, 0);
 }
 static void submit_qso_cb(lv_event_t *e)
 {
@@ -435,8 +435,8 @@ static void start_round(void)
     if (s_input) { lv_obj_clear_flag(s_input, LV_OBJ_FLAG_HIDDEN); render_input(); }
     /* 选项文本随每轮更新 */
     for (int i = 0; i < 4; i++) {
-        if (s_opts[i]) { lv_label_set_text(lv_obj_get_child(s_opts[i], 0), s_tr.options[i]); lv_obj_set_style_bg_color(s_opts[i], UI_WHITE, 0); }
-        if (s_rst_opts[i]) { lv_label_set_text(lv_obj_get_child(s_rst_opts[i], 0), s_tr.rst_options[i]); lv_obj_set_style_bg_color(s_rst_opts[i], UI_WHITE, 0); }
+        if (s_opts[i]) { lv_label_set_text(lv_obj_get_child(s_opts[i], 0), s_tr.options[i]); lv_obj_set_style_bg_color(s_opts[i], UI_RAISE, 0); }
+        if (s_rst_opts[i]) { lv_label_set_text(lv_obj_get_child(s_rst_opts[i], 0), s_tr.rst_options[i]); lv_obj_set_style_bg_color(s_rst_opts[i], UI_RAISE, 0); }
     }
     play();
 }

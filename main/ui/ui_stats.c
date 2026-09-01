@@ -74,10 +74,10 @@ static void draw_heat(lv_obj_t *p)
         int w = 4 + pct[i] * bar_max / 100;
         lv_obj_set_pos(bar, 30, y + 4);
         lv_obj_set_size(bar, w, 16);
-        lv_obj_set_style_bg_color(bar, UI_GRAY_DOWN, 0);
+        lv_obj_set_style_bg_color(bar, UI_FILL, 0);
         lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(bar, 1, 0);
-        lv_obj_set_style_border_color(bar, UI_BLACK, 0);
+        lv_obj_set_style_border_color(bar, UI_INK, 0);
 
         lv_obj_t *v = lv_label_create(p);
         lv_label_set_text_fmt(v, "%u%%", pct[i]);
@@ -117,7 +117,7 @@ static void draw_curve(lv_obj_t *p)
     lv_obj_remove_style_all(ref);
     lv_obj_set_pos(ref, x0, y0 + h - h * KOCH_PASS_PERCENT / 100);
     lv_obj_set_size(ref, w, 1);
-    lv_obj_set_style_bg_color(ref, UI_GRAY_DOWN, 0);
+    lv_obj_set_style_bg_color(ref, UI_GRID, 0);
     lv_obj_set_style_bg_opa(ref, LV_OPA_COVER, 0);
 
     lv_obj_t *rl = lv_label_create(p);
@@ -139,10 +139,10 @@ static void draw_curve(lv_obj_t *p)
         lv_obj_remove_style_all(b);
         lv_obj_set_pos(b, x0 + i * bw, y0 + h - bh);
         lv_obj_set_size(b, bw > 2 ? bw - 1 : bw, bh);
-        lv_obj_set_style_bg_color(b, UI_GRAY_DOWN, 0);
+        lv_obj_set_style_bg_color(b, UI_FILL, 0);
         lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(b, 1, 0);
-        lv_obj_set_style_border_color(b, UI_BLACK, 0);
+        lv_obj_set_style_border_color(b, UI_INK, 0);
     }
 
     /* 说明只留「多少次」和「最新多少」：原来还带着「（第 N 课）」，整句在
@@ -168,7 +168,7 @@ static void fill(void)
     if (s_tab == 0) draw_heat(s_canvas);
     else draw_curve(s_canvas);
     for (int i = 0; i < 2; i++)
-        lv_obj_set_style_bg_color(s_tabs[i], i == s_tab ? UI_GRAY_DOWN : UI_WHITE, 0);
+        lv_obj_set_style_bg_color(s_tabs[i], i == s_tab ? UI_SELECTED : UI_RAISE, 0);
 }
 
 static void tab_cb(lv_event_t *e)
@@ -197,7 +197,7 @@ static lv_obj_t *build(void)
     lv_obj_set_size(s_canvas, 320 - 56, TAB_H);
     lv_obj_set_style_border_width(s_canvas, 1, 0);
     lv_obj_set_style_border_side(s_canvas, LV_BORDER_SIDE_LEFT, 0);
-    lv_obj_set_style_border_color(s_canvas, UI_BLACK, 0);
+    lv_obj_set_style_border_color(s_canvas, UI_INK, 0);
     lv_obj_clear_flag(s_canvas, LV_OBJ_FLAG_SCROLLABLE);
 
     fill();

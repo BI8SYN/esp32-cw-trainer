@@ -23,7 +23,7 @@
 /* 默认主题除了 grow（已在下面清零 transform_width/height）以外，还无条件给
    lv_btn_class 挂了两份 transition：transition_normal 挂在 selector=LV_STATE_PRESSED
    （按下瞬间渐变），transition_delayed 挂在 selector=0（松开后延迟渐变回默认态）。
-   两份都会让本地按下态背景色（UI_GRAY_BG vs UI_WHITE）渐变而不是瞬时切换，仍是
+   两份都会让本地按下态背景色（UI_SUNK vs UI_RAISE）渐变而不是瞬时切换，仍是
    phase 1 禁止的动画。这里在同样的两个 selector 上用本地样式挂一份覆盖同一组
    属性、time=0 的描述符去顶掉它们（不是设成 NULL——那样会在 lv_obj_set_state
    内部被当成非空描述符解引用，直接崩溃；0 时长的合法描述符已用设备实测确认
@@ -218,11 +218,11 @@ lv_obj_t *ui_home_create(void)
     lv_obj_t *card = lv_btn_create(s_scr);
     lv_obj_set_style_radius(card, 0, 0);
     lv_obj_set_style_shadow_width(card, 0, 0);
-    lv_obj_set_style_bg_color(card, UI_WHITE, 0);
-    lv_obj_set_style_bg_color(card, UI_GRAY_BG, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(card, UI_RAISE, 0);
+    lv_obj_set_style_bg_color(card, UI_SUNK, LV_STATE_PRESSED);
     lv_obj_set_style_border_width(card, 1, 0);
     lv_obj_set_style_border_side(card, LV_BORDER_SIDE_RIGHT, 0);
-    lv_obj_set_style_border_color(card, UI_BLACK, 0);
+    lv_obj_set_style_border_color(card, UI_INK, 0);
     lv_obj_set_style_pad_all(card, 8, 0);
     /* 默认主题给按下状态加了 transform_width/height 放大 + 80ms 缓动动画；
        phase 1 禁止任何动画，这里显式清零覆盖 */
@@ -237,7 +237,7 @@ lv_obj_t *ui_home_create(void)
 
     lv_obj_t *l1 = lv_label_create(card);
     /* 含中文（"第...课"），必须留在屏幕默认的 UI_FONT_CN，不能设成 UI_FONT_MID/UI_FONT_BIG（无中文字形） */
-    lv_obj_set_style_text_color(l1, UI_BLACK, 0);
+    lv_obj_set_style_text_color(l1, UI_INK, 0);
     lv_label_set_text_fmt(l1, "KOCH 第 %u 课", cfg->koch_lesson);
     lv_obj_align(l1, LV_ALIGN_TOP_LEFT, 0, 0);
 
@@ -252,7 +252,7 @@ lv_obj_t *ui_home_create(void)
      */
     char cs[48]; int csn = koch_charset(cfg->koch_lesson, cs);
     lv_obj_t *l2 = lv_label_create(card);
-    lv_obj_set_style_text_color(l2, UI_BLACK, 0);
+    lv_obj_set_style_text_color(l2, UI_INK2, 0);
     lv_obj_set_size(l2, 184, 52);
     lv_label_set_long_mode(l2, LV_LABEL_LONG_DOT);
     if (cfg->koch_lesson == 1 && cfg->koch_last_pct[1] == 0xFF) lv_label_set_text_fmt(l2, "%s", cs);
@@ -260,7 +260,7 @@ lv_obj_t *ui_home_create(void)
     lv_obj_align(l2, LV_ALIGN_TOP_LEFT, 0, 40);
 
     lv_obj_t *l3 = lv_label_create(card);
-    lv_obj_set_style_text_color(l3, UI_BLACK, 0);
+    lv_obj_set_style_text_color(l3, UI_INK2, 0);
     uint8_t last = cfg->koch_last_pct[cfg->koch_lesson];
     if (last == 0xFF) lv_label_set_text(l3, "未开始");
     else lv_label_set_text_fmt(l3, "上次 %u%%", last);
@@ -268,7 +268,7 @@ lv_obj_t *ui_home_create(void)
 
     lv_obj_t *l4 = lv_label_create(card);
     /* 含中文（"开始/继续练习"），必须留在屏幕默认的 UI_FONT_CN，不能设成 UI_FONT_MID/UI_FONT_BIG（无中文字形） */
-    lv_obj_set_style_text_color(l4, UI_BLACK, 0);
+    lv_obj_set_style_text_color(l4, UI_ACCENT, 0);
     lv_label_set_text(l4, last == 0xFF ? "开始练习 >" : "继续练习 >");
     lv_obj_align(l4, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
 

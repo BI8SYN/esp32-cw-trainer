@@ -447,7 +447,7 @@ static void fill_list(void)
         else lv_label_set_text_fmt(vl, "%s >", v);
         lv_obj_align(vl, LV_ALIGN_RIGHT_MID, -8, 0);
     }
-    for (int g = 0; g < GROUP_COUNT; g++) lv_obj_set_style_bg_color(s_tabs[g], g == s_group ? UI_GRAY_DOWN : UI_WHITE, 0);
+    for (int g = 0; g < GROUP_COUNT; g++) lv_obj_set_style_bg_color(s_tabs[g], g == s_group ? UI_SELECTED : UI_RAISE, 0);
 }
 
 static void tab_cb(lv_event_t *e) { s_group = (int)(intptr_t)lv_event_get_user_data(e); fill_list(); }
@@ -482,7 +482,7 @@ lv_obj_t *ui_settings_create(void)
     lv_obj_set_pos(s_list, 60, UI_TOPBAR_H); lv_obj_set_size(s_list, 260, 240 - UI_TOPBAR_H);
     lv_obj_set_style_pad_all(s_list, 0, 0); lv_obj_set_style_radius(s_list, 0, 0);
     lv_obj_set_style_border_width(s_list, 1, 0); lv_obj_set_style_border_side(s_list, LV_BORDER_SIDE_LEFT, 0);
-    lv_obj_set_style_border_color(s_list, UI_BLACK, 0);
+    lv_obj_set_style_border_color(s_list, UI_INK, 0);
     lv_obj_set_scroll_dir(s_list, LV_DIR_VER);
     fill_list();
     return scr;

@@ -141,8 +141,8 @@ static void field_style(lv_obj_t *o)
     lv_obj_set_style_pad_left(o, 6, 0);
     lv_obj_set_style_pad_right(o, 6, 0);
     lv_obj_set_style_border_width(o, 1, 0);
-    lv_obj_set_style_border_color(o, UI_BLACK, 0);
-    lv_obj_set_style_bg_color(o, UI_WHITE, 0);
+    lv_obj_set_style_border_color(o, UI_INK, 0);
+    lv_obj_set_style_bg_color(o, UI_RAISE, 0);
 }
 
 /* ---------------------------------------------------------------- 键盘 */
