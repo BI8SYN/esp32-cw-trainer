@@ -319,6 +319,7 @@ footer{font-family:var(--mono);font-size:11.5px;color:var(--t2);text-align:cente
       <tr><td>顶栏高度 <code>UI_TOPBAR_H</code></td><td class="num">28</td><td class="num pass">32 已落地</td><td>上网格；17px caption 配 16px 图标不再顶格</td></tr>
       <tr><td>提示条高度 <code>UI_NOTICE_H</code></td><td class="num">28</td><td class="num pass">32 已落地</td><td>与顶栏同高；仍 ≥ 正文行高 26</td></tr>
       <tr><td>主页右列每格</td><td class="num">53</td><td class="num">52</td><td>(240−32)/4 整除，仍 ≥ 44 触控下限</td></tr>
+      <tr><td>信息条高度 <code>UI_BAND_H</code></td><td class="num">28</td><td class="num pass">32 已落地</td><td>与顶栏同网格；电键页与对练页共用</td></tr>
       <tr><td>顶栏内边距</td><td class="num">6</td><td class="num">8</td><td>上网格</td></tr>
       <tr><td>卡片内边距</td><td class="num">8</td><td class="num">8 / 左 16</td><td>左边距全局统一到 16，正文起始对齐一条线</td></tr>
       <tr><td>左右分栏</td><td class="num">200 / 120</td><td class="num">200 / 120</td><td>已在网格上，不动</td></tr>
@@ -738,6 +739,13 @@ footer{font-family:var(--mono);font-size:11.5px;color:var(--t2);text-align:cente
     <b>第六轮：ui_bevel 的两个后续 bug</b>
     <p><strong>1. 浮雕的子对象会被父容器当成布局成员。</strong>对练页的收报井是 flex 容器，那个子对象被排成了<strong>第一个 flex item</strong>，它的下沿亮线就露在第一条消息上面，看着像凭空多了一条白线。加 <code>LV_OBJ_FLAG_FLOATING</code>——它同时解决两件事：不参与布局，且不跟随父对象滚动（浮雕是画在井壁上的，不该跟着内容滚走）。</p>
     <p style="margin-top:8px"><strong>2. padding 不对称时下沿画不出来。</strong>收报井 <code>pad_top=2</code> 而 <code>pad_bottom=0</code>，而 <code>transform_*</code> 只能对称扩张，下沿的亮线被推到盒子外面。<strong>我当初把「要求 padding 对称」写成注释当免责声明，而不是去解决它</strong>——那条注释后来就成了这个 bug 的温床。现在用 <code>translate_*</code> 抵消不对称：<code>transform = 边框 + 两侧 padding 均值</code>，<code>translate = (后侧 - 前侧) / 2</code>。像素实测井上沿 <code>#9C8D6A</code> → 井面 <code>#E6DAC5</code> → 下沿 <code>#FFFAF6</code>，完整凹槽。</p>
+  </div>
+
+  <div class="note">
+    <b>第七轮：电键页与对练页统一版式</b>
+    <p>两个页面铺的是<strong>同一组电键</strong>，用户在它们之间来回切，版式不一致就得重新找一遍东西在哪。现在都是 <strong>凹陷的内容井 + 平的信息条 + 凸起的电键</strong>，像素实测两页完全一致：暗线 <code>y=32</code> → 井面 <code>33..122</code> → 亮线 <code>y=123</code> → 信息条 <code>124..155</code> → 桨 <code>y=156</code>。</p>
+    <p style="margin-top:8px">电键页原来是「裸标签 + 点划行 + 桨」，解码文本直接摊在页面上，没有井。改造顺带把纵向预算从手算改成了共享常量：井吃掉 <code>UI_PADDLE_H</code> 和 <code>UI_BAND_H</code> 之外的全部高度，两页不再各写各的。</p>
+    <p style="margin-top:8px">信息条高度提到 32 并进了 <code>ui_theme.h</code>（原来对练页自己写死 28）：与顶栏、提示条同在 8px 网格上，且 &gt;= <code>UI_FONT_CN</code> 的行高 26。文字改居中——它是一行状态提示，不是要从左边读起的正文，而且下面就是左右对称的两块桨，左对齐会把整页重心拉偏。</p>
   </div>
 
   <h3>怎么再看一次</h3>

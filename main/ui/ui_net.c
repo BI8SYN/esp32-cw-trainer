@@ -57,7 +57,7 @@
  * 同一双手在两页之间切换时按的位置就不一样了。原来收报区只有 74（两行），
  * 一次交替就翻页；现在 100，约三行（UI_FONT_CN 行高 26）。
  */
-#define BAND_H      28
+#define BAND_H      UI_BAND_H   /* 见 ui_theme.h：和电键页的点划行是同一件东西 */
 #define LOG_H       (240 - UI_TOPBAR_H - BAND_H - UI_PADDLE_H)
 
 typedef struct {
@@ -764,7 +764,9 @@ lv_obj_t *ui_net_create(void)
 
     s_band = lv_label_create(bandbg);
     lv_obj_set_style_text_font(s_band, UI_FONT_CN, 0);
-    lv_obj_align(s_band, LV_ALIGN_LEFT_MID, 6, 0);
+    /* 居中。它是一行状态提示，不是一段要从左边读起的正文；而且下面就是左右
+       对称的两块桨，左对齐会把整页的重心拉偏。 */
+    lv_obj_align(s_band, LV_ALIGN_CENTER, 0, 0);
     lv_label_set_text(s_band, "");
 
     /* 电键 110px：两块 160x110，远超 44px 触控下限。

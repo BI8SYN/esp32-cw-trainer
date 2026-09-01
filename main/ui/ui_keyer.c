@@ -286,28 +286,51 @@ lv_obj_t *ui_keyer_create(void)
     if (!tone_gen_is_ok()) { ui_notice(s_scr, "音频异常，侧音不可用"); top += UI_NOTICE_H; }
 
     /*
-     * 纵向预算（顶栏之下 212px）：解码文本 74 / 点划 26 / 电键 108。
+     * 纵向预算不再手算：解码井吃掉 UI_PADDLE_H 和 UI_BAND_H 之外的全部高度，
+     * 和对练页用同一组常量。默认情况下井是 92px，内容区 88px，装得下两行
+     * UI_FONT_MID（行高 37，两行 74）。
      *
-     * 文本高度必须是 74 = 2 行 x UI_FONT_MID 的行高 37。原来只给了 60，
-     * 第二行的下缘被裁掉 14px——Q 的尾巴正好在那里，看起来就成了 O。
-     * 和配网页输入框、对练页状态带是同一类问题：容器高度必须 >= 内容高度。
+     * **容器高度必须 >= 内容高度**这条一定要守住：这里曾经只给 60，第二行的
+     * 下缘被裁掉 14px——Q 的尾巴正好在那里，看起来就成了 O。配网页输入框、
+     * 对练页状态带、顶栏小键，全都栽过同一个坑。
      */
-    s_text = lv_label_create(s_scr);
+    /*
+     * 版式和对练页对齐：**凹陷的解码井 + 平的点划条 + 凸起的电键**。
+     *
+     * 三档深度各自编码一件事——井装内容、条是页面本身、桨可以按。两个页面铺的
+     * 是同一组电键，用户在它们之间来回切，版式不一致就得重新找一遍东西在哪。
+     * 井和条的高度直接用共享常量（UI_PADDLE_H / UI_BAND_H），不再各写各的。
+     */
+    lv_obj_t *well = lv_obj_create(s_scr);
+    lv_obj_remove_style_all(well);
+    lv_obj_set_pos(well, 0, top);
+    lv_obj_set_size(well, 320, 240 - UI_PADDLE_H - UI_BAND_H - top);
+    lv_obj_clear_flag(well, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_pad_left(well, 6, 0);
+    lv_obj_set_style_pad_right(well, 6, 0);
+    lv_obj_set_style_pad_top(well, 2, 0);
+    lv_obj_set_style_bg_color(well, UI_SUNK, 0);
+    lv_obj_set_style_bg_opa(well, LV_OPA_COVER, 0);
+    /* 必须在 pad 之后：ui_bevel 要按实际 padding 反推子对象的位置 */
+    ui_bevel(well, false);
+
+    s_text = lv_label_create(well);
     lv_obj_set_style_text_font(s_text, UI_FONT_MID, 0);
-    lv_obj_set_pos(s_text, 8, top + 2);
-    lv_obj_set_size(s_text, 304, 74);
+    lv_obj_set_width(s_text, 302);
     lv_label_set_long_mode(s_text, LV_LABEL_LONG_WRAP);
+    lv_obj_align(s_text, LV_ALIGN_TOP_LEFT, 0, 0);
     lv_label_set_text(s_text, "");
     s_buf[0] = 0;
 
-    /* 点划行改用 UI_FONT_CN（行高 26）：文本要 74、电键要留够 108，
-       三者加起来必须 <= 212，点划这行只能用小的。它是转瞬即逝的提示，
-       让位给要读的解码文本是对的。 */
+    /* 点划行：和对练页的状态带同一档——不给面也不给浮雕，背景透出纸纹。
+       居中，因为下面就是左右对称的两块桨。 */
     s_seq = lv_label_create(s_scr);
     lv_obj_set_style_text_font(s_seq, UI_FONT_CN, 0);
-    /* 电键从 84 高之后起点下移，解码文本（74）和电键之间多出一段空当。
-       点划行居中放在那段里，而不是贴着文本——不然下面会空出一条没来由的缝。 */
-    lv_obj_align(s_seq, LV_ALIGN_TOP_MID, 0, top + 89);
+    lv_obj_set_width(s_seq, 320);
+    lv_obj_set_style_text_align(s_seq, LV_TEXT_ALIGN_CENTER, 0);
+    /* 不给 label 设高度、改用偏移把 26 的行高摆到 32 的条中央：给 label 一个
+       比行高大的高度，文字只会顶在上沿，还得再算一次垂直内边距。 */
+    lv_obj_set_pos(s_seq, 0, 240 - UI_PADDLE_H - UI_BAND_H + (UI_BAND_H - 26) / 2);
     lv_label_set_text(s_seq, "");
 
     /* 电键高度和对练页统一，见 ui_keyer.h 的 UI_PADDLE_H。布局（直键一整条 /
