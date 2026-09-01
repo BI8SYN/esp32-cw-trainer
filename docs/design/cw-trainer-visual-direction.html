@@ -16,8 +16,8 @@
 
   /* ── 设备调色板 token（本规格的产出，随主题固定不变）── */
   --paper:#EDE1C8;   /* 纸底（真机校正：#EFE6D4 色度只有 27，满屏铺开被色适应归一成白）*/
-  --raise:#F7F1E4;   /* 抬高面：卡片、输入格 */
-  --sunk:#E4D9C3;    /* 凹陷面：按下态、禁用底 */
+  --raise:#FDF0D6;   /* 抬高面：卡片、输入格 */
+  --sunk:#E5D9C1;    /* 凹陷面：按下态、禁用底 */
   --ink:#2A2118;     /* 主文 */
   --ink2:#6B5D4A;    /* 次要文 */
   --ink3:#8F7F67;    /* 占位 / 禁用 */
@@ -25,7 +25,7 @@
   --copper:#945418;  /* accent，唯一彩色 */
   --danger:#9C2B1B;  /* 危险 */
   /* ── 拟物层：浮雕的两条 1px 线 ── */
-  --hilite:#FFFBF0;  /* 受光边 */
+  --hilite:#FFF8E4;  /* 受光边 */
   --shade:#9C8C6E;   /* 背光边 */
   /* ── 材质：黄铜。是 copper 同色相的明暗档，不是新增 accent ── */
   --brass:#A8763C;
@@ -238,10 +238,10 @@ footer{font-family:var(--mono);font-size:11.5px;color:var(--t2);text-align:cente
     <tbody>
       <tr><td><span class="chip" style="background:#EDE1C8"></span><code>paper</code></td>
           <td class="hex">#EDE1C8</td><td class="hex">#EFE3CE</td><td class="num na">—</td><td>页面底色。<strong>真机校正过，见下</strong></td></tr>
-      <tr><td><span class="chip" style="background:#F7F1E4"></span><code>raise</code></td>
-          <td class="hex">#F7F1E4</td><td class="hex">#F7F3E6</td><td class="num na">1.11:1 对纸底</td><td>抬高面：输入格、按钮、键帽</td></tr>
-      <tr><td><span class="chip" style="background:#E4D9C3"></span><code>sunk</code></td>
-          <td class="hex">#E4D9C3</td><td class="hex">#E6DBC5</td><td class="num na">1.12:1 对纸底</td><td>凹陷面：按下态、禁用底</td></tr>
+      <tr><td><span class="chip" style="background:#FDF0D6"></span><code>raise</code></td>
+          <td class="hex">#FDF0D6</td><td class="hex">#FFF3D6</td><td class="num na">1.11:1 对纸底</td><td>抬高面：输入格、按钮、键帽</td></tr>
+      <tr><td><span class="chip" style="background:#E5D9C1"></span><code>sunk</code></td>
+          <td class="hex">#E5D9C1</td><td class="hex">#E6DBC5</td><td class="num na">1.12:1 对纸底</td><td>凹陷面：按下态、禁用底</td></tr>
       <tr><td><span class="chip" style="background:#2A2118"></span><code>ink</code></td>
           <td class="hex">#2A2118</td><td class="hex">#292019</td><td class="num pass">12.98:1</td><td>主文、主结构线</td></tr>
       <tr><td><span class="chip" style="background:#6B5D4A"></span><code>ink2</code></td>
@@ -763,6 +763,16 @@ footer{font-family:var(--mono);font-size:11.5px;color:var(--t2);text-align:cente
     <p style="margin-top:8px">纸底加深到 <code>#EDE1C8</code>，色度 27 → 37（+37%），帧缓冲实测 <code>#EDE0C7</code>、色差 37.4。<strong>这是不破 4.5:1 的极限</strong>：再深一档铜色就跌到 4.47，得连铜色一起重调。改完 ink 12.59 / ink2 5.03 / copper 4.63 / danger 6.06，全部在线。</p>
     <p style="margin-top:8px">副作用：纸底与凹陷面的差从 1.116 压到 1.081，井的填充色差变小——但井现在有缩进和可见井壁撑着，不再只靠填充色。</p>
     <p style="margin-top:8px" class="dim">又一次踩到同一个坑：页面底铺的是<strong>不透明的</strong> <code>ui_grain_paper</code> 平铺图，它把 <code>bg_color</code> 完全盖住，只改 <code>UI_PAPER</code> 宏屏上不会有任何变化——真正看得见的纸色在 <code>tools/gen_ui_assets.py</code> 里。黄铜已经栽过一次，这次两处一起改。</p>
+  </div>
+
+  <div class="note">
+    <b>第十轮：加深纸底时漏改了整条色阶，以及一个只有量像素才看得见的 bug</b>
+    <p><strong>1. 按钮在暖纸上看起来是白的。</strong>实测按钮面色度 16.0、纸底 35.9——上一轮加深纸底时<strong>只改了 paper，没把整条暖色阶梯一起重推</strong>，raise(19) 和 hilite(15) 还停在旧标定上，反而成了整屏最不饱和的东西。</p>
+    <p style="margin-top:8px">重推的方式是<strong>保持每层亮度不变、只把色相拉到纸底那条线上</strong>：所有对比度分毫不动（raise 对纸底 1.143 → 1.151，sunk 1.081 → 1.081），只补饱和度。直接按色度比缩放不行——那会连亮度一起改，把调好的层间差全打乱（试过，抬高面反而更贴近纸底、选中态从 1.71 掉回 1.54）。改完实测按钮面色度 41.7。</p>
+    <p style="margin-top:8px"><strong>2. 高光边等于没画。</strong>重推之后 <code>UI_HILITE #FFF2D7</code> 和 <code>UI_RAISE #FDF0D6</code> <strong>量化到 RGB565 之后是同一个值</strong>（红通道 5bit，0xFD 和 0xFF 落进同一档）。凸起按钮的上沿高光整条消失，而这个错误<strong>编译不报、指纹只说「变了」、看缩略图也看不出来</strong>，只有逐像素量才发现。改 hilite 为 <code>#FFF8E4</code>——高光去饱和是对的，物理上镜面反射本来就偏白。</p>
+    <p style="margin-top:8px">这类错误之前一次都没查过，补了常驻工具 <code>tools/check_palette.py</code>：量化撞车 + 正文对比度。它只硬性检查 <code>UI_INK</code>（屏幕默认文字色，会继承到几乎所有控件），其余组合只做提示——<strong>会误报的检查等于训练人忽略它</strong>，第一版查笛卡尔积产出 7 条全是误报。</p>
+    <p style="margin-top:8px"><strong>3. Koch 卡片改成内容井。</strong>整张卡片不再可点，右下角是一个真按钮。卡片不可点了就不该再是凸起的——凸起在这套语言里编码「能按」，那正是呼号牌当初套容器犯的错。改成凹陷，和收报井、解码井同一档：<strong>内容装在井里，控件浮在页面上</strong>。</p>
+    <p style="margin-top:8px" class="dim">顺带修了导图的传输：原来远端边读串口边经 ssh 打印，管道背压拖慢读循环、串口缓冲溢出丢字节，表现为整段像素错位、而且专挑要量的地方坏。改成先落盘再回传后基本消失。</p>
   </div>
 
   <h3>怎么再看一次</h3>

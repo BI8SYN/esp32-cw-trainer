@@ -90,16 +90,25 @@ ssh -o BatchMode=yes "$REMOTE" "cd $TMP && '$REMOTE_PY' -m esptool \
 
 if [[ $MONITOR == 1 ]]; then
   echo "== 串口输出（${MON_SECS:-20} 秒，控制台固定 115200）=="
-  # miniterm 要 TTY，这里只要单向读，用 pyserial 直接读更省事
-  ssh -o BatchMode=yes "$REMOTE" "'$REMOTE_PY' - <<'PY'
+  # **先落盘再回传，不要边读边打印。**
+  #
+  # 原来是远端 python 一边读串口一边 print，输出经 ssh 管道实时流回来。管道一有
+  # 背压，读串口的循环就被拖慢，OS 的串口缓冲随即溢出丢字节——导图时表现为
+  # 整段像素错位（实测 10739 行里坏 7 行，而且专挑要量的地方坏）。
+  #
+  # 落盘之后读循环只和串口打交道，不受网络影响；传输放到采集结束之后做。
+  ssh -o BatchMode=yes "$REMOTE" "'$REMOTE_PY' - <<'PY' > $TMP/serial.log
 import serial, time
 s = serial.Serial('$PORT', 115200, timeout=1)
 end = time.time() + ${MON_SECS:-20}
+buf = []
 while time.time() < end:
-    d = s.read(4096)
+    d = s.read(65536)
     if d:
-        print(d.decode('utf-8', 'replace'), end='', flush=True)
+        buf.append(d)
+print(b''.join(buf).decode('utf-8', 'replace'), end='')
 PY"
+  ssh -o BatchMode=yes "$REMOTE" "cat $TMP/serial.log"
 fi
 
 ssh -o BatchMode=yes "$REMOTE" "rm -rf $TMP"

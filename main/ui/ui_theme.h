@@ -44,9 +44,19 @@
  * 两处必须一起改（黄铜就在这里栽过一次）。
  */
 #define UI_PAPER     lv_color_hex(0xEDE1C8)
-#define UI_RAISE     lv_color_hex(0xF7F1E4)  /* 抬高面：按钮/键帽/卡片/对话框 */
-#define UI_SUNK      lv_color_hex(0xE4D9C3)  /* 凹陷面：提示条、输入格、状态带 */
-#define UI_PRESSED   lv_color_hex(0xE4D9C3)  /* 按钮按下：抬高面塌成凹陷面 */
+/*
+ * 以下几层的色相必须和 UI_PAPER 在同一条线上——它们是同一种材质在不同受光
+ * 程度下的样子。纸底加深到色度 37 时我只改了 paper，这几层还停在旧标定
+ * （raise 色度 19、hilite 15），结果它们成了整屏最不饱和的东西，按钮在暖纸上
+ * 看起来是白的。这是实测报出来的。
+ *
+ * 重推的方式是**保持每一层的亮度不变、只把色相拉到纸底那条线上**：所有对比度
+ * 分毫不动（raise 对纸底 1.143 → 1.151，sunk 1.081 → 1.081），只补饱和度。
+ * 直接按色度比缩放是不行的——那会连亮度一起改，把调好的层间差全打乱。
+ */
+#define UI_RAISE     lv_color_hex(0xFDF0D6)  /* 抬高面：按钮/键帽/对话框 */
+#define UI_SUNK      lv_color_hex(0xE5D9C1)  /* 凹陷面：内容井、提示条、输入格 */
+#define UI_PRESSED   lv_color_hex(0xE5D9C1)  /* 按钮按下：抬高面塌成凹陷面 */
 
 /* ── 墨（对比度按量化后实算，纸底为参照）───────────────── */
 #define UI_INK       lv_color_hex(0x2A2118)  /* 主文、主结构线      12.98:1 */
@@ -65,7 +75,7 @@
 /* 选中面 #C8B996：对抬高面 1.71:1，其上主文仍有 8.42:1。
    原来直接用凹陷面 #E4D9C3，对抬高面只有 1.24:1——真机上「选中了哪个 tab」
    基本看不出来。凹陷面是给「压进纸里的一条」用的，选中态需要更明确的一档。 */
-#define UI_SELECTED  lv_color_hex(0xC8B996)
+#define UI_SELECTED  lv_color_hex(0xC3B9A5)
 #define UI_FILL      lv_color_hex(0x945418)  /* 进度填充。只给「正在进行」用 */
 /* 图表的柱子。**不能用铜色**：统计页一屏八根柱子全铜，直接违反「整屏铜色
    不超过两处」——真机导图上一眼就看出来了。数据是墨，铜色留给「现在轮到
@@ -74,7 +84,7 @@
 #define UI_GRID      lv_color_hex(0xD3C6AC)  /* 图表参考线、网格线 */
 
 /* ── 浮雕的两条 1px 线。凸起 = 上左亮、下右暗，凹陷反过来。 ── */
-#define UI_HILITE    lv_color_hex(0xFFFBF0)  /* 受光边 */
+#define UI_HILITE    lv_color_hex(0xFFF8E4)  /* 受光边 */
 /* 背光边 #9C8C6E：对纸底 2.63:1。原来定的 #B5A88C 只有 1.88:1，真机导图上
    「更多练习」那种整宽格子糊成了一整片——抬高面和纸底本来就只差 1.11:1，
    分隔全靠这条线，1.88 撑不住。再深就要开始和正文抢注意力了。 */

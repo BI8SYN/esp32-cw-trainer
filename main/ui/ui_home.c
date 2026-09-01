@@ -20,34 +20,9 @@
 
 #define IDLE_OFF_MS 120000
 
-/* 默认主题除了 grow（已在下面清零 transform_width/height）以外，还无条件给
-   lv_btn_class 挂了两份 transition：transition_normal 挂在 selector=LV_STATE_PRESSED
-   （按下瞬间渐变），transition_delayed 挂在 selector=0（松开后延迟渐变回默认态）。
-   两份都会让本地按下态背景色（UI_SUNK vs UI_RAISE）渐变而不是瞬时切换，仍是
-   phase 1 禁止的动画。这里在同样的两个 selector 上用本地样式挂一份覆盖同一组
-   属性、time=0 的描述符去顶掉它们（不是设成 NULL——那样会在 lv_obj_set_state
-   内部被当成非空描述符解引用，直接崩溃；0 时长的合法描述符已用设备实测确认
-   会被 lv_map 的边界分支直接返回终值，没有除零） */
-static const lv_style_prop_t s_no_fade_props[] = {
-    LV_STYLE_BG_OPA, LV_STYLE_BG_COLOR,
-    LV_STYLE_TRANSFORM_WIDTH, LV_STYLE_TRANSFORM_HEIGHT,
-    LV_STYLE_TRANSLATE_Y, LV_STYLE_TRANSLATE_X,
-    LV_STYLE_TRANSFORM_ZOOM, LV_STYLE_TRANSFORM_ANGLE,
-    LV_STYLE_COLOR_FILTER_OPA, LV_STYLE_COLOR_FILTER_DSC,
-    0
-};
-
-static const lv_style_transition_dsc_t *no_fade_transition(void)
-{
-    static lv_style_transition_dsc_t dsc;
-    static bool inited;
-    if (!inited) {
-        lv_style_transition_dsc_init(&dsc, s_no_fade_props, lv_anim_path_linear, 0, 0, NULL);
-        inited = true;
-    }
-    return &dsc;
-}
-
+/* 主题按下态那套 grow + transition 的处理搬去了 ui_common.c 的 make_btn()——
+   本页原来自己抄了一份，是因为 Koch 卡片当时是个 lv_btn。现在卡片改成了不可点
+   的内容井，页面上所有的按钮都走 ui_cell()，这里不必再留一份。 */
 static lv_obj_t *s_scr, *s_clock, *s_bat, *s_bat_icon, *s_wifi_icon;
 static lv_timer_t *s_timer;
 static bool s_dimmed;
@@ -215,26 +190,24 @@ lv_obj_t *ui_home_create(void)
     }
 
     /* 左：Koch 卡片 */
-    lv_obj_t *card = lv_btn_create(s_scr);
-    lv_obj_set_style_radius(card, 0, 0);
-    lv_obj_set_style_shadow_width(card, 0, 0);
-    lv_obj_set_style_bg_color(card, UI_RAISE, 0);
-    lv_obj_set_style_bg_color(card, UI_SUNK, LV_STATE_PRESSED);
+    /*
+     * Koch 卡片是**内容井**，不是按钮。
+     *
+     * 原来整张卡片可点、且画成凸起的。凸起在这套语言里编码「能按」，而现在
+     * 可点的只有右下角那个键——卡片再凸着就是在撒谎（和呼号牌当初套容器是
+     * 同一类错）。改成凹陷，和对练页的收报井、电键页的解码井同一档：
+     * **内容装在井里，控件浮在页面上**。
+     *
+     * 左边缩进 UI_WELL_INSET、右边和入口列之间也留同样一条纸底，理由见那个
+     * 常量的说明：井贴着边缘时，井壁就没有参照物了。
+     */
+    lv_obj_t *card = lv_obj_create(s_scr);
+    ui_plain(card);
+    lv_obj_set_style_bg_color(card, UI_SUNK, 0);
     lv_obj_set_style_pad_all(card, 8, 0);
-    /* 卡片是抬起来的一块纸，不是画了右边线的一个区域。
-       **必须在 pad_all 之后调**——ui_bevel 要按实际 pad 反推子对象的扩张量，
-       顺序反了浮雕线会内缩 8px，原来就是这么错的。 */
-    ui_bevel(card, true);
-    /* 默认主题给按下状态加了 transform_width/height 放大 + 80ms 缓动动画；
-       phase 1 禁止任何动画，这里显式清零覆盖 */
-    lv_obj_set_style_transform_width(card, 0, LV_STATE_PRESSED);
-    lv_obj_set_style_transform_height(card, 0, LV_STATE_PRESSED);
-    /* 同一件事的另一半：顶掉主题按下/松开两份 transition，见文件顶部注释 */
-    lv_obj_set_style_transition(card, no_fade_transition(), LV_STATE_PRESSED);
-    lv_obj_set_style_transition(card, no_fade_transition(), 0);
-    lv_obj_set_pos(card, 0, top);
-    lv_obj_set_size(card, 200, 240 - top);
-    lv_obj_add_event_cb(card, go_koch, LV_EVENT_CLICKED, NULL);
+    ui_bevel(card, false);
+    lv_obj_set_pos(card, UI_WELL_INSET, top);
+    lv_obj_set_size(card, 200 - UI_WELL_INSET * 2, 240 - top);
 
     lv_obj_t *l1 = lv_label_create(card);
     /* 含中文（"第...课"），必须留在屏幕默认的 UI_FONT_CN，不能设成 UI_FONT_MID/UI_FONT_BIG（无中文字形） */
@@ -270,17 +243,16 @@ lv_obj_t *ui_home_create(void)
     else lv_label_set_text_fmt(l3, "上次 %u%%", last);
     lv_obj_align(l3, LV_ALIGN_TOP_LEFT, 0, 96);
 
-    lv_obj_t *l4 = lv_label_create(card);
-    /* 含中文（"开始/继续练习"），必须留在屏幕默认的 UI_FONT_CN，不能设成 UI_FONT_MID/UI_FONT_BIG（无中文字形） */
+    /* 唯一的可点元素：一个真按钮，凸起、有按下反馈。
+       含中文，必须用 UI_FONT_CN（font28/EN_BIG 无中文字形）。 */
+    lv_obj_t *l4 = ui_cell(card, last == 0xFF ? "开始练习 >" : "继续练习 >",
+                           UI_FONT_CN, go_koch, NULL);
+    lv_obj_set_size(l4, 124, 36);
     lv_obj_set_style_text_color(l4, UI_ACCENT, 0);
-    lv_label_set_text(l4, last == 0xFF ? "开始练习 >" : "继续练习 >");
     /* 全屏最重要的那个操作，此前只是一行铜色的字——没有面、没有边，读不出
        「这是个可以按的东西」。给它抬高面和浮雕：整张卡片本来就可点，这个键
        是把「可点」这件事说出来。 */
-    /* 不做成按钮：整张卡片本身就是那个按钮，在它内部再画一个键，等于告诉用户
-       「只有这一小块能点」——反而把可点区域说小了。它是卡片的行动号召文字，
-       靠铜色和位置承担分量就够。往内缩 2px，别贴着卡片的浮雕边线。 */
-    lv_obj_align(l4, LV_ALIGN_BOTTOM_RIGHT, -2, -2);
+    lv_obj_align(l4, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
 
     /* 右：四个入口 */
     /* 四项各 (240-28)/4 = 53px，达到 44px 触控下限；原来五项只有 42px。
