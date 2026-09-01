@@ -232,12 +232,13 @@ lv_obj_t *ui_keyer_create(void)
     lv_obj_add_event_cb(s_scr, on_delete, LV_EVENT_DELETE, NULL);
     char title[16]; snprintf(title, sizeof title, "%u WPM", cfg->char_wpm);
     lv_obj_t *bar = ui_topbar(s_scr, title, back);
-    lv_obj_t *clr = ui_button(bar, "清屏", clear_cb, NULL);
-    lv_obj_set_size(clr, 60, 24);
+/* 顶栏按钮统一用 ui_chip：原来是 ui_button 写死高 24，而 UI_FONT_CN 行高
+       是 26——内容比容器高，LVGL 当溢出处理，文字下偏还会打开滚动。ui_chip
+       的高度就等于行高，在 32px 顶栏里上下各留 2px。 */
+    lv_obj_t *clr = ui_chip(bar, "清屏", clear_cb, NULL);
     lv_obj_align(clr, LV_ALIGN_RIGHT_MID, -4, 0);
-    lv_obj_t *fst = ui_button(bar, "手法", go_fist, NULL);
-    lv_obj_set_size(fst, 60, 24);
-    lv_obj_align(fst, LV_ALIGN_RIGHT_MID, -68, 0);
+    lv_obj_t *fst = ui_chip(bar, "手法", go_fist, NULL);
+    lv_obj_align(fst, LV_ALIGN_RIGHT_MID, -70, 0);
 
     int top = UI_TOPBAR_H;
     if (!tone_gen_is_ok()) { ui_notice(s_scr, "音频异常，侧音不可用"); top += UI_NOTICE_H; }

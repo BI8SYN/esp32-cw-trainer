@@ -673,25 +673,15 @@ lv_obj_t *ui_net_create(void)
      * wire 是这一页唯一的切换入口（设置里只剩数字输入，用于接入没有陪练的
      * 自定义 wire），所以它必须看得出来能点。原来是靠标题后面缀一个 " >"，
      * 沿用项目里「更多练习 >」的约定——但那是列表行，整行都能点，箭头只是
-     * 个方向暗示；顶栏里孤零零一个 ">" 太轻，看不出可点。改成描边方框：
-     * 边框本身就是「这是个按钮」的意思，不依赖任何字形，也不占额外的高度。
+     * 个方向暗示；顶栏里孤零零一个 ">" 太轻，看不出可点。现在用 ui_chip()：
+     * 和顶栏返回键、电键页「清屏」同一副长相，抬高面加浮雕加按下反馈。全工程
+     * 的可点元素只讲这一种话，用户不必每页重新学一遍什么东西能按。
      *
      * 顺序上人数在左、wire 在右：wire 是可操作的，放在最边上手指最好够到；
      * 人数只是读数，挨着它放就行。
      */
-    s_title = lv_label_create(bar);
-    lv_obj_set_style_text_font(s_title, UI_FONT_CN, 0);
-    lv_label_set_text(s_title, wire_name());
-    lv_obj_set_style_pad_hor(s_title, 8, 0);
-    lv_obj_set_style_pad_ver(s_title, 2, 0);
-    lv_obj_set_style_bg_color(s_title, UI_RAISE, 0);
-    lv_obj_set_style_bg_opa(s_title, LV_OPA_COVER, 0);
-    ui_bevel_edge(s_title, true);
+    s_title = ui_chip(bar, wire_name(), title_cb, NULL);
     lv_obj_align(s_title, LV_ALIGN_RIGHT_MID, -6, 0);
-    lv_obj_add_flag(s_title, LV_OBJ_FLAG_CLICKABLE);
-    /* 电阻屏漏点常见，扩大可点区域（视觉大小不变） */
-    lv_obj_set_ext_click_area(s_title, 12);
-    lv_obj_add_event_cb(s_title, title_cb, LV_EVENT_CLICKED, NULL);
 
     s_peers = lv_label_create(bar);
     lv_obj_set_style_text_font(s_peers, UI_FONT_CN, 0);

@@ -170,6 +170,49 @@ void ui_bevel(lv_obj_t *o, bool raised)
     lv_obj_add_event_cb(o, bevel_state_cb, LV_EVENT_PRESS_LOST, in);
 }
 
+/*
+ * 顶栏里的小键。
+ *
+ * 为什么不用 ui_button()：那个基于 lv_btn，最小高度和内边距都是按正文按钮设
+ * 计的，塞进 32px 的顶栏要么溢出、要么把上下挤没。这里是个 label 加背景，
+ * 高度就等于字的行高（26），在 32px 的栏里上下各留 3px。
+ *
+ * 按下反馈得自己挂：它不是 lv_btn，拿不到 LV_STATE_PRESSED 的样式，而
+ * ui_bevel_edge() 只画一条静态的边。三个事件一个都不能少——手指划出对象外时
+ * LVGL 只发 PRESS_LOST，漏了它就会永远卡在按下的样子。
+ */
+static void chip_state_cb(lv_event_t *e)
+{
+    lv_obj_t *o = lv_event_get_target(e);
+    bool down = lv_event_get_code(e) == LV_EVENT_PRESSED;
+    lv_obj_set_style_bg_color(o, down ? UI_PRESSED : UI_RAISE, 0);
+    lv_obj_set_style_border_side(o, down ? (LV_BORDER_SIDE_TOP | LV_BORDER_SIDE_LEFT)
+                                         : (LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_RIGHT), 0);
+}
+
+lv_obj_t *ui_chip(lv_obj_t *parent, const char *text, lv_event_cb_t cb, void *user)
+{
+    lv_obj_t *c = lv_label_create(parent);
+    lv_label_set_text(c, text);
+    lv_obj_set_style_text_font(c, UI_FONT_CN, 0);
+    lv_obj_set_style_text_color(c, UI_INK, 0);
+    lv_obj_set_style_bg_color(c, UI_RAISE, 0);
+    lv_obj_set_style_bg_opa(c, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_hor(c, 8, 0);
+    lv_obj_set_style_pad_ver(c, 0, 0);
+    ui_bevel_edge(c, true);
+    lv_obj_clear_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(c, LV_OBJ_FLAG_CLICKABLE);
+    /* 26px 高远低于 44px 触控下限，而顶栏挤不出更多高度——只能靠扩大可点区域
+       补，视觉大小不变。电阻屏漏点本来就比电容屏常见。 */
+    lv_obj_set_ext_click_area(c, 14);
+    lv_obj_add_event_cb(c, chip_state_cb, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(c, chip_state_cb, LV_EVENT_RELEASED, NULL);
+    lv_obj_add_event_cb(c, chip_state_cb, LV_EVENT_PRESS_LOST, NULL);
+    if (cb) lv_obj_add_event_cb(c, cb, LV_EVENT_CLICKED, user);
+    return c;
+}
+
 lv_obj_t *ui_topbar(lv_obj_t *parent, const char *title, lv_event_cb_t back_cb)
 {
     lv_obj_t *bar = lv_obj_create(parent);
@@ -184,29 +227,15 @@ lv_obj_t *ui_topbar(lv_obj_t *parent, const char *title, lv_event_cb_t back_cb)
 
     int x = 6;
     if (back_cb) {
-        lv_obj_t *back = lv_label_create(bar);
-        lv_label_set_text(back, "<");
-        /* 必须用 UI_FONT_CN（行高 26），不能用 UI_FONT_MID（行高 37）：
-           对象只有 UI_TOPBAR_H=28 高，比 37 矮，LVGL 会把内容当成溢出——
-           既会把文字往下偏移，又会给这个 label 打开滚动，箭头因此显得偏低、
-           还能被垂直拖动。26 < 28，装得下，两个症状都消失。 */
-        lv_obj_set_style_text_font(back, UI_FONT_CN, 0);
-        lv_obj_set_size(back, 36, UI_TOPBAR_H);
-        lv_obj_clear_flag(back, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_set_style_pad_left(back, 6, 0);
-        /* 原来它就是一行光秃秃的「<」——在每一页都存在的主导航控件，却是全屏
-           唯一一个没有任何「可按」外观的东西。给它一个抬高面加浮雕，和别的
-           按钮讲同一种话。 */
-        lv_obj_set_style_bg_color(back, UI_RAISE, 0);
-        lv_obj_set_style_bg_opa(back, LV_OPA_COVER, 0);
-        ui_bevel_edge(back, true);
-        lv_obj_align(back, LV_ALIGN_LEFT_MID, 0, 0);
-        lv_obj_add_flag(back, LV_OBJ_FLAG_CLICKABLE);
-        /* 电阻屏漏点比电容屏更常见，返回箭头在每一页都存在；扩大到短边 >=48px
-           （视觉上的 36x28 不变，只是可点区域向外扩） */
-        lv_obj_set_ext_click_area(back, 14);
-        lv_obj_add_event_cb(back, back_cb, LV_EVENT_CLICKED, NULL);
-        x = 40;
+        /* 原来这里是一个写死 36 x UI_TOPBAR_H 的裸 label：正好占满整个顶栏，
+           上下都贴着边，而且没有任何按下反馈——它是每一页都存在的主导航控件，
+           却是全屏最没有「可按」样子的东西。现在和对练页的 wire 选择器共用
+           ui_chip()，长相和反馈都一致。 */
+        lv_obj_t *back = ui_chip(bar, "<", back_cb, NULL);
+        lv_obj_set_width(back, 32);
+        lv_obj_set_style_text_align(back, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_align(back, LV_ALIGN_LEFT_MID, 4, 0);
+        x = 44;
     }
     lv_obj_t *t = lv_label_create(bar);
     lv_label_set_text(t, title);

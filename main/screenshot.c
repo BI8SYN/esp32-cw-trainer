@@ -156,7 +156,13 @@ static lv_obj_t *pick_clickable(lv_obj_t *o, bool last, lv_obj_t *found)
         /* 认 lv_btn 而不是 CLICKABLE 标志：LVGL 8 里 lv_obj_create 默认就带
            CLICKABLE，于是顶栏那个纯容器也算「可点」——第一版就是这么选中它的，
            而它没有任何按下样式，导出来的「按下态」和常态一模一样。 */
-        if (lv_obj_check_type(c, &lv_btn_class)) {
+        /* 认 lv_btn，也认「可点的 label」——顶栏里的小键（ui_chip）是后者，
+           它不是 lv_btn，按 lv_btn_class 找会漏掉，那正是要验的一类。
+           不能只按 LV_OBJ_FLAG_CLICKABLE 找：LVGL 8 里 lv_obj_create 默认就带
+           这个标志，纯容器也会被选中，导出来的「按下态」和常态一模一样。 */
+        if (lv_obj_check_type(c, &lv_btn_class) ||
+            (lv_obj_check_type(c, &lv_label_class) &&
+             lv_obj_has_flag(c, LV_OBJ_FLAG_CLICKABLE))) {
             if (!last) return c;
             found = c;
         }
@@ -212,6 +218,7 @@ void screenshot_tour(void)
         if (want[i] >= n) continue;
         shot(pages[want[i]].name, pages[want[i]].fn);
         if (want[i] == 0) shot_pressed("homedown", false);  /* 主页大卡片按下 */
+        if (want[i] == 2) shot_pressed("settdown", false);  /* 顶栏返回小键按下 */
         if (want[i] == 4) shot_pressed("keyerdown", true);  /* 电键桨按下 */
     }
 #else

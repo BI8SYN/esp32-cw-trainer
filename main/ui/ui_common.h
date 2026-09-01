@@ -27,6 +27,10 @@ void ui_bevel(lv_obj_t *o, bool raised);
    碰上 LV_SIZE_CONTENT 的 label 就对不准了。 */
 void ui_bevel_edge(lv_obj_t *o, bool raised);
 
+/* 顶栏里的小键（返回箭头、对练页的 wire 选择器）。抬高面 + 浮雕 + 按下反馈，
+   高度正好是 UI_FONT_CN 的行高，由调用方负责摆位。 */
+lv_obj_t *ui_chip(lv_obj_t *parent, const char *text, lv_event_cb_t cb, void *user);
+
 void      ui_nav_show(ui_screen_builder_t builder);
 lv_obj_t *ui_screen_create(void);
 /* 返回的顶栏对象可以继续往右侧加控件（主页的齿轮/电量就是这样接上去的）。

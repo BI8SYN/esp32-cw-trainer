@@ -106,7 +106,12 @@ LV_FONT_DECLARE(font28cn);
 #define UI_FONT_TINY (&lv_font_montserrat_14)
 
 /* ── 尺寸 ───────────────────────────────────────────────── */
-#define UI_TOPBAR_H  28
+/*
+ * 顶栏高度 32。原来是 28，而 UI_FONT_CN 的行高就是 26——顶栏里但凡放个带
+ * 内边距的控件（返回键、对练页的 wire 选择器）就装不下，只能贴着上下边缘、
+ * 甚至被挤出去。32 既上了 8px 网格，也给 26 行高留出上下各 3px 的余量。
+ */
+#define UI_TOPBAR_H  32
 /*
  * 提示条高度。必须 >= UI_FONT_CN 的行高 26——原来写的是 22，比行高还矮，
  * 文字上下各被裁掉 2px。这个坑在本项目里反复出现（配网页输入框、对练页
@@ -114,6 +119,6 @@ LV_FONT_DECLARE(font28cn);
  *
  * 调用方在 ui_notice() 之后把 top 加上这个值，不要再写死 22。
  */
-#define UI_NOTICE_H  28
+#define UI_NOTICE_H  32
 
 #endif

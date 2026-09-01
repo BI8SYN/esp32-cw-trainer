@@ -233,8 +233,10 @@ lv_obj_t *ui_fist_create(void)
     lv_obj_add_event_cb(s_scr, on_delete, LV_EVENT_DELETE, NULL);
 
     lv_obj_t *bar = ui_topbar(s_scr, "手法", back);
-    lv_obj_t *clr = ui_button(bar, "清除", clear_cb, NULL);
-    lv_obj_set_size(clr, 56, 24);
+/* 顶栏按钮统一用 ui_chip：原来是 ui_button 写死高 24，而 UI_FONT_CN 行高
+       是 26——内容比容器高，LVGL 当溢出处理，文字下偏还会打开滚动。ui_chip
+       的高度就等于行高，在 32px 顶栏里上下各留 2px。 */
+    lv_obj_t *clr = ui_chip(bar, "清除", clear_cb, NULL);
     lv_obj_align(clr, LV_ALIGN_RIGHT_MID, -4, 0);
 
     s_canvas = lv_obj_create(s_scr);
