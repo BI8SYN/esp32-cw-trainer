@@ -1,3 +1,14 @@
+# 素材样机：只在 idf.py -DCW_STYLE_PROBE=ON 时编进来。
+#
+# 它带着约 50KB 的烘焙位图（见 tools/gen_probe_assets.py），发布版里没有理由
+# 背这个重量；而它要回答的问题（雾面屏吃不吃得下拟物）又只有真机能回答，
+# 所以做成一个开关，而不是删掉重写。
+option(CW_STYLE_PROBE "编入拟物素材样机页面" OFF)
+set(probe_srcs "")
+if(CW_STYLE_PROBE)
+    list(APPEND probe_srcs "ui/ui_probe.c" "ui/probe_assets.c")
+endif()
+
 idf_component_register(
     SRCS
         "main.c"
@@ -42,6 +53,7 @@ idf_component_register(
         "ui/ui_more.c"
         "ui/ui_stats.c"
         "ui/ui_fist.c"
+        ${probe_srcs}
     INCLUDE_DIRS "." "core" "ui"
     REQUIRES
         esp_app_format
@@ -62,3 +74,7 @@ idf_component_register(
         lvgl_esp32_drivers
         fonts
 )
+
+if(CW_STYLE_PROBE)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE CW_STYLE_PROBE=1)
+endif()

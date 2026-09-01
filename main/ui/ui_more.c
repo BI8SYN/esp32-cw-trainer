@@ -4,6 +4,9 @@
 #include "ui_keyer.h"
 #include "ui_practice.h"
 #include "trainer.h"
+#if CW_STYLE_PROBE
+#include "ui_probe.h"
+#endif
 
 /*
  * 「更多练习」子页面：呼号抄收 / 模拟 QSO / 电键。
@@ -28,6 +31,11 @@ static void back(lv_event_t *e) { (void)e; ui_nav_show(ui_home_create); }
 static void go_call(lv_event_t *e)  { (void)e; ui_practice_open(TRAINER_MODE_CALLSIGN); }
 static void go_qso(lv_event_t *e)   { (void)e; ui_practice_open(TRAINER_MODE_QSO); }
 static void go_keyer(lv_event_t *e) { (void)e; ui_nav_show(ui_keyer_create); }
+#if CW_STYLE_PROBE
+/* 样机入口挂在这里而不是主页：它不是功能，是开发期的量具，不该占主界面的位置。
+   文案用 ASCII——样机不该为了自己去动 font20_cwtrn 的字符集。 */
+static void go_probe(lv_event_t *e) { (void)e; ui_nav_show(ui_probe_create); }
+#endif
 
 lv_obj_t *ui_more_create(void)
 {
@@ -37,14 +45,21 @@ lv_obj_t *ui_more_create(void)
     /* 三行各 70px，远超 44px 触控下限——这三项在主页时只有 42px。
        这里不需要 wake_swallow()：息屏变暗的判断在主页，能走到本页说明
        屏幕已经是亮的。 */
-    const char *names[3] = { "呼号抄收", "模拟 QSO", "电键" };
-    lv_event_cb_t cbs[3] = { go_call, go_qso, go_keyer };
-    int h = (240 - UI_TOPBAR_H) / 3;
-    for (int i = 0; i < 3; i++) {
+#if CW_STYLE_PROBE
+    const char *names[] = { "呼号抄收", "模拟 QSO", "电键", "STYLE PROBE" };
+    lv_event_cb_t cbs[] = { go_call, go_qso, go_keyer, go_probe };
+#else
+    const char *names[] = { "呼号抄收", "模拟 QSO", "电键" };
+    lv_event_cb_t cbs[] = { go_call, go_qso, go_keyer };
+#endif
+    const int n = (int)(sizeof names / sizeof names[0]);
+    /* 三项时每项 70px；样机构建下四项每项 53px，仍在 44px 触控下限之上。 */
+    int h = (240 - UI_TOPBAR_H) / n;
+    for (int i = 0; i < n; i++) {
         lv_obj_t *c = ui_cell(scr, names[i], UI_FONT_CN, cbs[i], NULL);
         lv_obj_set_pos(c, 0, UI_TOPBAR_H + i * h);
         lv_obj_set_size(c, 320, h);
-        lv_obj_set_style_border_side(c, i < 2 ? LV_BORDER_SIDE_BOTTOM : LV_BORDER_SIDE_NONE, 0);
+        lv_obj_set_style_border_side(c, i < n - 1 ? LV_BORDER_SIDE_BOTTOM : LV_BORDER_SIDE_NONE, 0);
     }
     return scr;
 }
