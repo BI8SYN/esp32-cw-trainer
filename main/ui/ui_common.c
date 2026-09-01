@@ -1,5 +1,6 @@
 #include "ui_common.h"
 #include "ui_assets.h"
+#include "ui_sound.h"
 
 /* 默认主题除了 grow（已在 make_btn/home 卡片清零 transform_width/height）以外，还
    无条件给每个 lv_btn_class 挂了两份 transition：
@@ -204,6 +205,15 @@ void ui_bevel(lv_obj_t *o, bool raised)
  * ui_bevel_edge() 只画一条静态的边。三个事件一个都不能少——手指划出对象外时
  * LVGL 只发 PRESS_LOST，漏了它就会永远卡在按下的样子。
  */
+/*
+ * 点击音挂在 PRESSED 而不是 CLICKED：它确认的是「你这一下点到了」，不是
+ * 「这个动作生效了」。电阻屏漏点比电容屏常见，按下就响能立刻回答「刚才那下
+ * 算不算数」——手指滑出去取消了也无所谓，声音说的是触摸被收到了。
+ */
+static void tap_cb(lv_event_t *e) { (void)e; ui_sound(TONE_SEQ_TAP); }
+
+void ui_no_tap(lv_obj_t *o) { lv_obj_remove_event_cb(o, tap_cb); }
+
 static void chip_state_cb(lv_event_t *e)
 {
     lv_obj_t *o = lv_event_get_target(e);
@@ -232,6 +242,7 @@ lv_obj_t *ui_chip(lv_obj_t *parent, const char *text, lv_event_cb_t cb, void *us
     lv_obj_add_event_cb(c, chip_state_cb, LV_EVENT_PRESSED, NULL);
     lv_obj_add_event_cb(c, chip_state_cb, LV_EVENT_RELEASED, NULL);
     lv_obj_add_event_cb(c, chip_state_cb, LV_EVENT_PRESS_LOST, NULL);
+    lv_obj_add_event_cb(c, tap_cb, LV_EVENT_PRESSED, NULL);
     if (cb) lv_obj_add_event_cb(c, cb, LV_EVENT_CLICKED, user);
     return c;
 }
@@ -299,6 +310,7 @@ static lv_obj_t *make_btn(lv_obj_t *parent, const char *text, const lv_font_t *f
      * UI_PRESSED，「按进去了」这件事有两重表达。
      */
     ui_bevel(b, true);
+    lv_obj_add_event_cb(b, tap_cb, LV_EVENT_PRESSED, NULL);
     if (cb) lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, user);
     return b;
 }

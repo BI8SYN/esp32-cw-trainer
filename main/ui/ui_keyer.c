@@ -1,5 +1,6 @@
 #include "ui_keyer.h"
 #include "ui_assets.h"
+#include "ui_sound.h"
 #include <stdio.h>
 #include <string.h>
 #include "ui_common.h"
@@ -225,6 +226,7 @@ void ui_keyer_paddles(lv_obj_t *parent, int y, int h, lv_obj_t *out[2])
         lv_obj_set_pos(pad[0], 0, y);
         lv_obj_set_size(pad[0], 320, h);
         lv_obj_add_event_cb(pad[0], pad_cb, LV_EVENT_ALL, (void *)0);
+        ui_no_tap(pad[0]);   /* 桨本来就有侧音，再加一层点击音是噪音 */
         brass(pad[0]);
     } else {
         for (int i = 0; i < 2; i++) {
@@ -234,6 +236,7 @@ void ui_keyer_paddles(lv_obj_t *parent, int y, int h, lv_obj_t *out[2])
             lv_obj_set_pos(pad[i], i * 160, y);
             lv_obj_set_size(pad[i], 160, h);
             lv_obj_add_event_cb(pad[i], pad_cb, LV_EVENT_ALL, (void *)(intptr_t)i);
+            ui_no_tap(pad[i]);
             brass(pad[i]);
             mark[i] = pad_mark(pad[i], (i == 0) == swap);
         }

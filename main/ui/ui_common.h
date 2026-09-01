@@ -31,6 +31,16 @@ void ui_bevel_edge(lv_obj_t *o, bool raised);
    高度正好是 UI_FONT_CN 的行高，由调用方负责摆位。 */
 lv_obj_t *ui_chip(lv_obj_t *parent, const char *text, lv_event_cb_t cb, void *user);
 
+/*
+ * 退订点击音。
+ *
+ * ui_button/ui_cell/ui_chip 默认都会响——**默认响、少数例外**比反过来逐个订阅
+ * 更不容易漏。例外是「焦点之内」的控件：听写键盘、四选一选项卡、电键桨。那些
+ * 时刻耳朵正在干正事（抄收、判断自己的手法），多一个声音就是干扰；电键桨更是
+ * 本来就有侧音。
+ */
+void ui_no_tap(lv_obj_t *o);
+
 void      ui_nav_show(ui_screen_builder_t builder);
 lv_obj_t *ui_screen_create(void);
 /* 返回的顶栏对象可以继续往右侧加控件（主页的齿轮/电量就是这样接上去的）。

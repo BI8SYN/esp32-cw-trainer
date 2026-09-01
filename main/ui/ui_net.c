@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "ui_common.h"
+#include "ui_sound.h"
 #include "ui_home.h"
 #include "ui_keyer.h"
 #include "ui_wifi.h"
@@ -323,6 +324,17 @@ static void apply_status(void)
         }
     }
     lv_label_set_text(s_peers, peers);
+
+    /*
+     * 进入错误态时响一次异常音——**只在跳变时**。这个函数 100ms 一拍，
+     * 每拍都响会变成蜂鸣器。
+     */
+    static kob_net_state_t s_last = (kob_net_state_t)-1;
+    if (st->state != s_last) {
+        if (st->state == KOB_NET_ERR_WIFI || st->state == KOB_NET_ERR_SERVER)
+            ui_sound(TONE_SEQ_FAULT);
+        s_last = st->state;
+    }
 
     /* 状态带：永远回答「现在什么情况」 */
     char band[64];
