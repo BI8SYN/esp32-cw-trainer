@@ -77,6 +77,9 @@ static const item_t AUDIO[] = {
     { "有效速度", IT_NUM, 5, 40, 1, " WPM", NULL, 0, true, NULL },
     { "音调",     IT_NUM, 400, 1000, 50, " Hz", NULL, 0, true, NULL },
     { "音量",     IT_NUM, 0, 100, 10, "%", NULL, 0, true, NULL },
+    /* 提示音总开关。放在音量后面而不是另起一组：它和音量是同一件事的两个维度
+       ——音量管「多大声」，这个管「哪些事该出声」。 */
+    { "提示音",   IT_TOGGLE, 0, 0, 0, "", NULL, 0, false, NULL },
 };
 static const item_t KEY[] = {
     { "电键类型", IT_CHOICE, 0, 0, 0, "", KEYER_MODES, 3, false, NULL },
@@ -132,7 +135,16 @@ static item_t NET[] = {
 };
 
 static const item_t *const GROUPS[4] = { AUDIO, KEY, GEN, NET };
-static const int GROUP_N[4] = { 4, 2, 10, 4 };
+/*
+ * 条数由数组自己算，不手写。
+ *
+ * 原来这里是写死的 { 4, 2, 10, 4 }。往 AUDIO[] 里加一项「提示音」之后，数组是
+ * 5 项而计数还是 4——**多出来的那一项永远不会被渲染，而且编译毫无怨言**。
+ * 是画面指纹「该变却没变」把它逮出来的，肉眼在设置页上只会看到少了一行，
+ * 根本想不到是计数的问题。
+ */
+#define ITEM_N(a) ((int)(sizeof(a) / sizeof((a)[0])))
+static const int GROUP_N[4] = { ITEM_N(AUDIO), ITEM_N(KEY), ITEM_N(GEN), ITEM_N(NET) };
 static const char *const GROUP_NAMES[4] = { "音频", "电键", "常规", "网络" };
 #define GROUP_COUNT 4
 
@@ -169,6 +181,7 @@ static int get_val(const item_t *it)
     if (!strcmp(it->name, "有效速度")) return c->eff_wpm;
     if (!strcmp(it->name, "音调")) return c->tone_hz;
     if (!strcmp(it->name, "音量")) return c->volume;
+    if (!strcmp(it->name, "提示音")) return c->sound_on;
     if (!strcmp(it->name, "电键类型")) return c->keyer_mode;
     if (!strcmp(it->name, "桨键左右对调")) return c->paddle_swap;
     if (!strcmp(it->name, "Koch 课次")) return c->koch_lesson;
@@ -228,6 +241,7 @@ static void set_val(const item_t *it, int v)
     else if (!strcmp(it->name, "有效速度")) { if (v > c->char_wpm) v = c->char_wpm; c->eff_wpm = (uint8_t)v; }
     else if (!strcmp(it->name, "音调")) c->tone_hz = (uint16_t)v;
     else if (!strcmp(it->name, "音量")) c->volume = (uint8_t)v;
+    else if (!strcmp(it->name, "提示音")) c->sound_on = (uint8_t)v;
     else if (!strcmp(it->name, "电键类型")) c->keyer_mode = (uint8_t)v;
     else if (!strcmp(it->name, "桨键左右对调")) c->paddle_swap = (uint8_t)v;
     else if (!strcmp(it->name, "Koch 课次")) c->koch_lesson = (uint8_t)v;
@@ -442,12 +456,21 @@ static void fill_list(void)
         lv_obj_set_pos(row, 0, i * 42);
         lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
         lv_obj_align(lv_obj_get_child(row, 0), LV_ALIGN_LEFT_MID, 8, 0);
+        /*
+         * 危险操作要看得出来是危险操作。在此之前「恢复出厂设置」和「屏幕亮度」
+         * 长得一模一样——有二次确认，但整个界面上没有任何一处视觉警示，工艺
+         * 规则那条「危险操作 = 二次确认 + 红色」只做到了一半。
+         *
+         * 设在 row 上而不是 label 上：文字颜色会往子对象继承，右侧的值标签
+         * （IT_RESET 没有值，但保持一致）也跟着走。
+         */
+        if (it->type == IT_RESET) lv_obj_set_style_text_color(row, UI_DANGER, 0);
         lv_obj_t *vl = lv_label_create(row);
         if (it->type == IT_INFO) lv_label_set_text(vl, v);
         else lv_label_set_text_fmt(vl, "%s >", v);
         lv_obj_align(vl, LV_ALIGN_RIGHT_MID, -8, 0);
     }
-    for (int g = 0; g < GROUP_COUNT; g++) lv_obj_set_style_bg_color(s_tabs[g], g == s_group ? UI_GRAY_DOWN : UI_WHITE, 0);
+    for (int g = 0; g < GROUP_COUNT; g++) lv_obj_set_style_bg_color(s_tabs[g], g == s_group ? UI_SELECTED : UI_RAISE, 0);
 }
 
 static void tab_cb(lv_event_t *e) { s_group = (int)(intptr_t)lv_event_get_user_data(e); fill_list(); }
@@ -482,8 +505,20 @@ lv_obj_t *ui_settings_create(void)
     lv_obj_set_pos(s_list, 60, UI_TOPBAR_H); lv_obj_set_size(s_list, 260, 240 - UI_TOPBAR_H);
     lv_obj_set_style_pad_all(s_list, 0, 0); lv_obj_set_style_radius(s_list, 0, 0);
     lv_obj_set_style_border_width(s_list, 1, 0); lv_obj_set_style_border_side(s_list, LV_BORDER_SIDE_LEFT, 0);
-    lv_obj_set_style_border_color(s_list, UI_BLACK, 0);
+    lv_obj_set_style_border_color(s_list, UI_INK, 0);
     lv_obj_set_scroll_dir(s_list, LV_DIR_VER);
+    /*
+     * 滚动条常显，不是 AUTO。理由同 ui_net.c 的收报区：**这块区域能滚，但没有
+     * 任何迹象**，而 AUTO 只在滚动过程中才出现，对「让人知道下面还有内容」这件
+     * 事毫无帮助。常规组 10 项共 420px 塞进 208px 的框，早就需要滚了；音频组加
+     * 了「提示音」之后也超出一行。
+     */
+    lv_obj_set_scrollbar_mode(s_list, LV_SCROLLBAR_MODE_ON);
+    lv_obj_set_style_bg_color(s_list, UI_INK, LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_opa(s_list, LV_OPA_30, LV_PART_SCROLLBAR);
+    lv_obj_set_style_width(s_list, 4, LV_PART_SCROLLBAR);
+    lv_obj_set_style_radius(s_list, 2, LV_PART_SCROLLBAR);
+    lv_obj_set_style_pad_right(s_list, 2, LV_PART_SCROLLBAR);
     fill_list();
     return scr;
 }

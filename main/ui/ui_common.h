@@ -2,38 +2,44 @@
 #define UI_COMMON_H
 #include "lvgl.h"
 
-LV_FONT_DECLARE(font20);
-LV_FONT_DECLARE(font28);
-LV_FONT_DECLARE(EN_BIG);
-#define UI_FONT_CN   (&font20)
-#define UI_FONT_MID  (&font28)
-#define UI_FONT_BIG  (&EN_BIG)
-/*
- * 顶栏状态用的小号数字（行高 17）。项目自带的三个字体行高分别是 26/37/82，
- * 在 28px 的顶栏里和 16px 的图标并排都显得头重脚轻。
- *
- * 用 14 而不是更小的 12：components/lvgl/lv_conf.h 里虽然把 8/10/12/16 都
- * 置 1 了，但实际编译进来的只有 14（12 会报 undeclared），说明那份 lv_conf
- * 没有生效、走的是 LVGL 默认配置。14 是唯一确定可用的。
- *
- * 只有 ASCII，不能拿去显示中文。
- */
-#define UI_FONT_TINY (&lv_font_montserrat_14)
-#define UI_TOPBAR_H  28
-/*
- * 提示条高度。必须 >= UI_FONT_CN 的行高 26——原来写的是 22，比行高还矮，
- * 文字上下各被裁掉 2px。这个坑在本项目里反复出现（配网页输入框、对练页
- * 状态带、电键页第二行），共享组件里修一次，所有调用方都受益。
- *
- * 调用方在 ui_notice() 之后把 top 加上这个值，不要再写死 22。
- */
-#define UI_NOTICE_H  28
-#define UI_GRAY_BG   lv_color_hex(0xEEEEEE)
-#define UI_GRAY_DOWN lv_color_hex(0x999999)
-#define UI_BLACK     lv_color_hex(0x000000)
-#define UI_WHITE     lv_color_hex(0xFFFFFF)
+/* 设计 token（颜色 / 字体 / 尺寸）全部搬到 ui_theme.h。这里 include 它，
+   所有已经写 #include "ui_common.h" 的调用点不用改。 */
+#include "ui_theme.h"
 
 typedef lv_obj_t *(*ui_screen_builder_t)(void);
+
+/* 把 LVGL 默认主题给对象加的圆角/阴影/内边距/滚动全部清掉，回到一个纯粹的
+   矩形。项目里几乎每个自建容器都要这一下，原来是 ui_common.c 里的私有函数，
+   ui_home.c 只好把其中两行手抄了一遍。 */
+void ui_plain(lv_obj_t *o);
+
+/* 1px 单边分割线。项目从不画整圈描边——分组靠留白，其次才是线，
+   所以 13 处 border_side 调用其实都是同一件事。 */
+void ui_rule(lv_obj_t *o, lv_border_side_t side, lv_color_t color);
+
+/* 1px 浮雕：凸起是上左亮、下右暗，凹陷反过来。
+   调用者必须保证对象的 border_width 已经是 1（ui_bevel 自己会设），
+   且 pad 为 0 或自行承担 1px 的内容内缩。 */
+void ui_bevel(lv_obj_t *o, bool raised);
+
+/* 只画背光的那两条边的廉价版浮雕，不新增子对象。
+   给尺寸由内容决定的对象用——ui_bevel 的子对象靠 LV_PCT(100) 对齐，
+   碰上 LV_SIZE_CONTENT 的 label 就对不准了。 */
+void ui_bevel_edge(lv_obj_t *o, bool raised);
+
+/* 顶栏里的小键（返回箭头、对练页的 wire 选择器）。抬高面 + 浮雕 + 按下反馈，
+   高度正好是 UI_FONT_CN 的行高，由调用方负责摆位。 */
+lv_obj_t *ui_chip(lv_obj_t *parent, const char *text, lv_event_cb_t cb, void *user);
+
+/*
+ * 退订点击音。
+ *
+ * ui_button/ui_cell/ui_chip 默认都会响——**默认响、少数例外**比反过来逐个订阅
+ * 更不容易漏。例外是「焦点之内」的控件：听写键盘、四选一选项卡、电键桨。那些
+ * 时刻耳朵正在干正事（抄收、判断自己的手法），多一个声音就是干扰；电键桨更是
+ * 本来就有侧音。
+ */
+void ui_no_tap(lv_obj_t *o);
 
 void      ui_nav_show(ui_screen_builder_t builder);
 lv_obj_t *ui_screen_create(void);

@@ -16,13 +16,13 @@ static lv_obj_t *box(lv_obj_t *parent, int w, int h)
 static void fill(lv_obj_t *o, bool solid)
 {
     if (solid) {
-        lv_obj_set_style_bg_color(o, UI_BLACK, 0);
+        lv_obj_set_style_bg_color(o, UI_INK, 0);
         lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(o, 0, 0);
     } else {
         lv_obj_set_style_bg_opa(o, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_width(o, 1, 0);
-        lv_obj_set_style_border_color(o, UI_GRAY_DOWN, 0);
+        lv_obj_set_style_border_color(o, UI_DISABLED, 0);
     }
 }
 
@@ -60,7 +60,7 @@ lv_obj_t *ui_icon_battery(lv_obj_t *parent)
     lv_obj_set_pos(shell, 0, 3);
     lv_obj_set_style_bg_opa(shell, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(shell, 1, 0);
-    lv_obj_set_style_border_color(shell, UI_BLACK, 0);
+    lv_obj_set_style_border_color(shell, UI_INK, 0);
 
     lv_obj_t *nub = box(c, 2, 5);              /* 正极凸点 */
     lv_obj_set_pos(nub, 17, 6);
@@ -85,5 +85,5 @@ void ui_icon_battery_set(lv_obj_t *icon, uint8_t percent)
     lv_obj_set_width(bar, w);
     /* 低电量只改填充色，不加感叹号——顶栏没有多余的横向空间，
        而且旁边就有百分比数字，够用了。 */
-    lv_obj_set_style_bg_color(bar, percent < 15 ? UI_GRAY_DOWN : UI_BLACK, 0);
+    lv_obj_set_style_bg_color(bar, percent < 15 ? UI_DISABLED : UI_INK, 0);
 }

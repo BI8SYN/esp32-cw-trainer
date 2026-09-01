@@ -141,8 +141,8 @@ static void field_style(lv_obj_t *o)
     lv_obj_set_style_pad_left(o, 6, 0);
     lv_obj_set_style_pad_right(o, 6, 0);
     lv_obj_set_style_border_width(o, 1, 0);
-    lv_obj_set_style_border_color(o, UI_BLACK, 0);
-    lv_obj_set_style_bg_color(o, UI_WHITE, 0);
+    lv_obj_set_style_border_color(o, UI_INK, 0);
+    lv_obj_set_style_bg_color(o, UI_RAISE, 0);
 }
 
 /* ---------------------------------------------------------------- 键盘 */
@@ -289,12 +289,13 @@ static lv_obj_t *build_edit(void)
     char title[24];
     snprintf(title, sizeof title, "网络 %d", s_edit_idx + 1);
     lv_obj_t *bar = ui_topbar(s_scr, title, back_to_list);
-    lv_obj_t *sv = ui_button(bar, "保存", save_cb, NULL);
-    lv_obj_set_size(sv, 56, 24);
+/* 顶栏按钮统一用 ui_chip：原来是 ui_button 写死高 24，而 UI_FONT_CN 行高
+       是 26——内容比容器高，LVGL 当溢出处理，文字下偏还会打开滚动。ui_chip
+       的高度就等于行高，在 32px 顶栏里上下各留 2px。 */
+    lv_obj_t *sv = ui_chip(bar, "保存", save_cb, NULL);
     lv_obj_align(sv, LV_ALIGN_RIGHT_MID, -4, 0);
-    lv_obj_t *cl = ui_button(bar, "清空", clear_cb, NULL);
-    lv_obj_set_size(cl, 56, 24);
-    lv_obj_align(cl, LV_ALIGN_RIGHT_MID, -64, 0);
+    lv_obj_t *cl = ui_chip(bar, "清空", clear_cb, NULL);
+    lv_obj_align(cl, LV_ALIGN_RIGHT_MID, -66, 0);
 
     const cw_net_cfg_t *cfg = net_store_get();
     snprintf(s_keep_ssid, sizeof s_keep_ssid, "%s", cfg->profiles[s_edit_idx].ssid);

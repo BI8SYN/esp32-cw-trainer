@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "ui_common.h"
+#include "ui_sound.h"
 #include "ui_home.h"
 #include "ui_keyer.h"
 #include "ui_wifi.h"
@@ -13,10 +14,14 @@
 
 /*
  * 联网对练页。布局见 spec 6.4，垂直预算是死的：
- *     顶栏 28 + 收报 100 + 状态带 28 + 电键 84 = 240（见 LOG_H / UI_PADDLE_H）
+ *     顶栏 32 + 收报 92 + 状态带 32 + 电键 84 = 240
+ *     （UI_TOPBAR_H / LOG_H / UI_BAND_H / UI_PADDLE_H，都不在本文件里写死）
  *
- * 状态带原本是 24px，而里面的标签用 UI_FONT_CN、行高 26——比容器还高，
- * 文字上下被裁掉一点。和配网页输入框那个坑同一类，容器高度必须 >= 行高。
+ * 状态带的高度改过两次，两次都是同一个病因——**容器高度必须 >= 内容高度**：
+ *   24 → 28：里面的标签用 UI_FONT_CN、行高 26，比容器还高，文字上下被裁。
+ *   28 → 32：28 虽然装得下 26，但一点余量都没有，顶栏里同样 28 的高度就让
+ *            返回键和 wire 选择器贴死了上下边缘。32 既留出余量又在 8px 网格上。
+ * 配网页输入框、电键页解码区栽的是同一个坑。
  *
  * 三个结构决定（spec 6.4）：
  *   1. 收报区是**双方**对话记录，不只显示对方——我发出的内容打完落进同一条
@@ -57,7 +62,7 @@
  * 同一双手在两页之间切换时按的位置就不一样了。原来收报区只有 74（两行），
  * 一次交替就翻页；现在 100，约三行（UI_FONT_CN 行高 26）。
  */
-#define BAND_H      28
+#define BAND_H      UI_BAND_H   /* 见 ui_theme.h：和电键页的点划行是同一件东西 */
 #define LOG_H       (240 - UI_TOPBAR_H - BAND_H - UI_PADDLE_H)
 
 typedef struct {
@@ -126,20 +131,32 @@ static lv_obj_t *row_make(lv_obj_t *box, const char *who, const char *txt,
     /* 顶对齐：内容折成两行时，呼号牌要停在第一行，不能被扯到中间去。 */
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START,
                           LV_FLEX_ALIGN_START);
-    lv_obj_set_style_pad_column(row, 5, 0);
+    lv_obj_set_style_pad_column(row, 8, 0);   /* 上 8px 网格；呼号与报文之间靠这段留白分开 */
     lv_obj_set_style_pad_bottom(row, 3, 0);
 
     lv_obj_t *badge = lv_label_create(row);
     lv_obj_set_style_text_font(badge, UI_FONT_CN, 0);
-    lv_obj_set_style_bg_color(badge, UI_BLACK, 0);
-    lv_obj_set_style_bg_opa(badge, LV_OPA_COVER, 0);
-    lv_obj_set_style_text_color(badge, UI_WHITE, 0);
-    lv_obj_set_style_pad_hor(badge, 4, 0);
-    lv_obj_set_style_radius(badge, 2, 0);
+    /*
+     * 呼号不套容器。
+     *
+     * 它先是「黑底白字」（上一版高对比主题的写法），换到纸面后我改成了凹陷的
+     * 一枚戳——两个都不对，而且错在同一个地方：**容器本身就是错的选择**。
+     *
+     * 工艺规则里分组的次序是「留白 > 分割线 > 容器」，容器是最后一档，而我
+     * 一上来就用了它。日志区一屏七八条记录，就是七八个视觉噪点。更要命的是，
+     * 在这套设计语言里凹陷/凸起编码的是「能不能按」，而呼号根本不可点——给它
+     * 浮雕是在撒谎。
+     *
+     * 现在靠字色分主次：呼号是主文墨（12.98:1），报文是次要墨（5.19:1）。
+     * 每行呼号的左边缘天然对齐，那条对齐边就是扫读用的「栏」——电报底稿上
+     * 发报人本来就是这么排的，不套框。
+     */
+    lv_obj_set_style_text_color(badge, UI_INK, 0);
     lv_label_set_text(badge, who);
 
     lv_obj_t *lb = lv_label_create(row);
     lv_obj_set_style_text_font(lb, UI_FONT_CN, 0);
+    lv_obj_set_style_text_color(lb, UI_INK2, 0);   /* 报文是次要墨，让呼号在扫读时先跳出来 */
     /* 撑满呼号牌右边剩下的宽度，内容自己折行。写死宽度的话，呼号长短一变
        就要么裁掉要么留一条空当。 */
     lv_obj_set_flex_grow(lb, 1);
@@ -266,7 +283,7 @@ static void pads_enabled(bool on)
         if (!s_pad[i]) continue;
         if (on) lv_obj_add_flag(s_pad[i], LV_OBJ_FLAG_CLICKABLE);
         else    lv_obj_clear_flag(s_pad[i], LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_set_style_text_color(s_pad[i], on ? UI_BLACK : UI_GRAY_DOWN, 0);
+        lv_obj_set_style_text_color(s_pad[i], on ? UI_INK : UI_DISABLED, 0);
     }
 }
 
@@ -307,6 +324,17 @@ static void apply_status(void)
         }
     }
     lv_label_set_text(s_peers, peers);
+
+    /*
+     * 进入错误态时响一次异常音——**只在跳变时**。这个函数 100ms 一拍，
+     * 每拍都响会变成蜂鸣器。
+     */
+    static kob_net_state_t s_last = (kob_net_state_t)-1;
+    if (st->state != s_last) {
+        if (st->state == KOB_NET_ERR_WIFI || st->state == KOB_NET_ERR_SERVER)
+            ui_sound(TONE_SEQ_FAULT);
+        s_last = st->state;
+    }
 
     /* 状态带：永远回答「现在什么情况」 */
     char band[64];
@@ -493,7 +521,7 @@ static void title_cb(lv_event_t *e)
     s_picker = overlay;
     lv_obj_remove_style_all(overlay);
     lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_style_bg_color(overlay, UI_WHITE, 0);
+    lv_obj_set_style_bg_color(overlay, UI_PAPER, 0);
     lv_obj_set_style_bg_opa(overlay, LV_OPA_80, 0);
     lv_obj_clear_flag(overlay, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -501,10 +529,10 @@ static void title_cb(lv_event_t *e)
     lv_obj_remove_style_all(dlg);
     lv_obj_set_size(dlg, 240, 228);
     lv_obj_center(dlg);
-    lv_obj_set_style_bg_color(dlg, UI_WHITE, 0);
+    lv_obj_set_style_bg_color(dlg, UI_RAISE, 0);
     lv_obj_set_style_bg_opa(dlg, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(dlg, 2, 0);
-    lv_obj_set_style_border_color(dlg, UI_BLACK, 0);
+    lv_obj_set_style_border_color(dlg, UI_INK, 0);
     lv_obj_clear_flag(dlg, LV_OBJ_FLAG_SCROLLABLE);
 
     /* 三行各 56px，远超 44px 触控下限 */
@@ -563,7 +591,7 @@ static void hist_open(lv_event_t *e)
     s_hist = lv_obj_create(lv_scr_act());
     lv_obj_remove_style_all(s_hist);
     lv_obj_set_size(s_hist, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_style_bg_color(s_hist, UI_WHITE, 0);
+    lv_obj_set_style_bg_color(s_hist, UI_PAPER, 0);
     lv_obj_set_style_bg_opa(s_hist, LV_OPA_COVER, 0);
     lv_obj_clear_flag(s_hist, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -578,7 +606,7 @@ static void hist_open(lv_event_t *e)
     lv_obj_set_style_pad_top(box, 2, 0);
     lv_obj_set_scroll_dir(box, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(box, LV_SCROLLBAR_MODE_ON);
-    lv_obj_set_style_bg_color(box, UI_BLACK, LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_color(box, UI_INK, LV_PART_SCROLLBAR);
     lv_obj_set_style_bg_opa(box, LV_OPA_30, LV_PART_SCROLLBAR);
     lv_obj_set_style_width(box, 4, LV_PART_SCROLLBAR);
     lv_obj_set_style_radius(box, 2, LV_PART_SCROLLBAR);
@@ -662,25 +690,15 @@ lv_obj_t *ui_net_create(void)
      * wire 是这一页唯一的切换入口（设置里只剩数字输入，用于接入没有陪练的
      * 自定义 wire），所以它必须看得出来能点。原来是靠标题后面缀一个 " >"，
      * 沿用项目里「更多练习 >」的约定——但那是列表行，整行都能点，箭头只是
-     * 个方向暗示；顶栏里孤零零一个 ">" 太轻，看不出可点。改成描边方框：
-     * 边框本身就是「这是个按钮」的意思，不依赖任何字形，也不占额外的高度。
+     * 个方向暗示；顶栏里孤零零一个 ">" 太轻，看不出可点。现在用 ui_chip()：
+     * 和顶栏返回键、电键页「清屏」同一副长相，抬高面加浮雕加按下反馈。全工程
+     * 的可点元素只讲这一种话，用户不必每页重新学一遍什么东西能按。
      *
      * 顺序上人数在左、wire 在右：wire 是可操作的，放在最边上手指最好够到；
      * 人数只是读数，挨着它放就行。
      */
-    s_title = lv_label_create(bar);
-    lv_obj_set_style_text_font(s_title, UI_FONT_CN, 0);
-    lv_label_set_text(s_title, wire_name());
-    lv_obj_set_style_pad_hor(s_title, 8, 0);
-    lv_obj_set_style_pad_ver(s_title, 2, 0);
-    lv_obj_set_style_border_width(s_title, 1, 0);
-    lv_obj_set_style_border_color(s_title, UI_BLACK, 0);
-    lv_obj_set_style_radius(s_title, 3, 0);
+    s_title = ui_chip(bar, wire_name(), title_cb, NULL);
     lv_obj_align(s_title, LV_ALIGN_RIGHT_MID, -6, 0);
-    lv_obj_add_flag(s_title, LV_OBJ_FLAG_CLICKABLE);
-    /* 电阻屏漏点常见，扩大可点区域（视觉大小不变） */
-    lv_obj_set_ext_click_area(s_title, 12);
-    lv_obj_add_event_cb(s_title, title_cb, LV_EVENT_CLICKED, NULL);
 
     s_peers = lv_label_create(bar);
     lv_obj_set_style_text_font(s_peers, UI_FONT_CN, 0);
@@ -693,11 +711,33 @@ lv_obj_t *ui_net_create(void)
        不再定死列数——定死就会像初版那样把超出的部分直接裁掉。 */
     s_box = lv_obj_create(s_scr);
     lv_obj_remove_style_all(s_box);
-    lv_obj_set_pos(s_box, 0, UI_TOPBAR_H);
-    lv_obj_set_size(s_box, 320, LOG_H);
+    /*
+     * 左右各缩进 WELL_INSET。
+     *
+     * 浮雕本来就画了左右两条边，但井贴满整宽时它们落在 x=0 和 x=319——那是
+     * 屏幕的最边缘，读起来是「屏幕边框」而不是「井壁」，整块区域因此看着不
+     * 下沉。缩进之后两侧各露出一条纸底，边线才有东西可以「相对于它」凹进去。
+     *
+     * 电键桨不跟着缩：它们是手指要按的地方，宽度就是触控面积，而且在层次上
+     * 属于「页面之下的器件」，本来就该顶满。
+     */
+    lv_obj_set_pos(s_box, UI_WELL_INSET, UI_TOPBAR_H);
+    lv_obj_set_size(s_box, 320 - UI_WELL_INSET * 2, LOG_H);
     lv_obj_set_style_pad_left(s_box, 6, 0);
     lv_obj_set_style_pad_right(s_box, 6, 0);
     lv_obj_set_style_pad_top(s_box, 2, 0);
+    /*
+     * 收报区是一口凹进纸面的井：内容装在里面，不是浮在页面上。
+     *
+     * 这一页现在有三档深度，各自编码一件事——**井（凹）装内容、状态带（平）
+     * 是页面本身、电键桨（凸）可以按**。之前是反的：状态带做成了凹槽，而真正
+     * 装内容的收报区却和页面一样平，深度没有编码任何信息。
+     *
+     * 必须在 pad 设完之后调 ui_bevel（它要按实际 pad 反推子对象的扩张量）。
+     */
+    lv_obj_set_style_bg_color(s_box, UI_SUNK, 0);
+    lv_obj_set_style_bg_opa(s_box, LV_OPA_COVER, 0);
+    ui_bevel(s_box, false);
     lv_obj_set_scroll_dir(s_box, LV_DIR_VER);
     /*
      * 滚动条常显，不是 AUTO。
@@ -709,10 +749,13 @@ lv_obj_t *ui_net_create(void)
      * 去掉了，只设 mode 是画不出来的。
      */
     lv_obj_set_scrollbar_mode(s_box, LV_SCROLLBAR_MODE_ON);
-    lv_obj_set_style_bg_color(s_box, UI_BLACK, LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_color(s_box, UI_INK, LV_PART_SCROLLBAR);
     lv_obj_set_style_bg_opa(s_box, LV_OPA_30, LV_PART_SCROLLBAR);
     lv_obj_set_style_width(s_box, 4, LV_PART_SCROLLBAR);
     lv_obj_set_style_radius(s_box, 2, LV_PART_SCROLLBAR);
+    /* 滚动条默认贴着对象右缘画，正好盖住浮雕的右边线——实测右侧那条亮线整条
+       都被它吃掉了。往里挪 2px，让边线露出来。 */
+    lv_obj_set_style_pad_right(s_box, 2, LV_PART_SCROLLBAR);
 
     /* 页面重建，记录和行控件一起从头来。控件的宿主 s_box 是刚建的，旧的那些
        已经随上一屏被删掉了，这里只清指针数组。 */
@@ -726,7 +769,8 @@ lv_obj_t *ui_net_create(void)
         lv_obj_set_size(b, 200, 48);
         lv_obj_align(b, LV_ALIGN_CENTER, 0, 0);
     } else {
-        /* 记录一条一行，纵向排。每条是「深底浅字的呼号牌 + 内容」，见 row_make()。 */
+        /* 记录一条一行，纵向排。每条是「主文墨的呼号 + 次要墨的内容」，不套容器，
+           见 row_make()。 */
         lv_obj_set_flex_flow(s_box, LV_FLEX_FLOW_COLUMN);
 
         /* 点收报区看全部记录。页内只有三行，抄漏一句想回头对的时候不够翻。 */
@@ -734,23 +778,24 @@ lv_obj_t *ui_net_create(void)
         lv_obj_add_event_cb(s_box, hist_open, LV_EVENT_SHORT_CLICKED, NULL);
     }
 
-    /* 状态带 28px：必须 >= UI_FONT_CN 的行高 26，否则文字上下被裁 */
+    /* 状态带 BAND_H：必须 >= UI_FONT_CN 的行高 26，否则文字上下被裁 */
     lv_obj_t *bandbg = lv_obj_create(s_scr);
     lv_obj_remove_style_all(bandbg);
     lv_obj_set_pos(bandbg, 0, UI_TOPBAR_H + LOG_H);
     lv_obj_set_size(bandbg, 320, BAND_H);
-    lv_obj_set_style_bg_color(bandbg, UI_GRAY_BG, 0);
-    lv_obj_set_style_bg_opa(bandbg, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(bandbg, 1, 0);
-    lv_obj_set_style_border_color(bandbg, UI_BLACK, 0);
-    lv_obj_set_style_border_side(bandbg, LV_BORDER_SIDE_BOTTOM, 0);
+    /* 状态带就是页面本身，不给面也不给浮雕：背景透出纸纹，深度上属于「平」这
+       一档。它上面是凹进去的收报井、下面是凸起的电键桨，三档各自说一件事；
+       给它也来个凹槽反而把层次说乱了（那正是上一版的错）。 */
+    lv_obj_set_style_bg_opa(bandbg, LV_OPA_TRANSP, 0);
 
     lv_obj_add_flag(bandbg, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(bandbg, band_cb, LV_EVENT_CLICKED, NULL);
 
     s_band = lv_label_create(bandbg);
     lv_obj_set_style_text_font(s_band, UI_FONT_CN, 0);
-    lv_obj_align(s_band, LV_ALIGN_LEFT_MID, 6, 0);
+    /* 居中。它是一行状态提示，不是一段要从左边读起的正文；而且下面就是左右
+       对称的两块桨，左对齐会把整页的重心拉偏。 */
+    lv_obj_align(s_band, LV_ALIGN_CENTER, 0, 0);
     lv_label_set_text(s_band, "");
 
     /* 电键 110px：两块 160x110，远超 44px 触控下限。

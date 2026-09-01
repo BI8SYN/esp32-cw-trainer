@@ -18,6 +18,12 @@ SRC_GLOBS = [
     "firmware/cw-trainer/main/**/*.c",
     "firmware/cw-trainer/main/**/*.h",
 ]
+
+# 开发专用、发布版根本不编进去的文件（见 main/CMakeLists.txt 里的 CW_STYLE_PROBE
+# / CW_SCREENSHOT 开关）。它们里的字符串不会出现在发布固件的屏幕上，算进来只会
+# 白白撑大裁剪字库——实测 screenshot.c 里一句中文调试 printf 就能让自检报错、
+# 逼着往字库里加字。字库大小不是小事：裁剪前固件 2.2MB，双 OTA 槽放不下。
+DEV_ONLY = ("screenshot.c", "ui/ui_probe.c", "ui/probe_assets.c")
 FONT_C = "fonts/font20_cwtrn.c"
 
 # 运行时还会显示这些，源码里不一定以字面量出现：莫尔斯字符表、呼号、
@@ -69,6 +75,8 @@ def used_chars():
     used = set(RUNTIME_EXTRA)
     for pat in SRC_GLOBS:
         for path in sorted(glob.glob(pat, recursive=True)):
+            if any(path.endswith(d) for d in DEV_ONLY):
+                continue
             text = open(path, encoding="utf-8").read()
             # 注释里的字不会显示出来，不该被计入
             text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)

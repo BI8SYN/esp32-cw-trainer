@@ -37,6 +37,9 @@ static void set_defaults(cw_settings_t *c)
     /* 出厂默认显示图标+数字：绝大多数人是接了电池的，而且这也是 v3 之前
        唯一的行为——老设备升级上来不该看到界面无缘无故变了。 */
     c->battery_show = CW_BATT_NUM;
+    /* 提示音默认开：加它的目的是给嫌吵的人一条退路，而不是让绝大多数人
+       先去设置里找开关才有反馈。 */
+    c->sound_on = 1;
 }
 
 /* v1 的结构体布局快照，仅用于升级迁移，不要再改动它。
@@ -89,8 +92,48 @@ typedef struct {
    而不是等到用户的 Koch 进度悄悄错乱。
    断言消息用 ASCII：tools/check_charset.py 会把字符串字面量算进"界面用到的字"，
    中文消息会白白占掉裁剪字库的位置，而它根本不会上屏。 */
+/* v3 的结构体布局快照，仅用于升级迁移，不要再改动它。
+ * v4 在末尾加了 sound_on，结构体从 68 涨到 72——v4 是第一个长度和前面不同的
+ * 版本。即便如此，分派仍然按 version 字段走，长度只作为一道额外的防线。 */
+typedef struct {
+    uint32_t version;
+    uint8_t  char_wpm;
+    uint8_t  eff_wpm;
+    uint16_t tone_hz;
+    uint8_t  volume;
+    uint8_t  keyer_mode;
+    uint8_t  paddle_swap;
+    char     callsign[12];
+    uint8_t  koch_lesson;
+    uint8_t  koch_last_pct[41];
+    uint8_t  brightness;
+    uint8_t  rotate_180;
+    uint8_t  battery_show;
+} cw_settings_v3_t;
+
 _Static_assert(sizeof(cw_settings_v1_t) == 68, "v1 layout is frozen");
 _Static_assert(sizeof(cw_settings_v2_t) == 68, "v2 layout is frozen");
+_Static_assert(sizeof(cw_settings_v3_t) == 68, "v3 layout is frozen");
+
+static void migrate_v3(const cw_settings_v3_t *old, cw_settings_t *dst)
+{
+    set_defaults(dst);
+    dst->version      = CW_SETTINGS_VERSION;
+    dst->char_wpm     = old->char_wpm;
+    dst->eff_wpm      = old->eff_wpm;
+    dst->tone_hz      = old->tone_hz;
+    dst->volume       = old->volume;
+    dst->keyer_mode   = old->keyer_mode;
+    dst->paddle_swap  = old->paddle_swap;
+    memcpy(dst->callsign, old->callsign, sizeof dst->callsign);
+    dst->callsign[sizeof dst->callsign - 1] = 0;
+    dst->koch_lesson  = old->koch_lesson;
+    memcpy(dst->koch_last_pct, old->koch_last_pct, sizeof dst->koch_last_pct);
+    dst->brightness   = old->brightness;
+    dst->rotate_180   = old->rotate_180;
+    dst->battery_show = old->battery_show;
+    /* sound_on 保持 set_defaults() 给的 1：老设备升上来提示音是开的 */
+}
 
 static void migrate_v2(const cw_settings_v2_t *old, cw_settings_t *dst)
 {
@@ -152,9 +195,11 @@ esp_err_t cw_settings_init(void)
         set_defaults(&s_cfg);
         return err;
     }
-    /* 三个版本的 sizeof 恰好都是 68，靠 version 字段分辨，不靠长度。 */
+    /* v1/v2/v3 的 sizeof 恰好都是 68，v4 是 72。历史上只能靠 version 字段
+       分辨，现在长度也能帮上忙，但判据仍然是 version——别依赖长度。 */
     union {
-        cw_settings_t    v3;
+        cw_settings_t    cur;
+        cw_settings_v3_t v3;
         cw_settings_v2_t v2;
         cw_settings_v1_t v1;
     } raw;
@@ -172,8 +217,13 @@ esp_err_t cw_settings_init(void)
         migrate_v2(&raw.v2, &s_cfg);
         return write_blob(&s_cfg);
     }
+    if (err == ESP_OK && len == sizeof(cw_settings_v3_t) && raw.v3.version == 3) {
+        ESP_LOGI(TAG, "migrating config v3 -> v%d", CW_SETTINGS_VERSION);
+        migrate_v3(&raw.v3, &s_cfg);
+        return write_blob(&s_cfg);
+    }
     if (err == ESP_OK && len == sizeof s_cfg) {
-        memcpy(&s_cfg, &raw.v3, sizeof s_cfg);
+        memcpy(&s_cfg, &raw.cur, sizeof s_cfg);
     }
 
     if (err == ESP_ERR_NVS_NOT_FOUND) {

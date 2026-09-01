@@ -1,4 +1,6 @@
 #include "ui_keyer.h"
+#include "ui_assets.h"
+#include "ui_sound.h"
 #include <stdio.h>
 #include <string.h>
 #include "ui_common.h"
@@ -102,6 +104,7 @@ static void pad_cb(lv_event_t *e)
  */
 typedef struct {
     lv_obj_t   *pad[2];
+    lv_obj_t   *mark[2];   /* 桨面上的点/划图形，颜色要跟着一起翻 */
     bool        last[2];
     lv_timer_t *timer;
 } pad_hl_t;
@@ -116,7 +119,14 @@ static void hl_tick(lv_timer_t *t)
            失效重绘，每 50ms 无脑重写一次会让电键块持续闪烁。 */
         if (down == h->last[i]) continue;
         h->last[i] = down;
-        lv_obj_set_style_bg_color(h->pad[i], down ? UI_GRAY_DOWN : UI_WHITE, 0);
+        /* 同样走 recolor 而不是 bg_color——贴图不透明，改底色看不见。
+           这条路径是外接电键按下时用的，触摸按下走的是 LV_STATE_PRESSED，
+           两条路的最终观感必须一致，所以参数也得一样（190）。 */
+        lv_obj_set_style_bg_img_recolor(h->pad[i], UI_BRASS_DK, 0);
+        lv_obj_set_style_bg_img_recolor_opa(h->pad[i], down ? 190 : 0, 0);
+        lv_obj_set_style_text_color(h->pad[i], down ? UI_PAPER : UI_BRASS_INK, 0);
+        /* 触摸按下走 mark_state_cb，外接电键走这里，两条路必须给同一个结果 */
+        if (h->mark[i]) lv_obj_set_style_bg_color(h->mark[i], down ? UI_PAPER : UI_BRASS_INK, 0);
     }
 }
 
@@ -125,6 +135,74 @@ static void hl_free(lv_event_t *e)
     pad_hl_t *h = lv_event_get_user_data(e);
     lv_timer_del(h->timer);
     lv_mem_free(h);
+}
+
+/*
+ * 把一块普通的抬高面变成黄铜。
+ *
+ * 电键页是全工程唯一做「真材质」的地方——因为它是唯一一个屏幕元素直接对应
+ * 用户手上真实物件（电键桨）的页面，拟物在这里承载真实语义，不是装饰。
+ *
+ * 材质 = 平涂铜色 + 横向拉丝纹 + 浮雕，**没有渐变**。素材样机第 2 页实测这块
+ * 屏连离线抖动过的渐变都有可见台阶；而金属的立体感本来就来自边缘明暗和拉丝
+ * 方向，不来自表面的高光过渡。2KB 的 32x32 拉丝瓦片铺满两块桨。
+ */
+static void brass(lv_obj_t *pad)
+{
+    lv_obj_set_style_bg_color(pad, UI_BRASS, 0);
+    lv_obj_set_style_bg_img_src(pad, &ui_grain_brass, 0);
+    lv_obj_set_style_bg_img_tiled(pad, true, 0);
+    lv_obj_set_style_text_color(pad, UI_BRASS_INK, 0);
+    lv_obj_set_style_text_color(pad, UI_PAPER, LV_STATE_PRESSED);
+    /*
+     * 按下变暗必须走 bg_img_recolor，不能走 bg_color。
+     *
+     * 平铺的黄铜贴图是不透明的，它把 bg_color 完全盖住——原来给
+     * LV_STATE_PRESSED 配的 UI_BRASS_DK 一个像素都没显示出来，**桨按下去
+     * 其实没有任何颜色变化**（hl_tick 里给外接电键写的那次同理）。
+     *
+     * recolor 是把图像往目标色混，opa 控制混多少。190/255 足够暗到一眼看出
+     * 按下了，又保住了颗粒感——拉满 255 就变成一块死平的深色，材质白做了。
+     */
+    lv_obj_set_style_bg_img_recolor(pad, UI_BRASS_DK, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_img_recolor_opa(pad, 190, LV_STATE_PRESSED);
+}
+
+/*
+ * 点和划画成图形，不写成汉字。
+ *
+ * 两个理由。一是尺寸：字号受字体限制，font20 的行高就是 26，塞不出一个够大的
+ * 点；图形想多大有多大。二是信息：**点划长度比 1:3 是莫尔斯的定义本身**，
+ * 画出来就把这条规则摆在了桨上，而「点」「划」两个汉字一点都不携带这个信息。
+ * 这台机器是训练器，桨面本来就该是教材。
+ *
+ * 颜色要跟着按下态翻：常态刻在铜面上是 7.11:1，按下时铜面被 recolor 压到
+ * #845E29，刻痕掉到 3.13:1 会明显发灰，所以翻成纸色（4.77:1）。子对象拿不到
+ * 父对象的 LV_STATE_PRESSED，只能自己挂事件——和 ui_bevel 里同一套路数。
+ */
+#define MARK_UNIT 22        /* 一个「点」的直径；划是它的三倍长 */
+
+static void mark_state_cb(lv_event_t *e)
+{
+    lv_obj_t *m = lv_event_get_user_data(e);
+    bool down = lv_event_get_code(e) == LV_EVENT_PRESSED;
+    lv_obj_set_style_bg_color(m, down ? UI_PAPER : UI_BRASS_INK, 0);
+}
+
+static lv_obj_t *pad_mark(lv_obj_t *pad, bool dash)
+{
+    lv_obj_t *m = lv_obj_create(pad);
+    lv_obj_remove_style_all(m);
+    lv_obj_set_size(m, dash ? MARK_UNIT * 3 : MARK_UNIT, MARK_UNIT);
+    lv_obj_set_style_radius(m, dash ? MARK_UNIT / 2 : LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(m, UI_BRASS_INK, 0);
+    lv_obj_set_style_bg_opa(m, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(m, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_center(m);
+    lv_obj_add_event_cb(pad, mark_state_cb, LV_EVENT_PRESSED, m);
+    lv_obj_add_event_cb(pad, mark_state_cb, LV_EVENT_RELEASED, m);
+    lv_obj_add_event_cb(pad, mark_state_cb, LV_EVENT_PRESS_LOST, m);
+    return m;
 }
 
 void ui_keyer_paddles(lv_obj_t *parent, int y, int h, lv_obj_t *out[2])
@@ -140,6 +218,7 @@ void ui_keyer_paddles(lv_obj_t *parent, int y, int h, lv_obj_t *out[2])
     s_pad_split = straight ? 320 : 160;   /* 直键整块都算左块 */
 
     lv_obj_t *pad[2] = { NULL, NULL };
+    lv_obj_t *mark[2] = { NULL, NULL };
     if (straight) {
         /* 直键只有一个触点，铺成一整条。三个页面都走这里，所以对练页和手法页
            在直键模式下不会再出现"两块桨但右边那块根本不接线"的情况。 */
@@ -147,16 +226,19 @@ void ui_keyer_paddles(lv_obj_t *parent, int y, int h, lv_obj_t *out[2])
         lv_obj_set_pos(pad[0], 0, y);
         lv_obj_set_size(pad[0], 320, h);
         lv_obj_add_event_cb(pad[0], pad_cb, LV_EVENT_ALL, (void *)0);
+        ui_no_tap(pad[0]);   /* 桨本来就有侧音，再加一层点击音是噪音 */
+        brass(pad[0]);
     } else {
         for (int i = 0; i < 2; i++) {
-            /* 字体必须是 UI_FONT_CN(font20, 3888 字形)。UI_FONT_MID(font28) 和
-             * EN_BIG 都只有 96 个 ASCII 字形、不含中文，"点""划"会变成豆腐块。 */
-            /* 开了左右对调，标签跟着换：左块印"划"、右块印"点"。不换的话左块
-               印着"点"却发出划，标签就在撒谎。 */
-            pad[i] = ui_cell(parent, (i == 0) != swap ? "点" : "划", UI_FONT_CN, NULL, NULL);
+            /* 开了左右对调，图形跟着换：左块画划、右块画点。不换的话左块画着
+               点却发出划，桨面就在撒谎。 */
+            pad[i] = ui_cell(parent, "", UI_FONT_CN, NULL, NULL);
             lv_obj_set_pos(pad[i], i * 160, y);
             lv_obj_set_size(pad[i], 160, h);
             lv_obj_add_event_cb(pad[i], pad_cb, LV_EVENT_ALL, (void *)(intptr_t)i);
+            ui_no_tap(pad[i]);
+            brass(pad[i]);
+            mark[i] = pad_mark(pad[i], (i == 0) == swap);
         }
     }
 
@@ -165,13 +247,15 @@ void ui_keyer_paddles(lv_obj_t *parent, int y, int h, lv_obj_t *out[2])
      * 各页面自己轮询，是因为电键页、对练页、手法页都铺这同一组桨——按外接电键
      * 时屏幕跟着亮，三个页面一行都不用改就都有了。
      *
-     * 触摸按下的高亮不归它管：make_btn() 已经给 LV_STATE_PRESSED 配了
-     * UI_GRAY_DOWN，这里走 LV_PART_MAIN 的默认态，同色，两条路径看起来一样。
+     * 触摸按下的高亮不归它管：brass() 已经给 LV_STATE_PRESSED 配了同样的
+     * recolor，这里走 LV_PART_MAIN 的默认态，参数相同，两条路径看起来一样。
      */
     pad_hl_t *hl = lv_mem_alloc(sizeof *hl);
     if (hl) {
         hl->pad[0] = pad[0];
         hl->pad[1] = pad[1];
+        hl->mark[0] = mark[0];
+        hl->mark[1] = mark[1];
         hl->last[0] = hl->last[1] = false;
         hl->timer = lv_timer_create(hl_tick, 50, hl);
         lv_obj_add_event_cb(pad[0], hl_free, LV_EVENT_DELETE, hl);
@@ -193,39 +277,63 @@ lv_obj_t *ui_keyer_create(void)
     lv_obj_add_event_cb(s_scr, on_delete, LV_EVENT_DELETE, NULL);
     char title[16]; snprintf(title, sizeof title, "%u WPM", cfg->char_wpm);
     lv_obj_t *bar = ui_topbar(s_scr, title, back);
-    lv_obj_t *clr = ui_button(bar, "清屏", clear_cb, NULL);
-    lv_obj_set_size(clr, 60, 24);
+/* 顶栏按钮统一用 ui_chip：原来是 ui_button 写死高 24，而 UI_FONT_CN 行高
+       是 26——内容比容器高，LVGL 当溢出处理，文字下偏还会打开滚动。ui_chip
+       的高度就等于行高，在 32px 顶栏里上下各留 2px。 */
+    lv_obj_t *clr = ui_chip(bar, "清屏", clear_cb, NULL);
     lv_obj_align(clr, LV_ALIGN_RIGHT_MID, -4, 0);
-    lv_obj_t *fst = ui_button(bar, "手法", go_fist, NULL);
-    lv_obj_set_size(fst, 60, 24);
-    lv_obj_align(fst, LV_ALIGN_RIGHT_MID, -68, 0);
+    lv_obj_t *fst = ui_chip(bar, "手法", go_fist, NULL);
+    lv_obj_align(fst, LV_ALIGN_RIGHT_MID, -70, 0);
 
     int top = UI_TOPBAR_H;
     if (!tone_gen_is_ok()) { ui_notice(s_scr, "音频异常，侧音不可用"); top += UI_NOTICE_H; }
 
     /*
-     * 纵向预算（顶栏之下 212px）：解码文本 74 / 点划 26 / 电键 108。
+     * 纵向预算不再手算：解码井吃掉 UI_PADDLE_H 和 UI_BAND_H 之外的全部高度，
+     * 和对练页用同一组常量。默认情况下井是 92px，内容区 88px，装得下两行
+     * UI_FONT_MID（行高 37，两行 74）。
      *
-     * 文本高度必须是 74 = 2 行 x UI_FONT_MID 的行高 37。原来只给了 60，
-     * 第二行的下缘被裁掉 14px——Q 的尾巴正好在那里，看起来就成了 O。
-     * 和配网页输入框、对练页状态带是同一类问题：容器高度必须 >= 内容高度。
+     * **容器高度必须 >= 内容高度**这条一定要守住：这里曾经只给 60，第二行的
+     * 下缘被裁掉 14px——Q 的尾巴正好在那里，看起来就成了 O。配网页输入框、
+     * 对练页状态带、顶栏小键，全都栽过同一个坑。
      */
-    s_text = lv_label_create(s_scr);
+    /*
+     * 版式和对练页对齐：**凹陷的解码井 + 平的点划条 + 凸起的电键**。
+     *
+     * 三档深度各自编码一件事——井装内容、条是页面本身、桨可以按。两个页面铺的
+     * 是同一组电键，用户在它们之间来回切，版式不一致就得重新找一遍东西在哪。
+     * 井和条的高度直接用共享常量（UI_PADDLE_H / UI_BAND_H），不再各写各的。
+     */
+    lv_obj_t *well = lv_obj_create(s_scr);
+    lv_obj_remove_style_all(well);
+    lv_obj_set_pos(well, UI_WELL_INSET, top);
+    lv_obj_set_size(well, 320 - UI_WELL_INSET * 2, 240 - UI_PADDLE_H - UI_BAND_H - top);
+    lv_obj_clear_flag(well, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_pad_left(well, 6, 0);
+    lv_obj_set_style_pad_right(well, 6, 0);
+    lv_obj_set_style_pad_top(well, 2, 0);
+    lv_obj_set_style_bg_color(well, UI_SUNK, 0);
+    lv_obj_set_style_bg_opa(well, LV_OPA_COVER, 0);
+    /* 必须在 pad 之后：ui_bevel 要按实际 padding 反推子对象的位置 */
+    ui_bevel(well, false);
+
+    s_text = lv_label_create(well);
     lv_obj_set_style_text_font(s_text, UI_FONT_MID, 0);
-    lv_obj_set_pos(s_text, 8, top + 2);
-    lv_obj_set_size(s_text, 304, 74);
+    lv_obj_set_width(s_text, 320 - UI_WELL_INSET * 2 - 14);   /* 减去井的左右内边距和边框 */
     lv_label_set_long_mode(s_text, LV_LABEL_LONG_WRAP);
+    lv_obj_align(s_text, LV_ALIGN_TOP_LEFT, 0, 0);
     lv_label_set_text(s_text, "");
     s_buf[0] = 0;
 
-    /* 点划行改用 UI_FONT_CN（行高 26）：文本要 74、电键要留够 108，
-       三者加起来必须 <= 212，点划这行只能用小的。它是转瞬即逝的提示，
-       让位给要读的解码文本是对的。 */
+    /* 点划行：和对练页的状态带同一档——不给面也不给浮雕，背景透出纸纹。
+       居中，因为下面就是左右对称的两块桨。 */
     s_seq = lv_label_create(s_scr);
     lv_obj_set_style_text_font(s_seq, UI_FONT_CN, 0);
-    /* 电键从 84 高之后起点下移，解码文本（74）和电键之间多出一段空当。
-       点划行居中放在那段里，而不是贴着文本——不然下面会空出一条没来由的缝。 */
-    lv_obj_align(s_seq, LV_ALIGN_TOP_MID, 0, top + 89);
+    lv_obj_set_width(s_seq, 320);
+    lv_obj_set_style_text_align(s_seq, LV_TEXT_ALIGN_CENTER, 0);
+    /* 不给 label 设高度、改用偏移把 26 的行高摆到 32 的条中央：给 label 一个
+       比行高大的高度，文字只会顶在上沿，还得再算一次垂直内边距。 */
+    lv_obj_set_pos(s_seq, 0, 240 - UI_PADDLE_H - UI_BAND_H + (UI_BAND_H - 26) / 2);
     lv_label_set_text(s_seq, "");
 
     /* 电键高度和对练页统一，见 ui_keyer.h 的 UI_PADDLE_H。布局（直键一整条 /

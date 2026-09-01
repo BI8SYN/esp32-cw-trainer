@@ -25,6 +25,10 @@ set(font_srcs
 
 if("${CMAKE_PROJECT_NAME}" STREQUAL "cw-trainer")
     list(APPEND font_srcs "font20_cwtrn.c")
+    # 标题用的 28px 宋体。只有 cw-trainer 用，fmo-companion 不背这个重量。
+    # 由 tools/gen_title_font.sh 从思源宋（OFL）生成，出处和命令都在脚本里
+    # ——这是 fonts/ 下第一个有源可重生成的字体。
+    list(APPEND font_srcs "font28cn.c")
 else()
     list(APPEND font_srcs "font20.c")
 endif()

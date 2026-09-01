@@ -3,6 +3,7 @@
 #include <string.h>
 #include "esp_timer.h"
 #include "ui_common.h"
+#include "ui_sound.h"
 #include "ui_home.h"
 #include "ui_result.h"
 #include "ui_async.h"
@@ -145,6 +146,9 @@ static void submit(const char *answer)
        藏起来，否则反馈文字和提示文字会叠在一起。start_round() 负责下一轮把它
        重新显示出来。 */
     if (s_hint) lv_obj_add_flag(s_hint, LV_OBJ_FLAG_HIDDEN);
+    /* 判分是这一页最有信息量的时刻，也是耳朵唯一空着的时刻——播放刚结束，
+       下一组还没开始。 */
+    ui_sound(ok ? TONE_SEQ_OK : TONE_SEQ_MISS);
     if (s_tr.mode == TRAINER_MODE_KOCH) {
         if (ok) lv_label_set_text_fmt(s_fb, "正确  %s", s_tr.target);
         else {
@@ -267,6 +271,7 @@ static void build_keys(void)
         else { snprintf(t, sizeof t, "%d/%d", s_page + 1, s_pages); cb = page_cb; }
 
         lv_obj_t *k = ui_cell(s_scr, t, f, cb, NULL);
+        ui_no_tap(k);   /* 抄写键盘：正在做题，别插声音 */
         lv_obj_set_pos(k, (i % cols) * cw, ky + (i / cols) * ch);
         lv_obj_set_size(k, cw, ch);
         s_keys[s_nkeys++] = k;
@@ -313,7 +318,7 @@ static void build_koch(lv_obj_t *s)
         s_fb = lv_label_create(s); lv_obj_set_pos(s_fb, 8, UI_TOPBAR_H + 60); lv_obj_set_width(s_fb, 156);
         s_replay = ui_button(s, "重播", replay_cb, NULL); lv_obj_set_width(s_replay, 100); lv_obj_set_pos(s_replay, 8, 196);
         lv_obj_t *line = lv_obj_create(s); lv_obj_set_size(line, 1, 240 - UI_TOPBAR_H); lv_obj_set_pos(line, 168, UI_TOPBAR_H);
-        lv_obj_set_style_bg_color(line, UI_BLACK, 0); lv_obj_set_style_border_width(line, 0, 0); lv_obj_set_style_radius(line, 0, 0);
+        lv_obj_set_style_bg_color(line, UI_RULE, 0); lv_obj_set_style_border_width(line, 0, 0); lv_obj_set_style_radius(line, 0, 0);
     } else {
         s_hint = lv_label_create(s); lv_obj_set_pos(s_hint, 8, UI_TOPBAR_H + 8); lv_obj_set_width(s_hint, 110);
         s_input = lv_label_create(s); lv_obj_set_style_text_font(s_input, UI_FONT_MID, 0);
@@ -339,6 +344,7 @@ static void build_koch(lv_obj_t *s)
         if (i < n) { t[0] = cs[i]; t[1] = 0; }
         else strcpy(t, (i == n) ? "退格" : "确定");
         lv_obj_t *k = ui_cell(s, t, (i < n) ? UI_FONT_MID : UI_FONT_CN, key_cb, NULL);
+        ui_no_tap(k);
         lv_obj_set_pos(k, 170 + (i % cols) * cw, ky + (i / cols) * ch);
         lv_obj_set_size(k, cw, ch);
         s_keys[s_nkeys++] = k;
@@ -352,14 +358,14 @@ static void opt_cb(lv_event_t *e)
     int i = (int)(intptr_t)lv_event_get_user_data(e);
     if (s_tr.mode == TRAINER_MODE_CALLSIGN) { submit(s_tr.options[i]); return; }
     s_sel_call = i;
-    for (int k = 0; k < 4; k++) lv_obj_set_style_bg_color(s_opts[k], k == i ? UI_GRAY_DOWN : UI_WHITE, 0);
+    for (int k = 0; k < 4; k++) lv_obj_set_style_bg_color(s_opts[k], k == i ? UI_SELECTED : UI_RAISE, 0);
 }
 static void rst_cb(lv_event_t *e)
 {
     if (s_phase != PH_INPUT && s_phase != PH_PLAYING) return;
     int i = (int)(intptr_t)lv_event_get_user_data(e);
     s_sel_rst = i;
-    for (int k = 0; k < 4; k++) lv_obj_set_style_bg_color(s_rst_opts[k], k == i ? UI_GRAY_DOWN : UI_WHITE, 0);
+    for (int k = 0; k < 4; k++) lv_obj_set_style_bg_color(s_rst_opts[k], k == i ? UI_SELECTED : UI_RAISE, 0);
 }
 static void submit_qso_cb(lv_event_t *e)
 {
@@ -383,6 +389,7 @@ static void build_choice(lv_obj_t *s)
         int h = (240 - y) / 2;
         for (int i = 0; i < 4; i++) {
             s_opts[i] = ui_cell(s, s_tr.options[i], UI_FONT_MID, opt_cb, (void *)(intptr_t)i);
+        ui_no_tap(s_opts[i]);
             lv_obj_set_pos(s_opts[i], (i % 2) * 160, y + (i / 2) * h);
             lv_obj_set_size(s_opts[i], 160, h);
         }
@@ -391,11 +398,13 @@ static void build_choice(lv_obj_t *s)
     lv_obj_t *l1 = lv_label_create(s); lv_label_set_text(l1, "对方呼号"); lv_obj_set_pos(l1, 8, y);
     for (int i = 0; i < 4; i++) {
         s_opts[i] = ui_cell(s, s_tr.options[i], UI_FONT_CN, opt_cb, (void *)(intptr_t)i);
+        ui_no_tap(s_opts[i]);
         lv_obj_set_pos(s_opts[i], 8 + i * 77, y + 24); lv_obj_set_size(s_opts[i], 74, 40);
     }
     lv_obj_t *l2 = lv_label_create(s); lv_label_set_text(l2, "RST"); lv_obj_set_pos(l2, 8, y + 70);
     for (int i = 0; i < 4; i++) {
         s_rst_opts[i] = ui_cell(s, s_tr.rst_options[i], UI_FONT_CN, rst_cb, (void *)(intptr_t)i);
+        ui_no_tap(s_rst_opts[i]);
         lv_obj_set_pos(s_rst_opts[i], 8 + i * 77, y + 94); lv_obj_set_size(s_rst_opts[i], 74, 40);
     }
     /* 提交按钮挪到"RST"文字这一行、右对齐：这一行从 x≈60 往右是空的。
@@ -435,8 +444,8 @@ static void start_round(void)
     if (s_input) { lv_obj_clear_flag(s_input, LV_OBJ_FLAG_HIDDEN); render_input(); }
     /* 选项文本随每轮更新 */
     for (int i = 0; i < 4; i++) {
-        if (s_opts[i]) { lv_label_set_text(lv_obj_get_child(s_opts[i], 0), s_tr.options[i]); lv_obj_set_style_bg_color(s_opts[i], UI_WHITE, 0); }
-        if (s_rst_opts[i]) { lv_label_set_text(lv_obj_get_child(s_rst_opts[i], 0), s_tr.rst_options[i]); lv_obj_set_style_bg_color(s_rst_opts[i], UI_WHITE, 0); }
+        if (s_opts[i]) { lv_label_set_text(lv_obj_get_child(s_opts[i], 0), s_tr.options[i]); lv_obj_set_style_bg_color(s_opts[i], UI_RAISE, 0); }
+        if (s_rst_opts[i]) { lv_label_set_text(lv_obj_get_child(s_rst_opts[i], 0), s_tr.rst_options[i]); lv_obj_set_style_bg_color(s_rst_opts[i], UI_RAISE, 0); }
     }
     play();
 }

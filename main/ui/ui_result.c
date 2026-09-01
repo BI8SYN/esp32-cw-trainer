@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "ui_common.h"
+#include "ui_sound.h"
 #include "stats_store.h"
 #include "ui_home.h"
 #include "ui_preview.h"
@@ -56,6 +57,10 @@ static lv_obj_t *build(void)
      * 信息由标题里的总数补回来。
      */
     if (koch) {
+        /* 只在达标时出声。**未达标刻意静音**：Koch 方法的前提就是错着学，一课
+           十组错几组是常态，给常态配失败音，练一小时就是几十次惩罚。而「没有
+           解锁音」本身已经是反馈。 */
+        if (pass) ui_sound(TONE_SEQ_UNLOCK);
         lv_obj_t *pl = lv_label_create(s);
         if (pass) lv_label_set_text_fmt(pl, "达标，可进第 %u 课", (unsigned)(s_t->lesson + 1));
         else lv_label_set_text(pl, "再练练，90% 以上解锁下一课");

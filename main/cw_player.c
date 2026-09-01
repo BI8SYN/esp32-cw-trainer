@@ -60,6 +60,7 @@ static void arm(uint32_t ms)
 static void finish_locked(cw_player_event_t ev, pending_cb_t *out)
 {
     tone_gen_set(false);
+    tone_gen_hold(false);   /* DONE 和 STOPPED 都经过这里，会话到此结束 */
     s_playing = false;
     out->fire = (s_cb != NULL);
     out->cb   = s_cb;
@@ -192,6 +193,9 @@ esp_err_t cw_player_play(const char *text, cw_player_cb_t cb, void *user)
        字符要出声时才打开的话，它还在上电稳定的过程中，第一声就破了。
        见 tone_gen_amp_hold()。 */
     tone_gen_amp_hold(true);
+    /* 整个播放会话期间占住振荡器，提示音一律让路。光靠「安静了多久」判空闲
+       是不够的——听写在字符之间本来就有长静音，提示音会落进字间隔里。 */
+    tone_gen_hold(true);
     /* 注意：不能调用 cw_player_stop()——那样会在同一个任务里对同一把非递归
      * 互斥量取两次锁，自己把自己锁死。这里直接调用无锁的 stop_locked()，
      * 全程只取一次锁。 */
