@@ -9,6 +9,13 @@ if(CW_STYLE_PROBE)
     list(APPEND probe_srcs "ui/ui_probe.c" "ui/probe_assets.c")
 endif()
 
+# 画面指纹：开机自动把每个页面建一遍、对刷向屏幕的像素算指纹打到串口。
+# 用来给「不该改变观感」的重构做验收，见 screenshot.c 顶部说明。
+option(CW_SCREENSHOT "编入画面指纹巡检" OFF)
+if(CW_SCREENSHOT)
+    list(APPEND probe_srcs "screenshot.c")
+endif()
+
 idf_component_register(
     SRCS
         "main.c"
@@ -77,4 +84,7 @@ idf_component_register(
 
 if(CW_STYLE_PROBE)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE CW_STYLE_PROBE=1)
+endif()
+if(CW_SCREENSHOT)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE CW_SCREENSHOT=1)
 endif()

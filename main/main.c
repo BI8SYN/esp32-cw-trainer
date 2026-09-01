@@ -22,6 +22,9 @@
 #include "ui_common.h"
 #include "ui_home.h"
 #include "morse_timing.h"
+#if CW_SCREENSHOT
+#include "screenshot.h"
+#endif
 
 static const char *TAG = "main";
 
@@ -124,6 +127,10 @@ void app_main(void)
     lv_port_disp_set_rotate_180(cfg->rotate_180 != 0);
     lv_port_disp_init();
     lv_port_indev_init();
+#if CW_SCREENSHOT
+    /* 必须在 lv_port_disp_init() 之后：钩子是串在已注册的 flush_cb 上的 */
+    screenshot_install();
+#endif
     const esp_timer_create_args_t tick_args = { .callback = &lv_tick_task, .name = "lv_tick" };
     esp_timer_handle_t tick_timer;
     ESP_ERROR_CHECK(esp_timer_create(&tick_args, &tick_timer));
@@ -131,6 +138,12 @@ void app_main(void)
     backlight_set(cfg->brightness);
 
     ui_nav_show(ui_home_create);
+#if CW_SCREENSHOT
+    /* 放在 battery_start 和 WiFi 之前跑：此刻电量还是初值 100、WiFi 等级 0、
+       时钟还没对上（--:--）、OTA 还没查过——页面上会自己变的东西最少，
+       指纹的可比性最高。 */
+    screenshot_tour();
+#endif
     ESP_ERROR_CHECK(battery_start(battery_cb));
 
     /*
