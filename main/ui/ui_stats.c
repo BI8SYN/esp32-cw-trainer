@@ -74,7 +74,7 @@ static void draw_heat(lv_obj_t *p)
         int w = 4 + pct[i] * bar_max / 100;
         lv_obj_set_pos(bar, 30, y + 4);
         lv_obj_set_size(bar, w, 16);
-        lv_obj_set_style_bg_color(bar, UI_FILL, 0);
+        lv_obj_set_style_bg_color(bar, UI_DATA, 0);
         lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(bar, 1, 0);
         lv_obj_set_style_border_color(bar, UI_INK, 0);
@@ -139,7 +139,7 @@ static void draw_curve(lv_obj_t *p)
         lv_obj_remove_style_all(b);
         lv_obj_set_pos(b, x0 + i * bw, y0 + h - bh);
         lv_obj_set_size(b, bw > 2 ? bw - 1 : bw, bh);
-        lv_obj_set_style_bg_color(b, UI_FILL, 0);
+        lv_obj_set_style_bg_color(b, UI_DATA, 0);
         lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(b, 1, 0);
         lv_obj_set_style_border_color(b, UI_INK, 0);

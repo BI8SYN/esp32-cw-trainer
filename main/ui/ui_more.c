@@ -59,7 +59,7 @@ lv_obj_t *ui_more_create(void)
         lv_obj_t *c = ui_cell(scr, names[i], UI_FONT_CN, cbs[i], NULL);
         lv_obj_set_pos(c, 0, UI_TOPBAR_H + i * h);
         lv_obj_set_size(c, 320, h);
-        lv_obj_set_style_border_side(c, i < n - 1 ? LV_BORDER_SIDE_BOTTOM : LV_BORDER_SIDE_NONE, 0);
+        /* 分隔靠 ui_cell 自带的浮雕，不再手写底边——手写会覆盖浮雕的边框色 */
     }
     return scr;
 }

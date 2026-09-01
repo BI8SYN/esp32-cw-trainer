@@ -17,6 +17,11 @@ void ui_plain(lv_obj_t *o);
    所以 13 处 border_side 调用其实都是同一件事。 */
 void ui_rule(lv_obj_t *o, lv_border_side_t side, lv_color_t color);
 
+/* 1px 浮雕：凸起是上左亮、下右暗，凹陷反过来。
+   调用者必须保证对象的 border_width 已经是 1（ui_bevel 自己会设），
+   且 pad 为 0 或自行承担 1px 的内容内缩。 */
+void ui_bevel(lv_obj_t *o, bool raised);
+
 void      ui_nav_show(ui_screen_builder_t builder);
 lv_obj_t *ui_screen_create(void);
 /* 返回的顶栏对象可以继续往右侧加控件（主页的齿轮/电量就是这样接上去的）。

@@ -1,4 +1,5 @@
 #include "ui_keyer.h"
+#include "ui_assets.h"
 #include <stdio.h>
 #include <string.h>
 #include "ui_common.h"
@@ -116,7 +117,9 @@ static void hl_tick(lv_timer_t *t)
            失效重绘，每 50ms 无脑重写一次会让电键块持续闪烁。 */
         if (down == h->last[i]) continue;
         h->last[i] = down;
-        lv_obj_set_style_bg_color(h->pad[i], down ? UI_PRESSED : UI_RAISE, 0);
+        lv_obj_set_style_bg_color(h->pad[i], down ? UI_BRASS_DK : UI_BRASS, 0);
+        /* 底色一深，铜面上的刻字就得翻浅，否则按住的时候字直接看不见了 */
+        lv_obj_set_style_text_color(h->pad[i], down ? UI_PAPER : UI_BRASS_INK, 0);
     }
 }
 
@@ -125,6 +128,26 @@ static void hl_free(lv_event_t *e)
     pad_hl_t *h = lv_event_get_user_data(e);
     lv_timer_del(h->timer);
     lv_mem_free(h);
+}
+
+/*
+ * 把一块普通的抬高面变成黄铜。
+ *
+ * 电键页是全工程唯一做「真材质」的地方——因为它是唯一一个屏幕元素直接对应
+ * 用户手上真实物件（电键桨）的页面，拟物在这里承载真实语义，不是装饰。
+ *
+ * 材质 = 平涂铜色 + 横向拉丝纹 + 浮雕，**没有渐变**。素材样机第 2 页实测这块
+ * 屏连离线抖动过的渐变都有可见台阶；而金属的立体感本来就来自边缘明暗和拉丝
+ * 方向，不来自表面的高光过渡。2KB 的 32x32 拉丝瓦片铺满两块桨。
+ */
+static void brass(lv_obj_t *pad)
+{
+    lv_obj_set_style_bg_color(pad, UI_BRASS, 0);
+    lv_obj_set_style_bg_color(pad, UI_BRASS_DK, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_img_src(pad, &ui_grain_brass, 0);
+    lv_obj_set_style_bg_img_tiled(pad, true, 0);
+    lv_obj_set_style_text_color(pad, UI_BRASS_INK, 0);
+    lv_obj_set_style_text_color(pad, UI_PAPER, LV_STATE_PRESSED);
 }
 
 void ui_keyer_paddles(lv_obj_t *parent, int y, int h, lv_obj_t *out[2])
@@ -147,6 +170,7 @@ void ui_keyer_paddles(lv_obj_t *parent, int y, int h, lv_obj_t *out[2])
         lv_obj_set_pos(pad[0], 0, y);
         lv_obj_set_size(pad[0], 320, h);
         lv_obj_add_event_cb(pad[0], pad_cb, LV_EVENT_ALL, (void *)0);
+        brass(pad[0]);
     } else {
         for (int i = 0; i < 2; i++) {
             /* 字体必须是 UI_FONT_CN(font20, 3888 字形)。UI_FONT_MID(font28) 和
@@ -157,6 +181,7 @@ void ui_keyer_paddles(lv_obj_t *parent, int y, int h, lv_obj_t *out[2])
             lv_obj_set_pos(pad[i], i * 160, y);
             lv_obj_set_size(pad[i], 160, h);
             lv_obj_add_event_cb(pad[i], pad_cb, LV_EVENT_ALL, (void *)(intptr_t)i);
+            brass(pad[i]);
         }
     }
 
@@ -165,8 +190,8 @@ void ui_keyer_paddles(lv_obj_t *parent, int y, int h, lv_obj_t *out[2])
      * 各页面自己轮询，是因为电键页、对练页、手法页都铺这同一组桨——按外接电键
      * 时屏幕跟着亮，三个页面一行都不用改就都有了。
      *
-     * 触摸按下的高亮不归它管：make_btn() 已经给 LV_STATE_PRESSED 配了
-     * UI_GRAY_DOWN，这里走 LV_PART_MAIN 的默认态，同色，两条路径看起来一样。
+     * 触摸按下的高亮不归它管：brass() 已经给 LV_STATE_PRESSED 配了 UI_BRASS_DK，
+     * 这里走 LV_PART_MAIN 的默认态，同色，两条路径看起来一样。
      */
     pad_hl_t *hl = lv_mem_alloc(sizeof *hl);
     if (hl) {

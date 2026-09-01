@@ -220,9 +220,8 @@ lv_obj_t *ui_home_create(void)
     lv_obj_set_style_shadow_width(card, 0, 0);
     lv_obj_set_style_bg_color(card, UI_RAISE, 0);
     lv_obj_set_style_bg_color(card, UI_SUNK, LV_STATE_PRESSED);
-    lv_obj_set_style_border_width(card, 1, 0);
-    lv_obj_set_style_border_side(card, LV_BORDER_SIDE_RIGHT, 0);
-    lv_obj_set_style_border_color(card, UI_INK, 0);
+    /* 卡片是抬起来的一块纸，不是画了右边线的一个区域 */
+    ui_bevel(card, true);
     lv_obj_set_style_pad_all(card, 8, 0);
     /* 默认主题给按下状态加了 transform_width/height 放大 + 80ms 缓动动画；
        phase 1 禁止任何动画，这里显式清零覆盖 */
@@ -238,6 +237,9 @@ lv_obj_t *ui_home_create(void)
     lv_obj_t *l1 = lv_label_create(card);
     /* 含中文（"第...课"），必须留在屏幕默认的 UI_FONT_CN，不能设成 UI_FONT_MID/UI_FONT_BIG（无中文字形） */
     lv_obj_set_style_text_color(l1, UI_INK, 0);
+    /* 主页唯一的标题，用 28px 宋体——这是全工程第一处中文能比正文大一号的
+       地方，也正是「中文只有一级字号」这个瓶颈最该先被打破的位置。 */
+    lv_obj_set_style_text_font(l1, UI_FONT_TITLE, 0);
     lv_label_set_text_fmt(l1, "KOCH 第 %u 课", cfg->koch_lesson);
     lv_obj_align(l1, LV_ALIGN_TOP_LEFT, 0, 0);
 
@@ -282,7 +284,8 @@ lv_obj_t *ui_home_create(void)
         lv_obj_t *c = ui_cell(s_scr, names[i], UI_FONT_CN, cbs[i], NULL);
         lv_obj_set_pos(c, 200, top + i * h);
         lv_obj_set_size(c, 120, h);
-        lv_obj_set_style_border_side(c, i < 3 ? LV_BORDER_SIDE_BOTTOM : LV_BORDER_SIDE_NONE, 0);
+        /* 不再手写分隔线：ui_cell 现在自带凸起浮雕，再画一条底边会把浮雕的
+           上左亮线覆盖掉（一个对象一个状态只有一种 border_color）。 */
     }
 
     s_dimmed = false;

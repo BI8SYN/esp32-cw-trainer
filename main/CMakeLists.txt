@@ -25,6 +25,9 @@ endif()
 # 画面指纹：开机自动把每个页面建一遍、对刷向屏幕的像素算指纹打到串口。
 # 用来给「不该改变观感」的重构做验收，见 screenshot.c 顶部说明。
 option(CW_SCREENSHOT "编入画面指纹巡检" OFF)
+# 导图：除指纹外把像素 base64 出串口，主机端拼 PNG。慢（每页约 18 秒），
+# 只在需要肉眼确认长相时开。
+option(CW_SCREENSHOT_DUMP "巡检时同时导出图像" OFF)
 if(CW_SCREENSHOT)
     list(APPEND probe_srcs "screenshot.c")
 endif()
@@ -59,6 +62,7 @@ idf_component_register(
         "backlight.c"
         "battery.c"
         "ui/ui_common.c"
+        "ui/ui_assets.c"
         "ui/ui_icons.c"
         "ui/ui_home.c"
         "ui/ui_preview.c"
@@ -100,4 +104,7 @@ if(CW_STYLE_PROBE)
 endif()
 if(CW_SCREENSHOT)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE CW_SCREENSHOT=1)
+    if(CW_SCREENSHOT_DUMP)
+        target_compile_definitions(${COMPONENT_LIB} PRIVATE CW_SCREENSHOT_DUMP=1)
+    endif()
 endif()

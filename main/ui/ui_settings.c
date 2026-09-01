@@ -442,6 +442,15 @@ static void fill_list(void)
         lv_obj_set_pos(row, 0, i * 42);
         lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
         lv_obj_align(lv_obj_get_child(row, 0), LV_ALIGN_LEFT_MID, 8, 0);
+        /*
+         * 危险操作要看得出来是危险操作。在此之前「恢复出厂设置」和「屏幕亮度」
+         * 长得一模一样——有二次确认，但整个界面上没有任何一处视觉警示，工艺
+         * 规则那条「危险操作 = 二次确认 + 红色」只做到了一半。
+         *
+         * 设在 row 上而不是 label 上：文字颜色会往子对象继承，右侧的值标签
+         * （IT_RESET 没有值，但保持一致）也跟着走。
+         */
+        if (it->type == IT_RESET) lv_obj_set_style_text_color(row, UI_DANGER, 0);
         lv_obj_t *vl = lv_label_create(row);
         if (it->type == IT_INFO) lv_label_set_text(vl, v);
         else lv_label_set_text_fmt(vl, "%s >", v);

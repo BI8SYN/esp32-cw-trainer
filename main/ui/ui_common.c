@@ -1,4 +1,5 @@
 #include "ui_common.h"
+#include "ui_assets.h"
 
 /* 默认主题除了 grow（已在 make_btn/home 卡片清零 transform_width/height）以外，还
    无条件给每个 lv_btn_class 挂了两份 transition：
@@ -49,6 +50,10 @@ lv_obj_t *ui_screen_create(void)
 {
     lv_obj_t *scr = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr, UI_PAPER, 0);
+    /* 纸纤维。32x32 平铺，2KB 素材铺满整屏——这是这块屏唯一能可靠表现的
+       「材质」：连续色调做不出来（有色带），噪点反而正合适。 */
+    lv_obj_set_style_bg_img_src(scr, &ui_grain_paper, 0);
+    lv_obj_set_style_bg_img_tiled(scr, true, 0);
     lv_obj_set_style_pad_all(scr, 0, 0);
     lv_obj_set_style_radius(scr, 0, 0);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
@@ -72,6 +77,38 @@ void ui_rule(lv_obj_t *o, lv_border_side_t side, lv_color_t color)
     lv_obj_set_style_border_color(o, color, 0);
 }
 
+/*
+ * 浮雕要四条边分两种颜色，而 LVGL 一个对象在一个状态下只能有一个 border_color。
+ * 所以拆成两层：对象自己画上左，再叠一个背景透明的子对象画下右。
+ *
+ * 一个元素多一个对象——不是四个。最坏情况是练习页 41 个键，41 个对象量级完全
+ * 吃得下（这块板没有 PSRAM，可用堆约 100KB，必须掐着算）。
+ *
+ * 子对象的尺寸这样对齐：父对象 border_width=1 会让内容区四周各缩 1px，所以
+ * LV_PCT(100) 的子对象是 (w-2, h-2) 放在 (1,1)；再用 transform_width/height
+ * 各向外扩 1px，绘制范围正好回到 (0,0)-(w-1,h-1)，与父对象的盒子严丝合缝。
+ * 直接写死尺寸不行——建的时候布局还没跑，宽高还取不到。
+ */
+void ui_bevel(lv_obj_t *o, bool raised)
+{
+    lv_obj_set_style_border_width(o, 1, 0);
+    lv_obj_set_style_border_side(o, LV_BORDER_SIDE_TOP | LV_BORDER_SIDE_LEFT, 0);
+    lv_obj_set_style_border_color(o, raised ? UI_HILITE : UI_SHADE, 0);
+
+    lv_obj_t *in = lv_obj_create(o);
+    lv_obj_remove_style_all(in);
+    lv_obj_set_size(in, LV_PCT(100), LV_PCT(100));
+    lv_obj_align(in, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_style_transform_width(in, 1, 0);
+    lv_obj_set_style_transform_height(in, 1, 0);
+    lv_obj_set_style_border_width(in, 1, 0);
+    lv_obj_set_style_border_side(in, LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_RIGHT, 0);
+    lv_obj_set_style_border_color(in, raised ? UI_SHADE : UI_HILITE, 0);
+    /* lv_obj_create 默认带 CLICKABLE，不清掉会把父按钮的点击吃掉 */
+    lv_obj_clear_flag(in, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(in, LV_OBJ_FLAG_SCROLLABLE);
+}
+
 lv_obj_t *ui_topbar(lv_obj_t *parent, const char *title, lv_event_cb_t back_cb)
 {
     lv_obj_t *bar = lv_obj_create(parent);
@@ -79,7 +116,10 @@ lv_obj_t *ui_topbar(lv_obj_t *parent, const char *title, lv_event_cb_t back_cb)
     lv_obj_set_size(bar, LV_PCT(100), UI_TOPBAR_H);
     lv_obj_set_pos(bar, 0, 0);
     lv_obj_set_style_bg_color(bar, UI_PAPER, 0);
-    ui_rule(bar, LV_BORDER_SIDE_BOTTOM, UI_INK);
+    lv_obj_set_style_bg_opa(bar, LV_OPA_TRANSP, 0);  /* 透出页面底纹，别在顶栏切一刀 */
+    /* 顶栏不再画整条黑线：有了纸底和浮雕之后，一条 ink 实线过重。
+       降到 rule（#D3C6AC），分隔仍在，但不再抢注意力。 */
+    ui_rule(bar, LV_BORDER_SIDE_BOTTOM, UI_RULE);
 
     int x = 6;
     if (back_cb) {
@@ -122,15 +162,24 @@ static lv_obj_t *make_btn(lv_obj_t *parent, const char *text, const lv_font_t *f
     lv_obj_set_style_bg_color(b, UI_RAISE, 0);
     lv_obj_set_style_bg_color(b, UI_PRESSED, LV_STATE_PRESSED);
     lv_obj_set_style_bg_color(b, UI_RAISE, LV_STATE_DISABLED);
-    lv_obj_set_style_border_width(b, 1, 0);
-    lv_obj_set_style_border_color(b, UI_INK, 0);
-    lv_obj_set_style_border_color(b, UI_DISABLED, LV_STATE_DISABLED);
     lv_obj_set_style_text_color(b, UI_INK, 0);
     lv_obj_set_style_text_color(b, UI_DISABLED, LV_STATE_DISABLED);
     lv_obj_t *l = lv_label_create(b);
     lv_label_set_text(l, text);
     lv_obj_set_style_text_font(l, font, 0);
     lv_obj_center(l);
+    /*
+     * 凸起浮雕代替原来的整圈黑框。纸面上一圈 ink 实线太重，而「抬起来」本来就
+     * 该靠边缘明暗表达、不靠描边——这是压印质感和描边风格的分界。
+     *
+     * **必须加在标签之后**：ui_bevel 会往按钮里塞一个子对象，而 ui_callsign.c、
+     * ui_practice.c、ui_settings.c、ui_ota.c 共 6 处都在拿 lv_obj_get_child(btn, 0)
+     * 当标签用。加在前面会让它们全部错位，且编译不报错。
+     *
+     * 按下时不翻转浮雕、只塌背景色：翻转要给子对象也挂按下态样式，而 LVGL 的
+     * 状态不向子对象传播，代价远大于收益。
+     */
+    ui_bevel(b, true);
     if (cb) lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, user);
     return b;
 }
@@ -154,7 +203,7 @@ lv_obj_t *ui_notice(lv_obj_t *parent, const char *text)
     lv_obj_set_size(n, LV_PCT(100), UI_NOTICE_H);
     lv_obj_set_pos(n, 0, UI_TOPBAR_H);
     lv_obj_set_style_bg_color(n, UI_SUNK, 0);
-    ui_rule(n, LV_BORDER_SIDE_BOTTOM, UI_INK);
+    ui_bevel(n, false);   /* 提示条是压进纸里的一条，不是浮起来的 */
     lv_obj_t *l = lv_label_create(n);
     lv_label_set_text(l, text);
     lv_obj_align(l, LV_ALIGN_LEFT_MID, 6, 0);

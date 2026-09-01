@@ -5,62 +5,88 @@
 /*
  * 设计 token 的唯一出处。视觉方案见 docs/design/cw-trainer-visual-direction.html。
  *
- * ── 为什么现在的值还是黑白灰 ──
+ * 复古电报房：纸底墨字，铜色只用来说明「现在轮到这里」。
  *
- * 这个文件是**先立名字，后换值**。方案定的是纸底墨字铜 accent，但换色是下一步；
- * 这一步只把名字从「长什么样」（WHITE / BLACK / GRAY）改成「是什么角色」
- * （PAPER / INK / SUNK），值一个不动。这样改完屏幕必须逐像素不变——而这是能被
- * screenshot.c 的指纹巡检直接验证的，不用靠肉眼。
+ * ── 所有值都是按 RGB565 量化后重算过对比度的 ──
  *
- * 反过来说，如果现在就连名带值一起换，那就同时改了两件事，出了问题分不清是
- * 「改名改错了」还是「新颜色不对」。
+ * 这块屏是 16 位色，设计稿上的值不等于屏上的值。表里注的对比度是**量化之后**
+ * 算的，不是设计值算的。原本选的暖铜 #A8641E 量化后在纸底上只有 3.67:1，做正文
+ * 不合格，只能做填充——那就得拆成「填充铜」和「文字铜」两个 token，等于两个
+ * accent。压到 #945418 拿到 4.78:1，一个值同时能做文字和填充。少一个 token 比
+ * 多一点艳度值钱。
  *
- * ── 为什么按角色分，而不是按颜色分 ──
+ * ── 没有渐变 ──
  *
- * 今天 UI_GRAY_DOWN(0x999999) 同时干两件事：按钮按下的背景、禁用态的字和边框。
- * 在纸面方案里这两件事是不同的 token（凹陷面 sunk vs 占位色 ink3）。现在就把它
- * 拆成 UI_PRESSED 和 UI_DISABLED 两个名字、值都仍是 0x999999，等换色时它们各自
- * 走各自的新值即可，不必再回头考古每个调用点当初是哪个意思。
+ * 素材样机第 2 页实测：这块屏连离线 Floyd-Steinberg 抖动过的渐变都有可见台阶。
+ * 所以立体感全部由 UI_HILITE / UI_SHADE 这两条 1px 线承担（实测隔着电阻屏的
+ * 雾面膜依然可辨），质感由 ui_assets.c 里的平铺噪点承担。
  *
- * 同理，多个 token 现在指向同一个值（比如 UI_RULE 和 UI_INK 都是黑）。这不是
- * 冗余，是**把「今天恰好相同」和「本来就该相同」区分开**。
+ * 这不是退让：电报房本来就该是压印质感，不是玻璃光泽——纸、铅字、黄铜刻痕的
+ * 立体感本来就来自边缘明暗，不来自表面高光。
  */
 
 /* ── 面：从下到上 ───────────────────────────────────────── */
-#define UI_PAPER     lv_color_hex(0xFFFFFF)  /* 页面底                     → 纸底 */
-#define UI_RAISE     lv_color_hex(0xFFFFFF)  /* 抬高面：按钮/键帽/输入格底 → 抬高面 */
-#define UI_SUNK      lv_color_hex(0xEEEEEE)  /* 凹陷面：提示条底、卡片按下 → 凹陷面 */
-#define UI_PRESSED   lv_color_hex(0x999999)  /* 按钮按下的底               → 凹陷面 */
+#define UI_PAPER     lv_color_hex(0xEFE6D4)  /* 页面底 */
+#define UI_RAISE     lv_color_hex(0xF7F1E4)  /* 抬高面：按钮/键帽/卡片/对话框 */
+#define UI_SUNK      lv_color_hex(0xE4D9C3)  /* 凹陷面：提示条、输入格、状态带 */
+#define UI_PRESSED   lv_color_hex(0xE4D9C3)  /* 按钮按下：抬高面塌成凹陷面 */
 
-/* ── 墨 ─────────────────────────────────────────────────── */
-#define UI_INK       lv_color_hex(0x000000)  /* 主文、主结构线             → ink */
-#define UI_INK2      lv_color_hex(0x000000)  /* 次要文：标签、单位         → ink2 */
-#define UI_DISABLED  lv_color_hex(0x999999)  /* 禁用的字与边框             → ink3 */
-#define UI_RULE      lv_color_hex(0x000000)  /* 组内次级分割线             → rule */
+/* ── 墨（对比度按量化后实算，纸底为参照）───────────────── */
+#define UI_INK       lv_color_hex(0x2A2118)  /* 主文、主结构线      12.98:1 */
+#define UI_INK2      lv_color_hex(0x6B5D4A)  /* 次要文：标签、单位   5.19:1 */
+#define UI_DISABLED  lv_color_hex(0x8F7F67)  /* 禁用/占位            3.26:1，不承载必读信息 */
+#define UI_RULE      lv_color_hex(0xD3C6AC)  /* 组内次级分割线       1.36:1，是线不是字 */
 
-/* ── accent：今天还没有，先退化成墨色 ─────────────────────
-   现在用它 = 现在不变样，换色时自动变成铜色。比等到换色那天再去
-   一处处找「哪些黑其实是主操作」要可靠得多。 */
-#define UI_ACCENT    lv_color_hex(0x000000)  /* 主操作、进度、当前项       → copper */
-#define UI_DANGER    lv_color_hex(0x000000)  /* 危险操作、答错            → danger */
+/* ── 唯一的 accent。整屏不超过两处，且必须编码同一件事：
+      「现在轮到这里 / 这是主操作」。不用它做标题、图标、装饰。 ── */
+#define UI_ACCENT    lv_color_hex(0x945418)  /* 主操作、进度、当前项  4.78:1 */
+#define UI_DANGER    lv_color_hex(0x9C2B1B)  /* 危险操作、答错        6.25:1 */
 
-/* ── 三个今天都是 0x999999、明天各走各路的角色 ────────────
-   现在它们同值，纯属巧合；把巧合和「本来就该相同」分开，是这一步的全部意义。 */
-#define UI_SELECTED  lv_color_hex(0x999999)  /* 当前选中的 tab / 选项      → 待定：凹陷面或 accent */
-#define UI_FILL      lv_color_hex(0x999999)  /* 数据填充：进度条、柱状图   → copper */
-#define UI_GRID      lv_color_hex(0x999999)  /* 图表参考线、网格线         → rule */
+/* ── 三个曾经同为 0x999999、现在各归各位的角色 ──────────── */
+/* 选中态定成凹陷面而不是铜色：有了浮雕之后「凹进去」本身就读作「按住了 /
+   现在在这里」，而铜色要留给每屏唯一的那个主操作，不能被 tab 抢走。 */
+#define UI_SELECTED  lv_color_hex(0xE4D9C3)  /* 当前选中的 tab / 选项 */
+#define UI_FILL      lv_color_hex(0x945418)  /* 进度填充。只给「正在进行」用 */
+/* 图表的柱子。**不能用铜色**：统计页一屏八根柱子全铜，直接违反「整屏铜色
+   不超过两处」——真机导图上一眼就看出来了。数据是墨，铜色留给「现在轮到
+   这里」。值与 UI_INK2 相同，角色不同：那是次要文字，这是数据。 */
+#define UI_DATA      lv_color_hex(0x6B5D4A)
+#define UI_GRID      lv_color_hex(0xD3C6AC)  /* 图表参考线、网格线 */
 
-/* ── 浮雕的两条 1px 线。拟物层用，今天全是白/灰，等于不可见 ── */
-#define UI_HILITE    lv_color_hex(0xFFFFFF)  /* 受光边 */
-#define UI_SHADE     lv_color_hex(0xEEEEEE)  /* 背光边 */
+/* ── 浮雕的两条 1px 线。凸起 = 上左亮、下右暗，凹陷反过来。 ── */
+#define UI_HILITE    lv_color_hex(0xFFFBF0)  /* 受光边 */
+/* 背光边 #9C8C6E：对纸底 2.63:1。原来定的 #B5A88C 只有 1.88:1，真机导图上
+   「更多练习」那种整宽格子糊成了一整片——抬高面和纸底本来就只差 1.11:1，
+   分隔全靠这条线，1.88 撑不住。再深就要开始和正文抢注意力了。 */
+#define UI_SHADE     lv_color_hex(0x9C8C6E)
+
+/* ── 黄铜。是 accent 同色相的明暗两档，只做填充不做文字，
+      所以色板仍然是「纸阶 + 一个铜色相」，不是新增 accent。 ── */
+#define UI_BRASS     lv_color_hex(0xA8763C)  /* 常态。纸底上 3.17:1，非文字够用 */
+#define UI_BRASS_DK  lv_color_hex(0x6E4A18)  /* 按下 */
+/* 铜面上的刻字。不能用 UI_INK：#2A2118 压在黄铜上只有 4.09:1，差一点点到
+   正文下限；压到 #1F1608 拿到 4.70:1。按下态的字直接用 UI_PAPER（6.59:1）。 */
+#define UI_BRASS_INK lv_color_hex(0x1F1608)
 
 /* ── 字体 ───────────────────────────────────────────────── */
 LV_FONT_DECLARE(font20);
 LV_FONT_DECLARE(font28);
 LV_FONT_DECLARE(EN_BIG);
+LV_FONT_DECLARE(font28cn);
 #define UI_FONT_CN   (&font20)   /* 正文，行高 26，唯一含中文的一级 */
 #define UI_FONT_MID  (&font28)   /* 中号，行高 37，仅 ASCII */
 #define UI_FONT_BIG  (&EN_BIG)   /* 大号，行高 82，仅 ASCII */
+/*
+ * 标题：28px 思源宋，行高 32，含中文。由 tools/gen_title_font.sh 生成。
+ *
+ * 这是全工程第二级能显示中文的字号——在它之前中文只有 UI_FONT_CN 一级，
+ * 中文文案之间做不出大小对比，主次只能靠位置区分。
+ *
+ * **不要拿它进顶栏**：顶栏只有 UI_TOPBAR_H=28 高，装不下行高 32 的字，
+ * LVGL 会当成溢出、把文字往下偏并打开滚动（ui_common.c 里返回箭头那段
+ * 注释记的就是同一个坑）。顶栏标题继续用 UI_FONT_CN。
+ */
+#define UI_FONT_TITLE (&font28cn)
 /*
  * 顶栏状态用的小号数字（行高 17）。项目自带的三个字体行高分别是 26/37/82，
  * 在顶栏里和 16px 的图标并排都显得头重脚轻。
