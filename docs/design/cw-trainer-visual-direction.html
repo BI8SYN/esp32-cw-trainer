@@ -726,6 +726,14 @@ footer{font-family:var(--mono);font-size:11.5px;color:var(--t2);text-align:cente
     <p style="margin-top:8px">顺带修掉一个先前就存在的坑：那几个顶栏 <code>ui_button</code> 全被写死成高 <strong>24</strong>，比 26 的行高还矮——内容比容器高，LVGL 会当溢出处理，文字下偏还会打开滚动。<code>ui_common.c</code> 里返回箭头那段注释警告过同一件事，但没人回头检查别处。</p>
   </div>
 
+  <div class="note">
+    <b>第五轮：深度要编码信息，不是拿来装饰</b>
+    <p><strong>对练页改成三档深度，各自说一件事：井（凹）装内容、状态带（平）是页面本身、电键桨（凸）可以按。</strong>上一版是反的——状态带被做成了凹槽，而真正装内容的收报区却和页面一样平，深度没有编码任何信息。像素实测：<code>y=32</code> 井的上沿暗线 <code>#9C8D6A</code> → <code>y=33..127</code> 井面 <code>#E6DAC5</code> → <code>y=128..152</code> 纸底带噪点纹理 → <code>y=160+</code> 黄铜。</p>
+    <p style="margin-top:8px"><strong>呼号不再套容器。</strong>它先是「黑底白字」（上一版高对比主题的遗留），我改成过凹陷的一枚戳——两个都不对，而且错在同一处：<strong>容器本身就是错的选择</strong>。工艺规则里分组的次序是「留白 &gt; 分割线 &gt; 容器」，容器是最后一档，我却一上来就用了它；而日志区一屏七八条记录就是七八个视觉噪点。更要命的是，在这套语言里凹陷/凸起编码的是「能不能按」，呼号根本不可点，给它浮雕是在撒谎。现在靠字色分主次：呼号主文墨（井上 11.64:1），报文次要墨（4.65:1），每行呼号的左边缘天然对齐，那条对齐边就是扫读用的栏——电报底稿本来就是这么排的。</p>
+    <p style="margin-top:8px"><strong>电键桨上的「点」「划」改成图形。</strong>两个理由：字号受字体限制（<code>font20</code> 行高 26，塞不出一个够大的点），而图形想多大有多大；更重要的是 <strong>点划长度比 1:3 是莫尔斯的定义本身</strong>，画出来就把这条规则摆在了桨上，而两个汉字一点都不携带这个信息——这台机器是训练器，桨面本来就该是教材。颜色跟着按下态翻：常态刻在铜面上 7.11:1，按下时铜面被 recolor 压到 <code>#845E29</code>，刻痕会掉到 3.13:1 发灰，所以翻成纸色（4.77:1）。</p>
+    <p style="margin-top:8px"><strong>工具链的一个洞：</strong><code>check_charset.py</code> 扫 <code>main/**</code> 全部文件，<strong>开发专用的文件也能撑大发布版字库</strong>——实测 <code>screenshot.c</code> 里一句中文调试 printf 就让自检报错、逼着往字库里加字。已排除 <code>screenshot.c</code> / <code>ui_probe.c</code>，并把那句 printf 改成 ASCII（串口诊断本来也不该用中文）。</p>
+  </div>
+
   <h3>怎么再看一次</h3>
   <p>指纹巡检（快，秒回，回答「变了没有」）：</p>
   <p><code>PROJECT=firmware/cw-trainer tools/idf.sh -DCW_SCREENSHOT=ON build &amp;&amp; tools/flash_remote.sh --monitor</code></p>

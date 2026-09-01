@@ -103,6 +103,7 @@ static void pad_cb(lv_event_t *e)
  */
 typedef struct {
     lv_obj_t   *pad[2];
+    lv_obj_t   *mark[2];   /* 桨面上的点/划图形，颜色要跟着一起翻 */
     bool        last[2];
     lv_timer_t *timer;
 } pad_hl_t;
@@ -123,6 +124,8 @@ static void hl_tick(lv_timer_t *t)
         lv_obj_set_style_bg_img_recolor(h->pad[i], UI_BRASS_DK, 0);
         lv_obj_set_style_bg_img_recolor_opa(h->pad[i], down ? 190 : 0, 0);
         lv_obj_set_style_text_color(h->pad[i], down ? UI_PAPER : UI_BRASS_INK, 0);
+        /* 触摸按下走 mark_state_cb，外接电键走这里，两条路必须给同一个结果 */
+        if (h->mark[i]) lv_obj_set_style_bg_color(h->mark[i], down ? UI_PAPER : UI_BRASS_INK, 0);
     }
 }
 
@@ -164,6 +167,43 @@ static void brass(lv_obj_t *pad)
     lv_obj_set_style_bg_img_recolor_opa(pad, 190, LV_STATE_PRESSED);
 }
 
+/*
+ * 点和划画成图形，不写成汉字。
+ *
+ * 两个理由。一是尺寸：字号受字体限制，font20 的行高就是 26，塞不出一个够大的
+ * 点；图形想多大有多大。二是信息：**点划长度比 1:3 是莫尔斯的定义本身**，
+ * 画出来就把这条规则摆在了桨上，而「点」「划」两个汉字一点都不携带这个信息。
+ * 这台机器是训练器，桨面本来就该是教材。
+ *
+ * 颜色要跟着按下态翻：常态刻在铜面上是 7.11:1，按下时铜面被 recolor 压到
+ * #845E29，刻痕掉到 3.13:1 会明显发灰，所以翻成纸色（4.77:1）。子对象拿不到
+ * 父对象的 LV_STATE_PRESSED，只能自己挂事件——和 ui_bevel 里同一套路数。
+ */
+#define MARK_UNIT 22        /* 一个「点」的直径；划是它的三倍长 */
+
+static void mark_state_cb(lv_event_t *e)
+{
+    lv_obj_t *m = lv_event_get_user_data(e);
+    bool down = lv_event_get_code(e) == LV_EVENT_PRESSED;
+    lv_obj_set_style_bg_color(m, down ? UI_PAPER : UI_BRASS_INK, 0);
+}
+
+static lv_obj_t *pad_mark(lv_obj_t *pad, bool dash)
+{
+    lv_obj_t *m = lv_obj_create(pad);
+    lv_obj_remove_style_all(m);
+    lv_obj_set_size(m, dash ? MARK_UNIT * 3 : MARK_UNIT, MARK_UNIT);
+    lv_obj_set_style_radius(m, dash ? MARK_UNIT / 2 : LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(m, UI_BRASS_INK, 0);
+    lv_obj_set_style_bg_opa(m, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(m, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_center(m);
+    lv_obj_add_event_cb(pad, mark_state_cb, LV_EVENT_PRESSED, m);
+    lv_obj_add_event_cb(pad, mark_state_cb, LV_EVENT_RELEASED, m);
+    lv_obj_add_event_cb(pad, mark_state_cb, LV_EVENT_PRESS_LOST, m);
+    return m;
+}
+
 void ui_keyer_paddles(lv_obj_t *parent, int y, int h, lv_obj_t *out[2])
 {
     const cw_settings_t *cfg = cw_settings_get();
@@ -177,6 +217,7 @@ void ui_keyer_paddles(lv_obj_t *parent, int y, int h, lv_obj_t *out[2])
     s_pad_split = straight ? 320 : 160;   /* 直键整块都算左块 */
 
     lv_obj_t *pad[2] = { NULL, NULL };
+    lv_obj_t *mark[2] = { NULL, NULL };
     if (straight) {
         /* 直键只有一个触点，铺成一整条。三个页面都走这里，所以对练页和手法页
            在直键模式下不会再出现"两块桨但右边那块根本不接线"的情况。 */
@@ -187,15 +228,14 @@ void ui_keyer_paddles(lv_obj_t *parent, int y, int h, lv_obj_t *out[2])
         brass(pad[0]);
     } else {
         for (int i = 0; i < 2; i++) {
-            /* 字体必须是 UI_FONT_CN(font20, 3888 字形)。UI_FONT_MID(font28) 和
-             * EN_BIG 都只有 96 个 ASCII 字形、不含中文，"点""划"会变成豆腐块。 */
-            /* 开了左右对调，标签跟着换：左块印"划"、右块印"点"。不换的话左块
-               印着"点"却发出划，标签就在撒谎。 */
-            pad[i] = ui_cell(parent, (i == 0) != swap ? "点" : "划", UI_FONT_CN, NULL, NULL);
+            /* 开了左右对调，图形跟着换：左块画划、右块画点。不换的话左块画着
+               点却发出划，桨面就在撒谎。 */
+            pad[i] = ui_cell(parent, "", UI_FONT_CN, NULL, NULL);
             lv_obj_set_pos(pad[i], i * 160, y);
             lv_obj_set_size(pad[i], 160, h);
             lv_obj_add_event_cb(pad[i], pad_cb, LV_EVENT_ALL, (void *)(intptr_t)i);
             brass(pad[i]);
+            mark[i] = pad_mark(pad[i], (i == 0) == swap);
         }
     }
 
@@ -211,6 +251,8 @@ void ui_keyer_paddles(lv_obj_t *parent, int y, int h, lv_obj_t *out[2])
     if (hl) {
         hl->pad[0] = pad[0];
         hl->pad[1] = pad[1];
+        hl->mark[0] = mark[0];
+        hl->mark[1] = mark[1];
         hl->last[0] = hl->last[1] = false;
         hl->timer = lv_timer_create(hl_tick, 50, hl);
         lv_obj_add_event_cb(pad[0], hl_free, LV_EVENT_DELETE, hl);

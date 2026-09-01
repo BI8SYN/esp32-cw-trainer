@@ -178,7 +178,7 @@ static lv_obj_t *pick_clickable(lv_obj_t *o, bool last, lv_obj_t *found)
 static void shot_pressed(const char *name, bool last)
 {
     lv_obj_t *btn = pick_clickable(lv_scr_act(), last, NULL);
-    if (!btn) { printf("SNAP-SKIP %s 无可点对象\n", name); return; }
+    if (!btn) { printf("SNAP-SKIP %s no clickable\n", name); return; }
     /* 两条路都要走：背景色是状态驱动的（LV_STATE_PRESSED），浮雕翻转是事件
        驱动的（LV_EVENT_PRESSED）。真手指按下时 LVGL 两者都会给，这里补齐。 */
     lv_obj_add_state(btn, LV_STATE_PRESSED);

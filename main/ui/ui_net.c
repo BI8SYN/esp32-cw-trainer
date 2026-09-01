@@ -126,31 +126,32 @@ static lv_obj_t *row_make(lv_obj_t *box, const char *who, const char *txt,
     /* 顶对齐：内容折成两行时，呼号牌要停在第一行，不能被扯到中间去。 */
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START,
                           LV_FLEX_ALIGN_START);
-    lv_obj_set_style_pad_column(row, 5, 0);
+    lv_obj_set_style_pad_column(row, 8, 0);   /* 上 8px 网格；呼号与报文之间靠这段留白分开 */
     lv_obj_set_style_pad_bottom(row, 3, 0);
 
     lv_obj_t *badge = lv_label_create(row);
     lv_obj_set_style_text_font(badge, UI_FONT_CN, 0);
     /*
-     * 呼号牌。原来是「黑底白字」——那是上一版高对比主题的写法，搬到纸面上
-     * 就是一块块突兀的黑疤，而且日志区每一行都有一个，越多越吵。
+     * 呼号不套容器。
      *
-     * 改成压进纸里的一枚戳：凹陷面加凹陷浮雕，字仍是墨色（11.64:1）。既保住
-     * 了「呼号是可扫读的一块」，又不再和正文抢明度。
+     * 它先是「黑底白字」（上一版高对比主题的写法），换到纸面后我改成了凹陷的
+     * 一枚戳——两个都不对，而且错在同一个地方：**容器本身就是错的选择**。
      *
-     * 不用铜色：铜色的语义是「现在轮到这里」，而这里每条历史记录都有一个，
-     * 一屏能出七八个，那就等于没有 accent 了。
+     * 工艺规则里分组的次序是「留白 > 分割线 > 容器」，容器是最后一档，而我
+     * 一上来就用了它。日志区一屏七八条记录，就是七八个视觉噪点。更要命的是，
+     * 在这套设计语言里凹陷/凸起编码的是「能不能按」，而呼号根本不可点——给它
+     * 浮雕是在撒谎。
+     *
+     * 现在靠字色分主次：呼号是主文墨（12.98:1），报文是次要墨（5.19:1）。
+     * 每行呼号的左边缘天然对齐，那条对齐边就是扫读用的「栏」——电报底稿上
+     * 发报人本来就是这么排的，不套框。
      */
-    lv_obj_set_style_bg_color(badge, UI_SUNK, 0);
-    lv_obj_set_style_bg_opa(badge, LV_OPA_COVER, 0);
     lv_obj_set_style_text_color(badge, UI_INK, 0);
-    lv_obj_set_style_pad_hor(badge, 4, 0);
-    lv_obj_set_style_radius(badge, 0, 0);
-    ui_bevel_edge(badge, false);
     lv_label_set_text(badge, who);
 
     lv_obj_t *lb = lv_label_create(row);
     lv_obj_set_style_text_font(lb, UI_FONT_CN, 0);
+    lv_obj_set_style_text_color(lb, UI_INK2, 0);   /* 报文是次要墨，让呼号在扫读时先跳出来 */
     /* 撑满呼号牌右边剩下的宽度，内容自己折行。写死宽度的话，呼号长短一变
        就要么裁掉要么留一条空当。 */
     lv_obj_set_flex_grow(lb, 1);
@@ -699,6 +700,18 @@ lv_obj_t *ui_net_create(void)
     lv_obj_set_style_pad_left(s_box, 6, 0);
     lv_obj_set_style_pad_right(s_box, 6, 0);
     lv_obj_set_style_pad_top(s_box, 2, 0);
+    /*
+     * 收报区是一口凹进纸面的井：内容装在里面，不是浮在页面上。
+     *
+     * 这一页现在有三档深度，各自编码一件事——**井（凹）装内容、状态带（平）
+     * 是页面本身、电键桨（凸）可以按**。之前是反的：状态带做成了凹槽，而真正
+     * 装内容的收报区却和页面一样平，深度没有编码任何信息。
+     *
+     * 必须在 pad 设完之后调 ui_bevel（它要按实际 pad 反推子对象的扩张量）。
+     */
+    lv_obj_set_style_bg_color(s_box, UI_SUNK, 0);
+    lv_obj_set_style_bg_opa(s_box, LV_OPA_COVER, 0);
+    ui_bevel(s_box, false);
     lv_obj_set_scroll_dir(s_box, LV_DIR_VER);
     /*
      * 滚动条常显，不是 AUTO。
@@ -727,7 +740,8 @@ lv_obj_t *ui_net_create(void)
         lv_obj_set_size(b, 200, 48);
         lv_obj_align(b, LV_ALIGN_CENTER, 0, 0);
     } else {
-        /* 记录一条一行，纵向排。每条是「深底浅字的呼号牌 + 内容」，见 row_make()。 */
+        /* 记录一条一行，纵向排。每条是「主文墨的呼号 + 次要墨的内容」，不套容器，
+           见 row_make()。 */
         lv_obj_set_flex_flow(s_box, LV_FLEX_FLOW_COLUMN);
 
         /* 点收报区看全部记录。页内只有三行，抄漏一句想回头对的时候不够翻。 */
@@ -735,16 +749,15 @@ lv_obj_t *ui_net_create(void)
         lv_obj_add_event_cb(s_box, hist_open, LV_EVENT_SHORT_CLICKED, NULL);
     }
 
-    /* 状态带 28px：必须 >= UI_FONT_CN 的行高 26，否则文字上下被裁 */
+    /* 状态带 BAND_H：必须 >= UI_FONT_CN 的行高 26，否则文字上下被裁 */
     lv_obj_t *bandbg = lv_obj_create(s_scr);
     lv_obj_remove_style_all(bandbg);
     lv_obj_set_pos(bandbg, 0, UI_TOPBAR_H + LOG_H);
     lv_obj_set_size(bandbg, 320, BAND_H);
-    lv_obj_set_style_bg_color(bandbg, UI_SUNK, 0);
-    lv_obj_set_style_bg_opa(bandbg, LV_OPA_COVER, 0);
-    /* 状态带是压进纸里的一条凹槽，不是画了条底边的一个区域。它下面紧接着就是
-       抬起来的电键桨，两者一凹一凸，层次才立得住。 */
-    ui_bevel(bandbg, false);
+    /* 状态带就是页面本身，不给面也不给浮雕：背景透出纸纹，深度上属于「平」这
+       一档。它上面是凹进去的收报井、下面是凸起的电键桨，三档各自说一件事；
+       给它也来个凹槽反而把层次说乱了（那正是上一版的错）。 */
+    lv_obj_set_style_bg_opa(bandbg, LV_OPA_TRANSP, 0);
 
     lv_obj_add_flag(bandbg, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(bandbg, band_cb, LV_EVENT_CLICKED, NULL);
