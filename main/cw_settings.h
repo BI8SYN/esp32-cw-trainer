@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include "esp_err.h"
 
-#define CW_SETTINGS_VERSION 3
+#define CW_SETTINGS_VERSION 4
 
 /* 电量显示：主页顶栏右侧显示到什么程度。不接电池的人把它关掉，
    顶栏那一行会跟着重排，不会留下一块空白。 */
@@ -34,6 +34,14 @@ typedef struct {
     uint8_t  brightness;
     uint8_t  rotate_180;   /* 屏幕上下翻转；板子没有重力传感器，只能手动设置 */
     uint8_t  battery_show; /* CW_BATT_*：不接电池的人可以整个关掉 */
+    /*
+     * v4 新增：界面提示音总开关，默认开。
+     *
+     * v1/v2/v3 的 sizeof 恰好都是 68（见下方那几个布局快照的说明），而 v4 多这
+     * 一个字节之后是 72——**从 v4 起长度也能分辨版本了**，但判据仍然只看
+     * version 字段，别依赖长度。
+     */
+    uint8_t  sound_on;
 } cw_settings_t;
 
 esp_err_t      cw_settings_init(void);
