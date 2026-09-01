@@ -1,0 +1,697 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CW Trainer 视觉系统 · 复古电报房</title>
+<style>
+/* ─────────────────────────────────────────────────────────────
+   页面自身的外壳：中性石板灰 + 制图网格，刻意不用铜色。
+   整页唯一的彩色只出现在被规定的色卡与样稿里，这样色板读数才准。
+   ───────────────────────────────────────────────────────────── */
+:root{
+  --g0:#E9EAEB; --g1:#FCFCFC; --g2:#F2F3F4;
+  --t0:#191B1D; --t1:#565C61; --t2:#878E94;
+  --line:#C9CDD1; --line-soft:#DFE2E5;
+
+  /* ── 设备调色板 token（本规格的产出，随主题固定不变）── */
+  --paper:#EFE6D4;   /* 纸底 */
+  --raise:#F7F1E4;   /* 抬高面：卡片、输入格 */
+  --sunk:#E4D9C3;    /* 凹陷面：按下态、禁用底 */
+  --ink:#2A2118;     /* 主文 */
+  --ink2:#6B5D4A;    /* 次要文 */
+  --ink3:#8F7F67;    /* 占位 / 禁用 */
+  --rule:#D3C6AC;    /* 分割线 */
+  --copper:#945418;  /* accent，唯一彩色 */
+  --danger:#9C2B1B;  /* 危险 */
+  /* ── 拟物层：浮雕的两条 1px 线 ── */
+  --hilite:#FFFBF0;  /* 受光边 */
+  --shade:#B5A88C;   /* 背光边 */
+  /* ── 材质：黄铜。是 copper 同色相的明暗档，不是新增 accent ── */
+  --brass:#A8763C;
+  --brass-dk:#6E4A18;
+
+  --cjk:"PingFang SC","Noto Sans SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  --cjk-serif:"Songti SC","Noto Serif SC","Source Han Serif SC","SimSun",serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  background:var(--g0);
+  background-image:
+    linear-gradient(to right,rgba(25,27,29,.045) 1px,transparent 1px),
+    linear-gradient(to bottom,rgba(25,27,29,.045) 1px,transparent 1px);
+  background-size:8px 8px;   /* 页面底纹就是本规格规定的 8px 网格本身 */
+  color:var(--t0);
+  font-family:var(--cjk);
+  font-size:15px;
+  line-height:1.65;
+  padding:32px 24px 96px;
+}
+.page{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:40px}
+
+/* 抬头 */
+header{background:var(--g1);border:1px solid var(--line);padding:32px}
+h1{font-size:30px;line-height:1.25;font-weight:650;letter-spacing:.01em;text-wrap:balance}
+.sub{font-size:17px;color:var(--t1);margin-top:8px}
+.meta{font-family:var(--mono);font-size:12px;color:var(--t2);margin-top:20px;
+      padding-top:16px;border-top:1px solid var(--line-soft);
+      display:flex;flex-wrap:wrap;gap:8px 20px}
+
+/* 区块 */
+section{background:var(--g1);border:1px solid var(--line);padding:28px 32px 32px}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+         color:var(--t2);margin-bottom:6px}
+h2{font-size:21px;font-weight:650;letter-spacing:.01em}
+h2+p,.eyebrow+h2+p{margin-top:12px}
+h3{font-size:15px;font-weight:650;margin:28px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line-soft)}
+p{max-width:68ch;color:var(--t0)}
+p+p{margin-top:12px}
+.dim{color:var(--t1)}
+strong{font-weight:650}
+code{font-family:var(--mono);font-size:.9em;background:var(--g2);padding:1px 5px;border:1px solid var(--line-soft)}
+ul{max-width:68ch;padding-left:20px;margin-top:10px}
+li{margin-top:6px}
+li::marker{color:var(--t2)}
+
+/* 表格 */
+.tw{overflow-x:auto;margin-top:16px;border:1px solid var(--line)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--g1)}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+th{background:var(--g2);font-weight:650;font-size:11.5px;letter-spacing:.08em;
+   text-transform:uppercase;color:var(--t1);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.num,td.hex{font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.chip{display:inline-block;width:34px;height:18px;border:1px solid rgba(25,27,29,.25);vertical-align:-4px;margin-right:8px}
+.pass{color:#1F6B3A;font-weight:650}
+.fail{color:var(--danger);font-weight:650}
+.na{color:var(--t2)}
+
+/* 参考拆解 */
+.refs{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1px;
+      background:var(--line-soft);border:1px solid var(--line);margin-top:16px}
+.ref{background:var(--g1);padding:16px 18px}
+.ref b{display:block;font-size:14px;margin-bottom:4px}
+.ref span{font-size:13.5px;color:var(--t1);display:block}
+
+/* 样稿 */
+.shots{display:flex;flex-wrap:wrap;gap:28px;margin-top:20px}
+.shot{flex:none}
+.cap{font-family:var(--mono);font-size:11.5px;color:var(--t2);margin-bottom:8px;letter-spacing:.04em}
+/* ── 拟物词汇：三件套，平涂 + 浮雕 + 纹理 ──────────────────
+   浮雕就是两条 1px 线：受光边亮、背光边暗，凸起与凹陷只是把两者对调。
+   实测这 1px 隔着电阻屏的雾面膜依然可辨（样机第 3 页），所以不必退到 2px。
+   刻意用 inset box-shadow 而不是 border：border 会占掉盒模型的尺寸，
+   而屏上那两条线是画在既有边界上的，不该让内容缩进。 */
+.bev{box-shadow:inset 1px 1px 0 var(--hilite), inset -1px -1px 0 var(--shade)}
+.bev-in{box-shadow:inset 1px 1px 0 var(--shade), inset -1px -1px 0 var(--hilite)}
+.bev2{box-shadow:inset 2px 2px 0 var(--hilite), inset -2px -2px 0 var(--shade)}
+/* 纸纹两档：装饰区 σ≈7，密集文字区 σ≈4（样机第 4 页实测 σ=7 压中文会略难读） */
+.grain{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='64' height='64' filter='url(%23n)' opacity='0.11'/%3E%3C/svg%3E")}
+.grain-lite{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='64' height='64' filter='url(%23n)' opacity='0.055'/%3E%3C/svg%3E")}
+
+.dev{width:320px;height:240px;background:var(--paper);color:var(--ink);
+     border:1px solid var(--t0);position:relative;overflow:hidden;
+     font-family:var(--cjk);font-size:20px;line-height:26px}
+.dev *{box-sizing:border-box}
+.bar{height:32px;border-bottom:1px solid var(--ink);display:flex;align-items:center;
+     padding:0 8px;gap:8px;font-size:13px;line-height:17px;color:var(--ink2);
+     font-variant-numeric:tabular-nums}
+.bar .sp{flex:1}
+.bar .ttl{color:var(--ink);font-size:20px;line-height:26px}
+.body{height:208px;display:flex}
+.card{width:200px;border-right:1px solid var(--ink);padding:8px 8px 8px 16px;
+      display:flex;flex-direction:column}
+.dev{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='64' height='64' filter='url(%23n)' opacity='0.055'/%3E%3C/svg%3E")}
+.h1d{font-size:28px;line-height:37px;font-weight:600}
+.h1d.serif{font-family:var(--cjk-serif);font-weight:600}
+.morse{font-family:var(--mono);font-size:12px;line-height:16px;color:var(--ink3);
+       letter-spacing:.06em;margin-top:2px}
+.capd{font-size:13px;line-height:17px;color:var(--ink2);margin-top:8px}
+.chars{font-family:var(--mono);font-size:17px;line-height:22px;letter-spacing:.1em;margin-top:2px}
+.grow{flex:1}
+.pbar{height:8px;background:var(--sunk);border:1px solid var(--rule);margin-top:8px;
+      box-shadow:inset 1px 1px 0 var(--shade)}   /* 进度槽是凹的 */
+.pfill{height:100%;background:var(--copper)}
+.pnum{font-size:13px;line-height:17px;color:var(--ink2);margin-top:4px;
+      display:flex;justify-content:space-between;font-variant-numeric:tabular-nums}
+.cta{text-align:right;font-size:20px;line-height:26px;color:var(--copper);font-weight:600}
+.rail{width:120px;display:flex;flex-direction:column}
+.cell{height:52px;border-bottom:1px solid var(--rule);display:flex;align-items:center;
+      padding:0 8px;font-size:20px}
+.cell:last-child{border-bottom:0}
+.cell.on{background:var(--sunk);box-shadow:inset 1px 1px 0 var(--shade), inset -1px -1px 0 var(--hilite)}
+.cell .sp{flex:1;text-align:right;color:var(--ink3)}
+
+.kb{width:150px;border-left:1px solid var(--rule);display:grid;
+    grid-template-columns:repeat(4,1fr);grid-auto-rows:52px}
+.key{border-right:1px solid var(--rule);border-bottom:1px solid var(--rule);
+     display:flex;align-items:center;justify-content:center;
+     font-family:var(--mono);font-size:20px;background:var(--raise);
+     box-shadow:inset 1px 1px 0 var(--hilite), inset -1px -1px 0 var(--shade)}
+.key.dis{color:var(--ink3);background:var(--sunk)}
+.left{flex:1;padding:8px 8px 8px 16px;display:flex;flex-direction:column}
+.slot{font-family:var(--mono);font-size:28px;line-height:37px;letter-spacing:.18em;
+      background:var(--sunk);border:1px solid var(--rule);padding:0 8px;margin-top:8px;
+      box-shadow:inset 1px 1px 0 var(--shade), inset -1px -1px 0 var(--hilite)}  /* 输入格是凹的 */
+.btn{border:1px solid var(--ink);padding:5px 12px;font-size:17px;line-height:22px;
+     background:var(--raise);display:inline-block;
+     box-shadow:inset 1px 1px 0 var(--hilite), inset -1px -1px 0 var(--shade)}
+.btn.dis{border-color:var(--ink3);color:var(--ink3);background:var(--sunk)}
+.btn.pri{background:var(--copper);border-color:var(--brass-dk);color:#F7F1E4;font-weight:600;
+         box-shadow:inset 1px 1px 0 rgba(255,235,200,.55), inset -1px -1px 0 rgba(45,25,5,.5)}
+.disp{font-family:var(--mono);font-size:62px;line-height:82px;font-weight:600;
+      font-variant-numeric:tabular-nums}
+/* 电键桨：全工程唯一做「真材质」的地方。平涂黄铜 + 2px 浮雕 + 拉丝纹，
+   没有一处渐变——实测这块屏做不平渐变，而金属的立体感本来就来自边缘。 */
+.pad{flex:1;border:1px solid var(--brass-dk);background:var(--brass);display:flex;
+     align-items:center;justify-content:center;font-size:17px;color:#2A1E0A;
+     box-shadow:inset 2px 2px 0 rgba(255,240,205,.85), inset -2px -2px 0 rgba(60,38,8,.55)}
+.pad.on{background:var(--brass-dk);color:#E8D5AC;
+        box-shadow:inset 2px 2px 0 rgba(40,25,5,.75), inset -2px -2px 0 rgba(220,190,140,.35)}
+.dec{font-family:var(--mono);font-size:20px;line-height:26px;letter-spacing:.12em}
+
+.note{border-left:3px solid var(--copper);background:var(--g2);padding:14px 18px;margin-top:18px}
+.note b{display:block;margin-bottom:4px;font-size:14px}
+.note p{font-size:14px;color:var(--t1);max-width:64ch}
+
+.check{list-style:none;padding:0;margin-top:14px}
+.check li{display:flex;gap:10px;align-items:flex-start;padding:9px 0;
+          border-bottom:1px solid var(--line-soft);margin:0;max-width:none}
+.check li:last-child{border-bottom:0}
+.box{font-family:var(--mono);font-size:13px;flex:none;color:#1F6B3A;font-weight:650}
+.box.todo{color:var(--t2)}
+.check span{font-size:14px}
+.check em{font-style:normal;color:var(--t1)}
+
+footer{font-family:var(--mono);font-size:11.5px;color:var(--t2);text-align:center;
+       padding-top:8px}
+</style>
+</head>
+<body>
+<div class="page">
+
+<header>
+  <h1>CW Trainer 视觉系统 · 复古电报房</h1>
+  <p class="sub">把这台机器做成一张摊在电报房桌上的纸：纸底墨字，铜色只用来说明「现在轮到这里」。</p>
+  <div class="meta">
+    <span>320×240 横屏</span><span>LVGL 8.3.11</span><span>RGB565</span>
+    <span>ST7789 + XPT2046 电阻触摸</span><span>阶段 7 · 视觉风格</span><span>分层拟物</span><span>真机实测已回填</span><span>2026-09-01</span>
+  </div>
+</header>
+
+<section>
+  <div class="eyebrow">Context</div>
+  <h2>我们为什么可以直接谈视觉</h2>
+  <p><code>docs/superpowers/specs/2026-08-25-cw-trainer-design.md</code> 里前六层一层没落：产品定义、user flow、每页主任务表、320×240 线框、完整状态清单、灰阶原型与灰阶实现，而且已经真实用过一段时间。<strong>「灰阶版好用了才谈风格」这个前提是成立的</strong>，所以本文只改表达方式，不改交互结构。</p>
+  <p>本次授权范围是<strong>允许微调布局</strong>：间距、分组、字号层级、控件尺寸可改，页面数量与跳转关系不变。发现结构问题回退到线框阶段处理，不用视觉遮掩。</p>
+  <div class="note">
+    <b>一处已知缺口</b>
+    <p>联网对练 <code>ui_net.c</code>（766 行，全工程最大页面）是 spec 定稿后加的，不在原线框内。本文的 token 覆盖它，但它的信息层级需要单独按评审模式过一遍。</p>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">References</div>
+  <h2>五个参考，每个只学一件事</h2>
+  <p class="dim">拆开借鉴，不整体复制任何一个。</p>
+  <div class="refs">
+    <div class="ref"><b>墨水屏阅读器（Kindle / 文石）</b><span>学纸底上怎么做层级：几乎不用色块，全靠字号、留白和细规则线。我们底色也是纸，这条最关键。</span></div>
+    <div class="ref"><b>老式电报单（Western Union blank）</b><span>学用横向规则线分隔，而不是给每个块画一圈描边。和现有 <code>BORDER_SIDE_BOTTOM/RIGHT</code> 的单边线策略同构，改动成本为零。</span></div>
+    <div class="ref"><b>Elecraft K3 面板</b><span>学数值读数区：数字是主角、标签是配角、单位再小一号。用在正确率、WPM、电量上。</span></div>
+    <div class="ref"><b>Teenage Engineering OP-1</b><span>学单点色的克制：整机灰白，只有当前活动项着色。铜色的用量上限就照这个标准卡。</span></div>
+    <div class="ref"><b>铅字印刷 / 打字机</b><span>学 0 圆角。纸和铅字没有圆角——这同时省掉了 LVGL 圆角抗锯齿的开销。</span></div>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">Color</div>
+  <h2>调色板</h2>
+  <p>九个 token，灰阶（这里是纸阶）之外<strong>只有一个彩色</strong>。所有数值按 RGB565 量化后重算过对比度——下表的「实显」列是屏幕上真正会出现的颜色，不是设计值。</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr>
+      <th>Token</th><th>设计值</th><th>RGB565 实显</th><th>纸底对比度</th><th>用途</th>
+    </tr></thead>
+    <tbody>
+      <tr><td><span class="chip" style="background:#EFE6D4"></span><code>paper</code></td>
+          <td class="hex">#EFE6D4</td><td class="hex">#EFE7D6</td><td class="num na">—</td><td>页面底色</td></tr>
+      <tr><td><span class="chip" style="background:#F7F1E4"></span><code>raise</code></td>
+          <td class="hex">#F7F1E4</td><td class="hex">#F7F3E6</td><td class="num na">1.11:1 对纸底</td><td>抬高面：输入格、按钮、键帽</td></tr>
+      <tr><td><span class="chip" style="background:#E4D9C3"></span><code>sunk</code></td>
+          <td class="hex">#E4D9C3</td><td class="hex">#E6DBC5</td><td class="num na">1.12:1 对纸底</td><td>凹陷面：按下态、禁用底</td></tr>
+      <tr><td><span class="chip" style="background:#2A2118"></span><code>ink</code></td>
+          <td class="hex">#2A2118</td><td class="hex">#292019</td><td class="num pass">12.98:1</td><td>主文、主结构线</td></tr>
+      <tr><td><span class="chip" style="background:#6B5D4A"></span><code>ink2</code></td>
+          <td class="hex">#6B5D4A</td><td class="hex">#6B5D4A</td><td class="num pass">5.19:1</td><td>次要文：标签、单位、顶栏状态</td></tr>
+      <tr><td><span class="chip" style="background:#8F7F67"></span><code>ink3</code></td>
+          <td class="hex">#8F7F67</td><td class="hex">#8C7F66</td><td class="num na">3.26:1</td><td>占位 / 禁用文。<strong>不承载必读信息</strong></td></tr>
+      <tr><td><span class="chip" style="background:#D3C6AC"></span><code>rule</code></td>
+          <td class="hex">#D3C6AC</td><td class="hex">#D6C6AD</td><td class="num na">1.36:1</td><td>次级分割线（组内）</td></tr>
+      <tr><td><span class="chip" style="background:#945418"></span><code>copper</code></td>
+          <td class="hex">#945418</td><td class="hex">#945519</td><td class="num pass">4.78:1</td><td><strong>唯一 accent</strong>：主操作、进度、当前项</td></tr>
+      <tr><td><span class="chip" style="background:#9C2B1B"></span><code>danger</code></td>
+          <td class="hex">#9C2B1B</td><td class="hex">#9C2819</td><td class="num pass">6.25:1</td><td>危险操作（恢复出厂）、答错</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <b>铜色为什么是 #945418 而不是更漂亮的 #A8641E</b>
+    <p>本来选的暖铜 <code>#A8641E</code> 在纸底上实测只有 <strong>3.67:1</strong>，达不到正文 4.5:1 的下限，只能做填充不能做文字——那就得拆成「填充铜」和「文字铜」两个值，等于两个 accent。往下压到 <code>#945418</code> 拿到 4.78:1，一个值同时能做文字和填充，色板回到一个 accent。少一个 token 比多一点艳度值钱。</p>
+  </div>
+
+  <h3>铜色的用量上限</h3>
+  <p>整屏铜色不超过<strong>两处</strong>，且必须编码同一件事：「现在轮到这里 / 这是主操作」。具体只允许出现在——主操作文字或按钮（如「继续练习 >」）、进度条填充、当前选中项、电键按下时的桨块。</p>
+  <ul>
+    <li>不用铜色做标题、图标、分割线、装饰。</li>
+    <li>不用铜色表示「答对」——那是状态语义，答对答错用 <code>ink</code> / <code>danger</code>。</li>
+    <li><strong>去色测试</strong>：把整屏想成黑白的，层级仍然清楚（靠字号 + 留白 + 规则线撑），铜色拿掉只丢失「主操作在哪」这一条信息。这是合格的。</li>
+  </ul>
+</section>
+
+<section>
+  <div class="eyebrow">Type</div>
+  <h2>字体层级</h2>
+  <p>这是目前最大的瓶颈：<strong>中文只有一级字号</strong>。<code>font28</code> 和 <code>EN_BIG</code> 都不含中文字形，代码里到处是「含中文必须留在 UI_FONT_CN」的注释——中文文案之间做不出大小对比，只能靠位置区分主次。</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>级别</th><th>字体</th><th>行高</th><th>字符集</th><th>用途</th></tr></thead>
+    <tbody>
+      <tr><td>Display</td><td class="hex">EN_BIG</td><td class="num">82</td><td>ASCII</td><td>结算百分比、电键 WPM 大字</td></tr>
+      <tr><td>Title</td><td class="hex">font28 <strong>+ 新增中文</strong></td><td class="num">37</td><td>ASCII <span class="fail">→ 补 CJK</span></td><td>页面标题、卡片主标题</td></tr>
+      <tr><td>Body</td><td class="hex">font20 / font20_cwtrn</td><td class="num">26</td><td>350 字形</td><td>正文、列表项、按钮</td></tr>
+      <tr><td>Caption</td><td class="hex">lv_font_montserrat_14</td><td class="num">17</td><td>ASCII</td><td>顶栏状态、标签、单位</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p style="margin-top:14px">全工程四级，<strong>单屏不超过三级</strong>（工艺规则上限）。新增的中文字号定在 28px 而不是另挑一个 36/40——它要和已有的 <code>font28</code> 并排落在同一基线上，中英同级才不会在一行里高低不齐。</p>
+
+  <div class="note">
+    <b>关键发现：仓库里没有源 TTF</b>
+    <p><code>tools/subset_font.py</code> 的文件头写明了：font20.c 是第三方「Lvgl Font Tool V0.4」生成的 XBF 格式，那个脚本做的是 C→C 裁剪，<em>正是因为没有源字体</em>。所以补 28px 中文不是再跑一次裁剪，而是必须引入一套新 TTF，用 <code>lv_font_conv</code> 重新生成。</p>
+  </div>
+
+  <h3>字体方案</h3>
+  <p>既然无论如何要换，就<strong>用同一套 TTF 同时重出 20px 和 28px</strong>，让中文正文和标题是同一款字——而不是留下「20px 是旧字体、28px 是新字体」的错配。候选按复古方向排：</p>
+  <ul>
+    <li><strong>标题宋体 + 正文黑体</strong>（推荐）。28px 撑得住宋体的横细竖粗，最贴电报房调性；20px 正文留黑体保证小字可读。<code>bpp=4</code> 有 16 级抗锯齿，宋体在 28px 上不会糊。</li>
+    <li><strong>全黑体</strong>。最稳，复古感全交给配色和纹样承担。宋体在电阻屏上不好使时的退路。</li>
+  </ul>
+  <p style="margin-top:12px">下面主页样稿出了两版供对比。<strong>最终选哪个要在 SDL 模拟器里用真 LVGL 渲染看过再定</strong>——浏览器的字体渲染和 LVGL 的 4bpp 位图不是一回事，这里的样稿只能定方向，不能当验收。</p>
+  <p><strong>闪存账</strong>：固件 1.34 MB，OTA 单槽 1.6875 MB，余量 362 KB。新增 28px 中文子集（350 字形，4bpp）约 <strong>+106 KB</strong>，20px 换字体基本等量替换。改完余量约 256 KB。付得起。</p>
+  <p class="dim">改动中文文案后仍须走原有流程：<code>python3 tools/check_charset.py</code> 自检 → 重新生成子集。漏字不会报编译错，只会在屏幕上渲染成空白。</p>
+</section>
+
+<section>
+  <div class="eyebrow">Space &amp; Shape</div>
+  <h2>间距、形状、效果</h2>
+  <h3>8px 网格</h3>
+  <p>所有间距取自 <code>4 / 8 / 16 / 24 / 32</code>。现有布局里有几个数不在网格上，本次一并归位（在「允许微调布局」授权内）：</p>
+  <div class="tw">
+  <table>
+    <thead><tr><th>项</th><th>现状</th><th>改为</th><th>理由</th></tr></thead>
+    <tbody>
+      <tr><td>顶栏高度 <code>UI_TOPBAR_H</code></td><td class="num">28</td><td class="num">32</td><td>上网格；17px caption 配 16px 图标不再顶格</td></tr>
+      <tr><td>提示条高度 <code>UI_NOTICE_H</code></td><td class="num">28</td><td class="num">32</td><td>与顶栏同高；仍 ≥ 正文行高 26</td></tr>
+      <tr><td>主页右列每格</td><td class="num">53</td><td class="num">52</td><td>(240−32)/4 整除，仍 ≥ 44 触控下限</td></tr>
+      <tr><td>顶栏内边距</td><td class="num">6</td><td class="num">8</td><td>上网格</td></tr>
+      <tr><td>卡片内边距</td><td class="num">8</td><td class="num">8 / 左 16</td><td>左边距全局统一到 16，正文起始对齐一条线</td></tr>
+      <tr><td>左右分栏</td><td class="num">200 / 120</td><td class="num">200 / 120</td><td>已在网格上，不动</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p style="margin-top:14px"><strong>组间距 &gt; 组内距</strong>：分组优先靠留白，其次才是规则线，最后才是容器。这也是为什么下面样稿里几乎看不到完整描边的盒子。</p>
+
+  <h3>形状与效果的硬规则</h3>
+  <ul>
+    <li><strong>圆角一律 0。</strong> 纸和铅字没有圆角，且省掉 LVGL 圆角抗锯齿开销。现有代码到处 <code>radius=0</code>，这条等于免费。</li>
+    <li><strong>线宽一律 1px。</strong> 主结构线用 <code>ink</code>，组内次级线用 <code>rule</code>。延续现有单边线（<code>BORDER_SIDE</code>）策略，不画整圈描边。</li>
+    <li><strong>不做大面积渐变——实时的和烘焙的都不做。</strong> 实测（样机第 2 页）连离线抖动过的都有可见台阶。色块一律平涂。</li>
+    <li><strong>暗部走 1px 浮雕，不走 <code>shadow_*</code>。</strong> 实测 1px 高光/暗线在雾面膜下清晰可见，且零成本。实时阴影不贵（w8 每对象约 1.3 ms）但表达力不够，只在需要分层时偶尔用。</li>
+    <li><strong>纸纹分两档。</strong> 装饰区（卡片底、页面底）σ=7，密集文字区 σ=4——实测 σ=7 压中文会略微变难读。</li>
+    <li><strong>不加动效，保留瞬时反馈。</strong> 现有 <code>no_fade_transition</code> 把主题的按下/松开渐变顶成 0ms，这条继续保留——电阻屏本身就有输入延迟，再叠渐变只会更钝。反馈靠按下瞬间换 <code>sunk</code> 底色，符合「每个操作都有反馈」。</li>
+    <li><strong>唯一允许的装饰：点划纹样。</strong> 用 <code>ink3</code> 画当前课字母的莫尔斯序列作分隔纹样。它编码真实信息（本课学什么），不是纯装饰。</li>
+  </ul>
+</section>
+
+<section>
+  <div class="eyebrow">Skeuomorphism</div>
+  <h2>拟物层：分层拟物</h2>
+  <p>拟物在这块硬件上成不成立，取决于「暗部」怎么画。<strong>这三件事在 LVGL 里名字都叫阴影，成本差两个数量级</strong>：</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>做法</th><th>运行时成本</th><th>闪存</th><th>质量</th></tr></thead>
+    <tbody>
+      <tr><td>① LVGL <code>shadow_*</code> 实时投影</td><td>贵，每次重绘重算蒙版</td><td class="num">0</td><td>只有柔和外阴影一种</td></tr>
+      <tr><td>② 1px 高光线 + 1px 暗线浮雕</td><td class="pass">≈ 0（就是两条线）</td><td class="num">0</td><td>硬边浮雕，实体面板感</td></tr>
+      <tr><td>③ 烘焙进贴图（渐变/阴影/纹理）</td><td class="pass">≈ 0（闪存 memcpy）</td><td>按面积算</td><td class="pass">最好，抖动离线做，完全可控</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p style="margin-top:14px">原本的判断是「①有色带，③把抖动挪到离线做就能救」。<strong>样机第 2 页推翻了后半句</strong>：离线 Floyd–Steinberg 抖动过的那一行，台阶照样看得见。这块屏在这个亮度范围上就是表现不了连续色调。</p>
+
+  <div class="note">
+    <b>风格因此收紧：拟物 = 压印，不是光泽</b>
+    <p>既然大面积渐变怎么做都不平，就<strong>不做渐变</strong>。拟物的三件套改成 <strong>平涂 + 浮雕 + 纹理</strong>：色块一律平涂，立体感全靠 1px 高光/暗线（实测可见、零成本），质感靠纸纹噪点（实测这块屏能吃 σ=7）。</p>
+    <p style="margin-top:8px">这不是退让，是更对的答案：<strong>电报房本来就该是压印质感（letterpress），不是 iOS 6 的玻璃光泽。</strong>纸、铅字、黄铜刻痕——这些东西的立体感本来就来自边缘的明暗，不来自表面的高光渐变。硬件的限制和风格的方向这次是同一个方向。</p>
+    <p style="margin-top:8px">烘焙贴图仍然有用，但<strong>用途从「救渐变」变成「给材质」</strong>——木纹、黄铜拉丝、纸纤维。而材质本来就是噪点，不需要平滑，正好绕开了这块屏最不擅长的事。</p>
+  </div>
+
+  <h3>策略：钱只花在一个地方</h3>
+  <p>不做全套 iOS 6（皮革缝线、玻璃反光、处处柔和投影）——那套在 320×240 的雾面电阻屏上会同时输掉可读性和精致度。改成两层：</p>
+  <ul>
+    <li><strong>打底：浮雕，零成本。</strong> 卡片、按钮、输入格一律用 1px 高光/暗线做压印与凸起。和纸底铜色天然兼容——<strong>纸被压出凹凸</strong>，比贴一层假皮革更贴电报房的调性。</li>
+    <li><strong>重点：电键页做真拟物。</strong> 这是唯一一个屏幕元素直接对应用户手上真实物件（电键桨）的页面，拟物在这里承载真实语义而非装饰。黄铜、木质底座、按下时真的下陷。整机的分量由这一页负责。</li>
+    <li><strong>不做：</strong>柔和大投影、玻璃高光、全屏纹理堆叠。</li>
+  </ul>
+  <p style="margin-top:12px">一句话：<strong>其他页面是「纸」，电键页是「桌上的那把电键」。</strong></p>
+
+  <h3>拟物词汇表</h3>
+  <p>整套拟物只有这几个零件，全部平涂，没有一处渐变。</p>
+  <div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:16px;padding:20px;
+              background:var(--paper);border:1px solid var(--line)">
+    <div style="text-align:center">
+      <div class="bev" style="width:104px;height:52px;background:var(--raise);
+           display:flex;align-items:center;justify-content:center;
+           font-family:var(--cjk);font-size:17px;color:var(--ink)">凸起</div>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--ink2);margin-top:6px">1px RAISED</div>
+    </div>
+    <div style="text-align:center">
+      <div class="bev-in" style="width:104px;height:52px;background:var(--sunk);
+           display:flex;align-items:center;justify-content:center;
+           font-family:var(--cjk);font-size:17px;color:var(--ink)">凹陷</div>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--ink2);margin-top:6px">1px SUNK</div>
+    </div>
+    <div style="text-align:center">
+      <div class="grain" style="width:104px;height:52px;background-color:var(--paper);
+           display:flex;align-items:center;justify-content:center;
+           font-family:var(--cjk);font-size:17px;color:var(--ink)">纸纹</div>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--ink2);margin-top:6px">GRAIN &sigma;7</div>
+    </div>
+    <div style="text-align:center">
+      <div class="bev2" style="width:104px;height:52px;background:var(--brass);
+           border:1px solid var(--brass-dk);
+           display:flex;align-items:center;justify-content:center;
+           font-family:var(--cjk);font-size:17px;color:#2A1E0A;
+           box-shadow:inset 2px 2px 0 rgba(255,240,205,.85), inset -2px -2px 0 rgba(60,38,8,.55)">黄铜</div>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--ink2);margin-top:6px">BRASS 2px</div>
+    </div>
+    <div style="text-align:center">
+      <div style="width:104px;height:52px;background:var(--brass-dk);
+           border:1px solid var(--brass-dk);
+           display:flex;align-items:center;justify-content:center;
+           font-family:var(--cjk);font-size:17px;color:#E8D5AC;
+           box-shadow:inset 2px 2px 0 rgba(40,25,5,.75), inset -2px -2px 0 rgba(220,190,140,.35)">按下</div>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--ink2);margin-top:6px">BRASS PRESSED</div>
+    </div>
+  </div>
+  <p style="margin-top:14px"><strong>黄铜不是新增的 accent</strong>：<code>brass #A8763C</code> / <code>brass-dk #6E4A18</code> 是 copper 同色相的明暗两档，只做填充不做文字，所以色板仍然是「纸阶 + 一个铜色相」。按下态用 <code>img_recolor</code> 切到暗档，不另存素材。</p>
+
+  <h3>位图格式：两个能省大钱的选择</h3>
+  <div class="tw">
+  <table>
+    <thead><tr><th>格式</th><th>每像素</th><th>适用</th><th>示例开销</th></tr></thead>
+    <tbody>
+      <tr><td><code>LV_IMG_CF_INDEXED_4BIT</code></td><td class="num">4 bit</td><td>16 色调色板。纸底+铜色的有限色板正好吃这个</td><td class="num">全屏 320×240 = 37.5 KB</td></tr>
+      <tr><td><code>LV_IMG_CF_ALPHA_4BIT</code></td><td class="num">4 bit</td><td>单色 + 16 级 alpha。<strong>烘焙阴影的最佳容器</strong>——阴影本质就是 alpha 蒙版</td><td class="num">64×64 阴影 = 2 KB</td></tr>
+      <tr><td><code>LV_IMG_CF_TRUE_COLOR</code></td><td class="num">16 bit</td><td>需要连续色调时（渐变、木纹）</td><td class="num">全屏 = 150 KB</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p style="margin-top:14px">平铺用 <code>lv_obj_set_style_bg_img_src()</code> + <code>bg_img_tiled(true)</code>——v8 里唯一的平铺方式，一张 32×32 的小图（2 KB）能铺满任意面积。按下态用 <code>img_recolor</code> 而不是存第二张图，素材量直接减半。</p>
+
+  <div class="note">
+    <b>必踩的坑：CONFIG_LV_COLOR_16_SWAP=y</b>
+    <p>查 <code>lv_color.h</code>，16 位带 swap 的位域顺序是 <code>green_h(3) / red(5) / blue(5) / green_l(3)</code>，小端填充下 <code>full == byteswap(标准 RGB565)</code>。所以位图数据里每个像素必须按<strong>大端</strong>（高字节在前）写。写反了不报错，只会看到红蓝错乱的一片。</p>
+  </div>
+
+  <h3>电键页拟物预算（估）</h3>
+  <p>两个桨各约 140×88，<code>INDEXED_4BIT</code> 各 6.2 KB；按下态走 <code>img_recolor</code> 不另存图；木纹底座用 32×32 平铺瓦片 2 KB。<strong>合计 15–25 KB。</strong>扣掉字体的 106 KB 后余量 256 KB，付得起。</p>
+</section>
+
+<section>
+  <div class="eyebrow">Probe</div>
+  <h2>素材样机与实测结果</h2>
+  <p>拟物必须在真机上判。<strong>SDL 模拟器在这一条上没有裁决权</strong>：它跑在 32 位色的好显示器上，既没有 RGB565 的色阶损失，也没有电阻触摸那层雾面膜，更没有这块 ST7789 的 gamma 和可视角。所以在投入做素材之前，先烧一页样机把问题问清楚。</p>
+  <p><strong>入口：更多练习 → STYLE PROBE</strong>，顶栏右上 <code>NEXT &gt;</code> 翻页，共六页。<strong>2026-09-01 已在真机上跑完，结论见下。</strong></p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>页</th><th>内容</th><th>要回答的问题</th></tr></thead>
+    <tbody>
+      <tr><td>1 PALETTE</td><td>九个 token 色块 + hex</td><td>上屏后还剩多少对比度？纸底会不会显脏？</td></tr>
+      <tr><td>2 GRADIENT</td><td>LVGL 实时 2-stop / 烘焙不抖动 / 烘焙 + Floyd–Steinberg，纸色与铜色两段范围</td><td><strong>色带有多明显？抖动能救回多少？</strong>这一页决定烘焙路线值不值得走</td></tr>
+      <tr><td>3 BEVEL</td><td>1px 与 2px 浮雕，凸起/凹陷，压在纸底/抬高面/凹陷面三种底色上</td><td>1px 隔着雾面膜还看得见吗？看不见就退 2px</td></tr>
+      <tr><td>4 GRAIN</td><td>四档纸纹噪点（σ=1/2/4/7），每档压真实字号的中文</td><td>到哪一档从「质感」变成「脏」？可读性掉多少？</td></tr>
+      <tr><td>5 TEXT</td><td>ink / ink2 / ink3 / copper 四色正文，标注计算对比度</td><td>ink3（3.26:1）和 copper（4.78:1）眼睛认不认？</td></tr>
+      <tr><td>6 SHADOW</td><td>实时阴影 w4/w8/w16 + <code>MEASURE</code> 按钮</td><td><strong>实时阴影的硬数字</strong>：全屏 <code>lv_refr_now()</code> 微秒数，无阴影 / w8 / w16 三档</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>实测结果（2026-09-01，真机）</h3>
+  <div class="tw">
+  <table>
+    <thead><tr><th>页</th><th>结果</th><th>结论</th></tr></thead>
+    <tbody>
+      <tr><td>1 PALETTE</td><td class="pass">九色全部可辨</td><td>色板<strong>不用回调</strong>。最担心的 ink3（3.26:1）和 copper（4.78:1）都过了</td></tr>
+      <tr><td>2 GRADIENT</td><td class="fail">三行都有台阶，但可接受</td><td><strong>抖动没救回来。</strong>大面积连续渐变在这块屏上做不平——见下方「风格因此收紧」</td></tr>
+      <tr><td>3 BEVEL</td><td class="pass">1px 看得见</td><td>浮雕这条零成本路线成立，<strong>不用退 2px</strong></td></tr>
+      <tr><td>4 GRAIN</td><td>σ=7 可用；压字略差但可接受</td><td>雾面屏比预计能吃噪点得多。<strong>纹理分两档</strong>：装饰区 σ=7，密集文字区 σ=4</td></tr>
+      <tr><td>5 TEXT</td><td class="pass">四色都清楚</td><td>ink3 可用于占位/禁用，无需提亮</td></tr>
+      <tr><td>6 SHADOW</td><td>见下</td><td>实时阴影<strong>不贵</strong>，但对拟物没用</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>阴影实测：整屏 lv_refr_now()</h3>
+  <div class="tw">
+  <table>
+    <thead><tr><th>配置</th><th>整屏耗时</th><th>相对无阴影</th><th>折合单对象</th></tr></thead>
+    <tbody>
+      <tr><td>无阴影</td><td class="num">48 277 µs</td><td class="num na">—</td><td class="num na">—</td></tr>
+      <tr><td>w8 × 3 个对象</td><td class="num">52 168 µs</td><td class="num">+3 891 µs（+8%）</td><td class="num">≈ 1.3 ms</td></tr>
+      <tr><td>w16 × 3 个对象</td><td class="num">62 568 µs</td><td class="num">+14 291 µs（+30%）</td><td class="num">≈ 4.8 ms</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p style="margin-top:14px">半径翻倍、单对象成本涨 3.7 倍，符合模糊的平方级增长。但真正该注意的是<strong>那 48 ms 的底噪</strong>：整屏重绘 ≈ 21 fps 上限，这是<em>现在就存在</em>的页面切换代价，与拟物无关（SPI 理论最快也要 15.4 ms，其余 33 ms 是 CPU 渲染）。</p>
+  <div class="note">
+    <b>修正：之前写的「实时阴影彻底封杀」不成立</b>
+    <p>样机测的是<strong>整屏</strong>重绘，而实际使用中 LVGL 只重绘失效区域——按一下按钮只重画那个按钮。所以真实问题是「64×64 的局部重绘多花 1.3 ms 要不要紧」，答案是不要紧。</p>
+    <p style="margin-top:8px">封杀的理由因此从<strong>「太贵」换成「表达力不够」</strong>：LVGL 的 <code>shadow_*</code> 只有柔和外投影一种，做不出浮雕、内阴影、材质，而那才是拟物需要的东西。小半径外投影作为分层手段可以保留，需要时就用。</p>
+  </div>
+
+  <div class="note">
+    <b>构建方式</b>
+    <p><code>ESP_PORT=/dev/cu.usbserial-XXXX PROJECT=firmware/cw-trainer tools/idf.sh -DCW_STYLE_PROBE=ON build flash</code></p>
+    <p style="margin-top:8px">样机默认不编入：<code>CW_STYLE_PROBE</code> 关闭时固件 <strong>1 406 992 字节</strong>，与加样机之前<strong>一个字节不差</strong>；打开后 1 464 320 字节（+56 KB，其中烘焙位图 49.6 KB）。<strong>注意这个 option 会留在 CMake 缓存里</strong>——回发布版必须显式写 <code>-DCW_STYLE_PROBE=OFF</code>，不能只是省掉参数。</p>
+    <p style="margin-top:8px">位图由 <code>tools/gen_probe_assets.py</code> 生成（Floyd–Steinberg 抖动 + 大端 RGB565），改完重跑即可。</p>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">Mockups</div>
+  <h2>界面样稿</h2>
+  <p>1:1 实际尺寸（320×240），用上述 token 绘制，内容取自真实文案。<strong>已按真机实测结论重画</strong>：全部平涂无渐变、可点元素带 1px 浮雕（凸起）、输入格与进度槽带反向浮雕（凹陷）、整机铺 σ≈4 纸纹、电键桨改黄铜材质。<span class="dim">浏览器渲染 ≠ LVGL 渲染，样稿用于定方向，验收以真机为准。</span></p>
+
+  <div class="shots">
+
+    <div class="shot">
+      <div class="cap">主页 · 标题用宋体</div>
+      <div class="dev">
+        <div class="bar"><span>09:24</span><span class="sp"></span><span>BG7XYZ</span><span class="sp"></span><span>≋</span><span>▮</span><span>78</span></div>
+        <div class="body">
+          <div class="card">
+            <div class="h1d serif">KOCH 第 7 课</div>
+            <div class="morse">─·─ ── ·─· ··· ··─ ·─ ·──· ─ ·─··</div>
+            <div class="capd">已解锁 9 字</div>
+            <div class="chars">K M R S U A P T L</div>
+            <div class="grow"></div>
+            <div class="pbar"><div class="pfill" style="width:82%"></div></div>
+            <div class="pnum"><span>上次</span><span>82%</span></div>
+            <div style="margin-top:6px;text-align:right">
+              <span class="btn bev" style="background:var(--copper);border-color:var(--brass-dk);
+                    color:#F7F1E4;font-weight:600;font-size:17px;
+                    box-shadow:inset 1px 1px 0 rgba(255,235,200,.55), inset -1px -1px 0 rgba(45,25,5,.5)">继续练习 &gt;</span>
+            </div>
+          </div>
+          <div class="rail">
+            <div class="cell">更多练习<span class="sp">&gt;</span></div>
+            <div class="cell">联网对练<span class="sp">&gt;</span></div>
+            <div class="cell">训练统计<span class="sp">&gt;</span></div>
+            <div class="cell">设置<span class="sp">&gt;</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="shot">
+      <div class="cap">主页 · 标题用黑体（退路方案）</div>
+      <div class="dev">
+        <div class="bar"><span>09:24</span><span class="sp"></span><span>BG7XYZ</span><span class="sp"></span><span>≋</span><span>▮</span><span>78</span></div>
+        <div class="body">
+          <div class="card">
+            <div class="h1d">KOCH 第 7 课</div>
+            <div class="morse">─·─ ── ·─· ··· ··─ ·─ ·──· ─ ·─··</div>
+            <div class="capd">已解锁 9 字</div>
+            <div class="chars">K M R S U A P T L</div>
+            <div class="grow"></div>
+            <div class="pbar"><div class="pfill" style="width:82%"></div></div>
+            <div class="pnum"><span>上次</span><span>82%</span></div>
+            <div style="margin-top:6px;text-align:right">
+              <span class="btn bev" style="background:var(--copper);border-color:var(--brass-dk);
+                    color:#F7F1E4;font-weight:600;font-size:17px;
+                    box-shadow:inset 1px 1px 0 rgba(255,235,200,.55), inset -1px -1px 0 rgba(45,25,5,.5)">继续练习 &gt;</span>
+            </div>
+          </div>
+          <div class="rail">
+            <div class="cell">更多练习<span class="sp">&gt;</span></div>
+            <div class="cell on">联网对练<span class="sp">&gt;</span></div>
+            <div class="cell">训练统计<span class="sp">&gt;</span></div>
+            <div class="cell">设置<span class="sp">&gt;</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="cap" style="margin-top:6px">右列第二项演示按下态 <code>sunk</code></div>
+    </div>
+
+    <div class="shot">
+      <div class="cap">听写练习 · 播放中（键盘禁用）</div>
+      <div class="dev">
+        <div class="bar"><span>&lt;</span><span class="ttl">第 7 课</span><span class="sp"></span><span>4 / 10</span></div>
+        <div class="body">
+          <div class="left">
+            <div class="capd" style="margin-top:0">正在播放</div>
+            <div class="slot">R S _ _ _</div>
+            <div class="grow"></div>
+            <div><span class="btn dis">重播</span></div>
+          </div>
+          <div class="kb">
+            <div class="key dis">K</div><div class="key dis">M</div><div class="key dis">R</div><div class="key dis">S</div>
+            <div class="key dis">U</div><div class="key dis">A</div><div class="key dis">P</div><div class="key dis">T</div>
+            <div class="key dis">L</div><div class="key dis">←</div><div class="key dis"></div><div class="key dis"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="shot">
+      <div class="cap">结算 · 达标</div>
+      <div class="dev">
+        <div class="bar"><span class="ttl">本轮结果</span><span class="sp"></span><span>KOCH 第 7 课</span></div>
+        <div class="body">
+          <div class="left" style="border-right:1px solid var(--rule);flex:none;width:150px">
+            <div class="disp">82<span style="font-size:28px;line-height:37px">%</span></div>
+            <div class="capd" style="margin-top:0">41 / 50 字</div>
+          </div>
+          <div class="left">
+            <div class="capd" style="margin-top:0">错字</div>
+            <div class="dec" style="color:var(--danger)">U→A ×3</div>
+            <div class="dec" style="color:var(--danger)">P→L ×2</div>
+            <div class="grow"></div>
+            <div><span class="btn pri">进入第 8 课</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="shot">
+      <div class="cap">电键 · 桨键模式，划桨按下</div>
+      <div class="dev">
+        <div class="bar"><span>&lt;</span><span class="sp"></span><span style="font-size:20px;line-height:26px;color:var(--ink)">22</span><span>WPM</span><span class="sp"></span><span class="btn" style="font-size:13px;line-height:17px;padding:2px 8px">清屏</span></div>
+        <div style="height:80px;padding:8px 16px;border-bottom:1px solid var(--rule)">
+          <div class="dec">CQ CQ DE BG7XYZ</div>
+          <div class="dec">BG7XYZ K</div>
+        </div>
+        <div style="height:24px;display:flex;align-items:center;justify-content:center;
+                    font-family:var(--mono);font-size:17px;letter-spacing:.2em;color:var(--copper)">─ ·</div>
+        <div style="height:104px;display:flex;gap:1px;padding:8px 16px 16px">
+          <div class="pad">· 点</div>
+          <div class="pad on">─ 划</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">Checklist</div>
+  <h2>工艺自查</h2>
+  <ul class="check">
+    <li><span class="box">[✓]</span><span>一屏字号 ≤ 3 级 <em>—— 全工程 4 级，单屏最多用到 3 级（如结算页 Display + Body + Caption）</em></span></li>
+    <li><span class="box">[✓]</span><span>纸阶之外自定义颜色 ≤ 1 个 accent <em>—— 只有 copper；danger 是语义色，不计入</em></span></li>
+    <li><span class="box">[✓]</span><span>所有间距在 8px 网格上，组间距 &gt; 组内距 <em>—— 见上表六项归位</em></span></li>
+    <li><span class="box">[✓]</span><span>去色测试通过 <em>—— 拿掉铜色只丢「主操作在哪」，层级由字号与留白承担</em></span></li>
+    <li><span class="box">[✓]</span><span>触控目标 ≥ 44px <em>—— 右列 52px，键帽 52px，按钮 32px 需配 ext_click_area</em></span></li>
+    <li><span class="box">[✓]</span><span>正文对比度 ≥ 4.5:1 <em>—— ink 12.98、ink2 5.19、copper 4.78；ink3 仅 3.26，限占位/禁用</em></span></li>
+    <li><span class="box">[✓]</span><span>每个操作有反馈 <em>—— 按下瞬时换 sunk 底；播放中键盘转禁用态</em></span></li>
+    <li><span class="box">[✓]</span><span>装饰效果满足三条件 <em>—— 不用阴影渐变；唯一装饰是点划纹样，且编码真实信息</em></span></li>
+    <li><span class="box todo">[ ]</span><span>深浅两套主题都检查过 <em>—— 不适用：单一纸底，无深色模式</em></span></li>
+    <li><span class="box todo">[ ]</span><span>ui_net.c 信息层级评审 <em>—— 待办，spec 定稿后新增，不在原线框内</em></span></li>
+  </ul>
+</section>
+
+<section>
+  <div class="eyebrow">Token Map</div>
+  <h2>样式层：token 落在了哪里</h2>
+  <p>2026-09-01 完成。<code>main/ui/ui_theme.h</code> 是 token 的唯一出处，按<strong>角色</strong>而不是按颜色命名。这一步刻意<strong>只改名不改值</strong>——连名带值一起换就同时改了两件事，出问题分不清是改名改错还是新颜色不对。66 处改名后 10 个页面指纹逐像素未变（验证方式见 <code>main/screenshot.c</code>）。</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Token</th><th>今天的值</th><th>落点数</th><th>换色后</th><th>典型出处</th></tr></thead>
+    <tbody>
+      <tr><td><code>UI_INK</code></td><td class="hex">#000000</td><td class="num">25</td><td class="hex">#2A2118</td><td>主文、主结构线</td></tr>
+      <tr><td><code>UI_RAISE</code></td><td class="hex">#FFFFFF</td><td class="num">14</td><td class="hex">#F7F1E4</td><td>按钮、键帽、卡片、对话框</td></tr>
+      <tr><td><code>UI_PAPER</code></td><td class="hex">#FFFFFF</td><td class="num">6</td><td class="hex">#EFE6D4</td><td>页面底、遮罩、墨底上翻白的字</td></tr>
+      <tr><td><code>UI_DISABLED</code></td><td class="hex">#999999</td><td class="num">6</td><td class="hex">#8F7F67</td><td>禁用的字与边、未激活的信号格</td></tr>
+      <tr><td><code>UI_SUNK</code></td><td class="hex">#EEEEEE</td><td class="num">4</td><td class="hex">#E4D9C3</td><td>提示条底、卡片按下、对练状态带</td></tr>
+      <tr><td><code>UI_SELECTED</code></td><td class="hex">#999999</td><td class="num">4</td><td class="na">待定</td><td>设置/统计的当前 tab、选中的选项</td></tr>
+      <tr><td><code>UI_FILL</code></td><td class="hex">#999999</td><td class="num">3</td><td class="hex">#945418</td><td>OTA 进度条、统计柱状图</td></tr>
+      <tr><td><code>UI_PRESSED</code></td><td class="hex">#999999</td><td class="num">2</td><td class="hex">#E4D9C3</td><td>按钮按下的底、电键桨按下</td></tr>
+      <tr><td><code>UI_INK2</code></td><td class="hex">#000000</td><td class="num">2</td><td class="hex">#6B5D4A</td><td>主页卡片的字符表与「上次 82%」</td></tr>
+      <tr><td><code>UI_GRID</code></td><td class="hex">#999999</td><td class="num">2</td><td class="hex">#D3C6AC</td><td>手法分析的参考线、统计的 90% 达标线</td></tr>
+      <tr><td><code>UI_RULE</code></td><td class="hex">#000000</td><td class="num">1</td><td class="hex">#D3C6AC</td><td>练习页的分隔线</td></tr>
+      <tr><td><code>UI_ACCENT</code></td><td class="hex">#000000</td><td class="num">1</td><td class="hex">#945418</td><td>主页「继续练习 &gt;」</td></tr>
+      <tr><td><code>UI_DANGER</code></td><td class="hex">#000000</td><td class="num fail">0</td><td class="hex">#9C2B1B</td><td class="fail">无</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <b>统计暴露的两件事</b>
+    <p><strong>accent 只有一个落点</strong>——整个固件目前只有主页的「继续练习 &gt;」在视觉上被标记为主操作。换成铜色时不会满屏开花，和「整屏铜色不超过两处」的规则天然吻合。</p>
+    <p style="margin-top:8px"><strong>danger 一个落点都没有。</strong>「恢复出厂设置」在设置列表里和「屏幕亮度」长得一模一样——有二次确认，但没有任何视觉警示，工艺规则那条「危险操作 = 二次确认 + 红色」只做到了一半。<strong>这是换色时要补的，不是换个颜色就完事的。</strong></p>
+  </div>
+
+  <p style="margin-top:14px"><code>UI_SELECTED</code> 的去向还没定：选中态既可以是凹陷面（<code>sunk</code>，读作「按进去了」），也可以是 accent（读作「现在在这里」）。设置页三个 tab 和统计页的 tab 用哪种，等浮雕落地后一起看——那时候「凹陷」才真的画得出来。</p>
+</section>
+
+<section>
+  <div class="eyebrow">Next</div>
+  <h2>落地顺序</h2>
+  <ul>
+    <li><span class="pass">[已完成 2026-09-01]</span> <strong>跑样机六页，定素材工艺。</strong>结论已写入上方「实测结果」，风格据此收紧为平涂 + 浮雕 + 纹理。</li>
+    <li><span class="pass">[已完成 2026-09-01]</span> <strong>建样式层，不改观感。</strong> 把散落在 14 个文件里的 80+ 处 <code>lv_obj_set_style_*</code> 收进一份 <code>ui_theme.h/.c</code>，token 用本文的名字。这一步是纯机械重构，改完屏幕应当和现在一模一样——这就是它的验收标准。</li>
+    <li><strong>再搭 SDL 模拟器。</strong> <code>firmware/cw-trainer/sim/</code>：把 sdkconfig 里的 <code>CONFIG_LV_*</code> 誊成一份 <code>lv_conf.h</code>（板子上 <code>LV_CONF_SKIP=y</code> 走的是 Kconfig，不誊会渲染不一致）+ 硬件模块桩 + Makefile。之后改一行两秒看到结果。</li>
+    <li><strong>做字体。</strong> 选定 TTF，用 <code>lv_font_conv</code> 出 20px 与 28px 两份子集，在模拟器里对比宋体/黑体两版标题，定稿。</li>
+    <li><strong>套色。</strong> 只改 <code>ui_theme.c</code> 里的 token 值和字号绑定，页面代码基本不动。</li>
+    <li><strong>逐页微调布局</strong>，从主页开始；<code>ui_net.c</code> 单独按评审模式过。</li>
+    <li><strong>做电键页拟物素材。</strong> 黄铜双桨与木纹底座，<code>INDEXED_4BIT</code>，走材质纹理而非渐变。</li>
+    <li><strong>真机校色。</strong> 电阻屏有雾面层、可视角一般，纸底和铜色到屏上一定会比这里发灰。以真机为准回调 token，本文同步更新。</li>
+  </ul>
+</section>
+
+<footer>CW Trainer · 视觉方向定稿 2026-09-01 · 对比度按 RGB565 量化后实算</footer>
+
+</div>
+</body>
+</html>
