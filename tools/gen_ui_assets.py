@@ -18,7 +18,7 @@
 import os
 import random
 
-OUT = "firmware/cw-trainer/main/ui/ui_assets.c"
+OUT = "main/ui/ui_assets.c"
 TILE = 32
 
 # 和 ui_theme.h 的 UI_PAPER 保持一致。**这里才是屏上看得见的纸色**——页面底铺

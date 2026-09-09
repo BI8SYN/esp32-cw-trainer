@@ -1,0 +1,32 @@
+# ESP-IDF 构建产物
+build/
+sdkconfig
+sdkconfig.old
+managed_components/
+dependencies.lock
+
+# 分发包。以前随源码一起提交，现在由 CI 打好上传到 GitHub Releases——
+# 仓库里不该再存一份几 MB 的 zip。
+dist/
+
+# 主机测试编译产物（test/Makefile 生成的可执行文件与 macOS 调试符号包）
+test/test_*
+!test/test_*.c
+!test/test_*.h
+
+# 素材样机的烘焙位图。309KB 的生成物，由 tools/gen_probe_assets.py 随时重跑，
+# 而且只在 -DCW_STYLE_PROBE=ON 的开发构建里才编。和 components/fonts/*.c 不同
+# ——那些是发布固件的一部分，必须进 git。
+main/ui/probe_assets.c
+
+# 编辑器 / 语言服务器索引缓存
+.cache/
+.vscode/
+compile_commands.json
+
+# macOS
+.DS_Store
+
+# 临时文件
+*.log
+*.tmp

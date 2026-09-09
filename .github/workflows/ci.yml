@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# 同一分支上后推的提交取消前一次未跑完的构建——固件构建要几分钟，排队没意义。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-tests:
+    name: 主机测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # main/core/ 下的模块不依赖 ESP-IDF，所以这一整套能在普通 runner 上跑，
+      # 不必等固件构建的容器起来。13 个测试程序、127 个用例。
+      - name: make -C test
+        run: make -C test
+
+  static-checks:
+    name: 静态自检
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # 用到裁剪字库之外的字符不会报错、不会警告，只会在屏幕上渲染成空白，
+      # 只有对着真机才看得出来。所以这一条必须在 CI 里拦。
+      - name: 字符集（改了中文文案就可能踩）
+        run: python3 tools/check_charset.py
+      - name: 调色板
+        run: python3 tools/check_palette.py
+
+  build:
+    name: 固件构建
+    runs-on: ubuntu-latest
+    container: espressif/idf:v5.5.4
+    steps:
+      - uses: actions/checkout@v4
+      - name: idf.py build
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh"
+          idf.py build
+          echo "── 分区占用 ──"
+          idf.py size | tail -20

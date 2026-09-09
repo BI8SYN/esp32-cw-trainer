@@ -73,6 +73,26 @@ target_width=306），横向仍会填满，只是高度变化。
 收益主要是**开发时烧录时间减半**（app 2.67MB → 1.5MB）。但提高写入波特率
 能以十分之一的成本获得更大提速，所以这项优先级更低。
 
+### 4. 用 OFL 字体重新生成全部字库（消掉来源不明的点阵）
+
+`font28.c` / `EN_BIG.c` / `tools/font-src/font20.c` 出自「Lvgl Font Tool V0.4」，
+文件头只记着这一句，**没有记录输入的是哪个字体**。它们随上游 esp32-fmo-companion
+的 MIT 授权继承而来，本仓库照 MIT 继续分发（见 `NOTICE.md`），但对字体授权有
+严格要求的场合，这是这个仓库唯一的法律软肋。
+
+替换路径已经走通过一次：`font28cn.c` 就是 `tools/gen_title_font.sh` 从思源宋
+（OFL）用 `lv_font_conv` 生成的，脚本里写着字体 URL 和完整命令。把正文字体
+`font20` 也照这个办法用思源黑重做，技术上没有未知。
+
+**暂缓的理由**：正文字体换字形会改变全部页面的观感，而 v1.5.1 的视觉方向是在
+真机上校正了十一轮才定下来的（`docs/design/cw-trainer-visual-direction.html`）。
+换字库等于把那十一轮重做一遍，且只有对着真屏幕才能验收。要做就单独做一版，
+不要夹在别的改动里。
+
+顺带一提，真做的时候可以顺手把 `font20` 的裁剪流程也简化掉：从 OFL 字体直接按
+字符集生成，就不需要「全量字库 + subset_font.py」这两步，`tools/font-src/` 那
+7MB 也能删掉。
+
 ## 已否决的方案
 
 ### ❌ 字体放 SD 卡
@@ -110,8 +130,8 @@ target_width=306），横向仍会填满，只是高度变化。
 **比 SD 快 203 倍。** 原因：当前字体在 `.rodata` 里本来就是"内部 flash + MMU 映射"，
 挪到独立分区再 `mmap` 是同一机制，所以零代价。分区被映射到 `0x3f410000`。
 
-测试程序保留在 `firmware/sdfont-bench/`，可用
-`PROJECT=firmware/sdfont-bench tools/idf.sh build flash` 重跑。
+测试程序（`sdfont-bench`）留在抽离前的那个私有开发仓库里，不在本仓库——它是个
+一次性的基准工程，与固件无关。数据本身照录在这里。
 
 ### ❌ 双 OTA 分区
 

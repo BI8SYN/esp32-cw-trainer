@@ -17,7 +17,7 @@
 import os
 import random
 
-OUT = "firmware/cw-trainer/main/ui/probe_assets.c"
+OUT = "main/ui/probe_assets.c"
 
 PAPER = (0xEF, 0xE6, 0xD4)
 

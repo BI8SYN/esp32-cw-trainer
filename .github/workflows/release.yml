@@ -1,0 +1,121 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  # 不制造一个假版本也能验证整条流水线：跑完构建与打包，产物作为 workflow
+  # artifact 留 7 天，不创建 Release。
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 只构建打包，不创建 Release
+        type: boolean
+        default: true
+
+jobs:
+  release:
+    name: 构建并发布
+    runs-on: ubuntu-latest
+    container: espressif/idf:v5.5.4
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # 容器里跑 git 会撞上 "dubious ownership"（checkout 的文件属主与容器内
+      # 用户不同），package_release.sh 要 git rev-parse 拿提交号。
+      - name: 让 git 接受这个工作区
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # PROJECT_VER 是唯一权威的版本号——它被嵌进 bin，设备的设置页和启动日志
+      # 显示的都是它。tag 必须和它一致，否则 release 的名字与固件自报的版本会
+      # 对不上号，而这种错配装到设备上才会发现。
+      - name: 校验 tag 与 PROJECT_VER 一致
+        id: ver
+        shell: bash
+        run: |
+          VER=$(sed -n 's/^set(PROJECT_VER "\(.*\)")$/\1/p' CMakeLists.txt)
+          [[ -n "$VER" ]] || { echo "::error::CMakeLists.txt 里读不到 PROJECT_VER"; exit 1; }
+          echo "PROJECT_VER = $VER"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            if [[ "$GITHUB_REF_NAME" != "$VER" ]]; then
+              echo "::error::tag ($GITHUB_REF_NAME) 与 PROJECT_VER ($VER) 不一致。"
+              echo "::error::改 CMakeLists.txt 的 PROJECT_VER，或用正确的名字重打 tag。"
+              exit 1
+            fi
+          fi
+
+      # 版本说明是发布的一部分，缺了就不让发。设备上看不到它（裁剪后的字库放不下
+      # 那么多字），但仓库里必须留下这一版改了什么——出问题时要靠它定位是哪一版
+      # 引入的。这条规矩原来在 publish_ota.sh 里，现在挪到 CI。
+      - name: 校验版本说明存在
+        shell: bash
+        run: |
+          NOTES="docs/releases/cw-trainer-${{ steps.ver.outputs.version }}.md"
+          [[ -f "$NOTES" ]] || {
+            echo "::error::缺少版本说明 $NOTES。每个发布版本都要有说明。"
+            exit 1
+          }
+          echo "版本说明：$NOTES（$(wc -l < "$NOTES") 行）"
+
+      - name: 主机测试
+        run: make -C test
+
+      - name: 静态自检
+        run: |
+          python3 tools/check_charset.py
+          python3 tools/check_palette.py
+
+      - name: 构建
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh"
+          idf.py build
+          idf.py size | tail -20
+
+      - name: 打分发包
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh"
+          tools/package_release.sh
+
+      # release 资产名必须是纯 ASCII —— GitHub 会把非 ASCII 字符替换成点，
+      # 所以「合并版」这三个字只能活在 zip 内部。
+      - name: 归置 release 资产
+        shell: bash
+        run: |
+          VER=${{ steps.ver.outputs.version }}
+          mkdir -p assets
+          cp "dist/cw-trainer-$VER.zip"                        "assets/cw-trainer-$VER.zip"
+          cp "dist/cw-trainer-$VER/cw-trainer-$VER-合并版.bin"  "assets/cw-trainer-$VER-merged.bin"
+          cp "dist/cw-trainer-$VER/cw-trainer.bin"             "assets/cw-trainer-$VER.bin"
+          cp "dist/cw-trainer-$VER/SHA256SUMS.txt"             "assets/SHA256SUMS.txt"
+          ls -lh assets
+
+      - name: 上传为 workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cw-trainer-${{ steps.ver.outputs.version }}
+          path: assets/
+          retention-days: 7
+
+      - name: 创建 Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: cw-trainer ${{ steps.ver.outputs.version }}
+          body_path: docs/releases/cw-trainer-${{ steps.ver.outputs.version }}.md
+          files: assets/*
+          fail_on_unmatched_files: true
+
+      - name: 提醒发 OTA
+        if: github.ref_type == 'tag'
+        run: |
+          echo "### Release 已创建 :white_check_mark:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**OTA 还没发。** 设备端的固件升级走自建服务器，不在 CI 里" >> $GITHUB_STEP_SUMMARY
+          echo "（那需要把服务器 SSH 私钥放进公开仓库的 secrets）。在本机跑：" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo 'tools/idf.sh build && tools/publish_ota.sh' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

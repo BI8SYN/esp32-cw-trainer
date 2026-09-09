@@ -18,7 +18,7 @@
 本来就在同一个 .c 里由工具生成，换格式不影响任何调用方。
 
 用法：
-    python3 tools/subset_font.py fonts/font20.c <字符集文件> fonts/font20.c
+    python3 tools/subset_font.py tools/font-src/font20.c <字符集文件> components/fonts/font20_cwtrn.c
 """
 import re
 import sys

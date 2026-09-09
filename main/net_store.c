@@ -12,9 +12,10 @@ static const char *TAG = "net_store";
 #define NVS_KEY_NET_CFG  "net_cfg"
 
 /*
- * fmo-companion 的 WiFi blob 布局。这些偏移是照着
- * firmware/fmo-companion/main/app_settings.c 的 app_wifi_profiles_blob_t
- * 抄下来的：
+ * fmo-companion 的 WiFi blob 布局。同一块板子上的另一个固件（FMO 伴侣，源出
+ * 上游 esp32-fmo-companion，见 docs/upstream-source.md），它把 WiFi 凭据存在
+ * 共享的 NVS 分区里，这里直接复用，省得用户在两个固件里各配一次。这些偏移是
+ * 照着它 main/app_settings.c 的 app_wifi_profiles_blob_t 抄下来的：
  *
  *     uint32_t version;                 @0
  *     uint8_t  active_index;            @4

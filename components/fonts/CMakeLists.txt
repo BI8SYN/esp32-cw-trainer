@@ -1,40 +1,32 @@
 #
-# 共享字体组件。两个固件都用它，但 font20 分两份：
+# 字体组件。四个字体源码，编译后约 1.1MB 进 app：
 #
-#   font20.c        原版，3888 个字形，编译后约 966KB。fmo-companion 用它
-#                   （app_ui.c 里 LV_FONT_DECLARE(font20)），它的文案覆盖面
-#                   大，裁剪风险高。
+#   font20_cwtrn.c  界面正文。按实际用到的 368 个字形裁剪，编译后约 54KB。
+#                   由 tools/subset_font.py 从全量字库 tools/font-src/font20.c
+#                   （3888 个字形，编译后约 966KB）生成，字形数据逐像素一致，
+#                   渲染不会变样。它定义的符号就叫 font20。
 #
-#   font20_cwtrn.c  按 cw-trainer 实际用到的 350 个字形裁剪，编译后约 54KB。
-#                   由 tools/subset_font.py 从 font20.c 生成，字形数据逐像素
-#                   一致，渲染不会变样。
+#                   省下的 900KB 正是这个固件能放下双槽 OTA 的前提，所以全量
+#                   字库只作裁剪原料、不参与编译，放在 tools/font-src/ 下。
 #
-# 两者定义同一个符号 font20，不能同时编译。按工程名二选一——省下的 900KB
-# 正是 cw-trainer 能放下双槽 OTA 的前提。
+#   font28.c        28px 英文/数字，状态栏与大字号读数
+#   font28cn.c      28px 标题宋体，由 tools/gen_title_font.sh 从思源宋（OFL）
+#                   生成——出处和命令都在脚本里，这是唯一有源可重生成的字体
+#   EN_BIG.c        大号英文，练习页的字符提示
 #
-# **改 cw-trainer 的中文文案后要重新生成**，否则新字会渲染成空白：
-#     python3 tools/check_charset.py          # 构建前自检，发现表外字符报错
-#     python3 tools/subset_font.py fonts/font20.c <字符集> fonts/font20_cwtrn.c
+# **改中文文案后要重新裁剪**，否则新字会渲染成空白：
+#     python3 tools/check_charset.py     # 构建前自检，发现表外字符直接报错
+#     python3 tools/subset_font.py tools/font-src/font20.c <字符集> \
+#             components/fonts/font20_cwtrn.c
 #
-set(font_srcs
-    "font28.c"
-    "EN_BIG.c"
-    "clock_font.c"
-    "status_font.c"
-)
-
-if("${CMAKE_PROJECT_NAME}" STREQUAL "cw-trainer")
-    list(APPEND font_srcs "font20_cwtrn.c")
-    # 标题用的 28px 宋体。只有 cw-trainer 用，fmo-companion 不背这个重量。
-    # 由 tools/gen_title_font.sh 从思源宋（OFL）生成，出处和命令都在脚本里
-    # ——这是 fonts/ 下第一个有源可重生成的字体。
-    list(APPEND font_srcs "font28cn.c")
-else()
-    list(APPEND font_srcs "font20.c")
-endif()
-
+# 字体来源与许可见仓库根的 NOTICE.md。
+#
 idf_component_register(
-    SRCS ${font_srcs}
+    SRCS
+        "font20_cwtrn.c"
+        "font28.c"
+        "font28cn.c"
+        "EN_BIG.c"
     REQUIRES
         lvgl
 )

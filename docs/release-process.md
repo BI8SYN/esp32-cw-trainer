@@ -1,13 +1,14 @@
 # 发布规则
 
-适用于 `firmware/cw-trainer`（`fmo-companion` 目前不走 OTA）。
-
 ## 版本号
 
-`vMAJOR.MINOR.PATCH`，写在工程的 `CMakeLists.txt` 的 `PROJECT_VER`。
+`vMAJOR.MINOR.PATCH`，写在 `CMakeLists.txt` 的 `PROJECT_VER`。
 
 **这是唯一权威的版本号**——它被嵌进 bin，设备的设置页和启动日志显示的都是它。
-仓库 tag 不是：两个固件共用同一个 tag 命名空间，对不上号。
+**tag 名必须与它完全一致**，CI 会校验，不一致直接失败（
+`.github/workflows/release.yml`）。抽离成独立仓库之前这两者是分家的：那个仓库
+里两个固件共用一个 tag 命名空间，tag 对不上号，所以只能靠这份文档反复叮嘱。
+现在由 CI 兜着。
 
 | 位 | 什么时候动 | 例 |
 |---|---|---|
@@ -20,7 +21,8 @@
 
 ## 每个版本都要有版本说明
 
-放在 `docs/releases/<工程名>-<版本>.md`。**没有它 `publish_ota.sh` 会拒绝发布。**
+放在 `docs/releases/cw-trainer-<版本>.md`。**没有它 CI 拒绝发布**，
+`publish_ota.sh` 也拒绝发布。它同时是 GitHub Release 的正文。
 
 设备上看不到这份说明（裁剪后的字库放不下那么多字，见
 `tools/check_charset.py`），但仓库里必须留下这一版改了什么——出问题时要靠它
@@ -41,42 +43,43 @@
 - （没有就写「无」）
 ```
 
-## 默认发 OTA 包
+## 发布一版
 
 ```bash
-PROJECT=firmware/cw-trainer tools/idf.sh build
-tools/publish_ota.sh firmware/cw-trainer
+# 1. 改 CMakeLists.txt 的 PROJECT_VER，写 docs/releases/cw-trainer-<版本>.md
+# 2. 本地过一遍自检（CI 也会跑，但别把失败留给 CI）
+make -C test
+python3 tools/check_charset.py
+tools/idf.sh build
+
+# 3. 合并到 main，然后打 tag
+git tag -a v1.5.2 -m "cw-trainer v1.5.2"
+git push origin v1.5.2
 ```
 
-脚本会上传 `cw-trainer-<版本>.bin` 并更新清单 `cw-trainer.json`。设备端在
-设置 → 常规 → 固件升级 里检查和升级。
+tag 一推上去，CI 就接手：校验 tag 与 `PROJECT_VER` 一致、校验版本说明存在、
+跑主机测试与静态自检、构建、打分发包，然后创建 Release 并挂上四个资产
+（分发包 zip、合并版 bin、OTA 用的 app bin、`SHA256SUMS.txt`）。
 
-固件文件名带版本号是有意的：能同时保留多个版本以便回退，出问题时看文件名
-就知道设备装的是哪个。
-
-## 每个版本都要打 tag
-
-```bash
-git tag -a v1.4.2 -m "cw-trainer v1.4.2"
-git push origin v1.4.2
-```
-
-tag 名就是 `PROJECT_VER` 的值。打在**这一版真正发布出去的那份代码**上——通常是
-合并到 `main` 之后的最终状态，而不是当初把 `PROJECT_VER` 改成该值的那个提交。
+tag 要打在**这一版真正发布出去的那份代码**上——通常是合并到 `main` 之后的最终
+状态，而不是当初把 `PROJECT_VER` 改成该值的那个提交。
 
 原来这里写的是后者。v1.5.0 暴露了问题：改版本号的提交后面还跟着五个提交在改代码，
 照字面打，tag 会指向**不是我们要发的那份固件**。版本号往往在开发早期就先定下来，
 它标记的是「这一版打算叫什么」，不是「这一版最终是什么样」。
 
-**先提交分发包再打 tag**，这样 tag 指向的树里就包含它自己那一版的 zip。既然分发包
-现在是每版必打，这条顺序也就成了固定流程的一部分。
+### 想在不发版的情况下验证流水线
 
-## 每个版本都要打分发包
+`.github/workflows/release.yml` 有 `workflow_dispatch` 入口：跑完构建与打包，
+产物作为 workflow artifact 留 7 天，**不创建 Release**。改了打包脚本或 workflow
+之后用它验证，不必为此制造一个假版本。
+
+## 分发包每版必打（现在由 CI 打）
 
 分发包是给**没有网、或者第一次刷机**的人用的——完整的 bootloader + 分区表 +
 app，加一份烧录说明，压成 zip。
 
-原来这里写的是「只有明确要求时才打」。改成默认打，理由有两条：
+原来这里写的是「只有明确要求时才打」。改成每版必打，理由有两条：
 
 1. **OTA 升不上去的时候，分发包是唯一的出路。** 而那正是最需要它、也最没工夫
    现打一个的时刻——固件坏了、设备起不来、或者 `ota.c` 认为服务器版本不够新而
@@ -84,7 +87,21 @@ app，加一份烧录说明，压成 zip。
 2. **它是回退到某一版的唯一手段。** 设备不能通过 OTA 降级，要把一台设备拉回旧
    版本只能靠串口刷分发包里的 bin。少打一版，那一版就永远回不去了。
 
-代价是仓库里每版多 1.5MB 左右的 zip，值得。
+它以前随源码提交进仓库的 `dist/`，代价是每版永久多约 1.5MB——git 不会忘记删掉
+的文件。抽离成独立仓库时改成挂在 GitHub Releases 上（`dist/` 进了
+`.gitignore`），仓库不再为二进制变胖，而「包和产出它的源码绑在一起」这条由
+Release 与 tag 的对应关系保证，比放在工作树里更硬。
+
+本地手工打一个（CI 之外，比如要现场给人一份）：
+
+```bash
+tools/idf.sh build
+tools/package_release.sh
+```
+
+输出到 `dist/cw-trainer-<版本>/` 并压成同名 zip。脚本会自检三件事：产物存在、
+产物比所有源文件新、bin 里嵌的版本字符串与 `PROJECT_VER` 一致——这三种错配都
+不会有任何报错，烧进去才发现是旧固件。
 
 ### 回退会清空设置和 Koch 进度——只要中间升过配置版本
 
@@ -106,27 +123,29 @@ v1.5.1 实测：从 v1.5.1（配置 v4，72 字节）刷回 v1.5.0（只认 v1/v
 （这不影响正常升级：新版本读旧配置有迁移，Koch 进度不丢。只有**往回刷**才有这个
 代价。）
 
+## OTA 要手动发
+
+**OTA 不在 CI 里。** 让 GitHub Actions 发 OTA 需要把服务器 SSH 私钥放进公开
+仓库的 secrets，为省一条命令不值得。tag 推上去、Release 建好之后，在本机跑：
+
 ```bash
-tools/package_release.sh firmware/cw-trainer
+tools/idf.sh build
+tools/publish_ota.sh
 ```
 
-输出到仓库的 `dist/cw-trainer-<版本>/` 并压成同名 zip。
+脚本会上传 `cw-trainer-<版本>.bin` 并更新清单 `cw-trainer.json`。设备端在
+设置 → 常规 → 固件升级 里检查和升级。
 
-**zip 随版本库一起提交**，展开的目录由 `.gitignore` 排除（提交两份等于体积
-翻倍）。这样包和产出它的源码绑在一起，别人 clone 下来就有，不依赖外部托管。
+固件文件名带版本号是有意的：能同时保留多个版本以便回退，出问题时看文件名
+就知道设备装的是哪个。
 
-代价是每发一个分发包，仓库就永久多约 1MB——git 不会忘记删掉的文件。如果以后
-版本多到觉得重了，改用 GitHub Releases 把二进制挂在 tag 上是标准做法，本仓库
-已经在打 tag，切换成本很低。
-
-**不要默认打分发包。** 日常迭代一律走 OTA——分发包要对方手工烧录，成本高得多。
-
-## 发布前的自检
+## 发布前的自检（CI 会重跑一遍，但别把失败留给 CI）
 
 ```bash
 python3 tools/check_charset.py      # 新文案有没有用到裁剪字库之外的字
-make -C firmware/cw-trainer/test    # 主机测试
-PROJECT=firmware/cw-trainer tools/idf.sh build
+python3 tools/check_palette.py      # 调色板
+make -C test                        # 主机测试
+tools/idf.sh build
 ```
 
 字库那条特别容易漏：用到表外的字**不会有编译错误，只会在屏幕上渲染成空白**，

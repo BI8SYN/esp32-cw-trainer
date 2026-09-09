@@ -7,12 +7,11 @@
 # esptool，而 ESP-IDF 自带的 python 环境里就有，不需要它的仓库是新的。
 #
 # 用法：
-#   tools/flash_remote.sh                    # 烧 firmware/cw-trainer 的当前构建
-#   PROJECT=firmware/fmo-companion tools/flash_remote.sh
-#   tools/flash_remote.sh --monitor          # 烧完接着看 20 秒串口输出
+#   REMOTE=用户@主机 tools/flash_remote.sh              # 烧当前构建
+#   REMOTE=用户@主机 tools/flash_remote.sh --monitor    # 烧完接着看 20 秒串口输出
 #
 # 环境变量：
-#   REMOTE       默认 liyongsheng@10.11.26.88
+#   REMOTE       远端 ssh 目标，**必填**（用户@主机）
 #   REMOTE_PORT  串口。**默认自动探测**，不写死——USB 重新枚举一次名字就会变
 #                （实测 -2110 变成了 -2120），而这正是本仓库 README 反复警告
 #                的那个坑。探测到 0 个或多于 1 个才需要手动指定。
@@ -22,11 +21,12 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-PROJECT="${PROJECT:-firmware/cw-trainer}"
-REMOTE="${REMOTE:-liyongsheng@10.11.26.88}"
+REMOTE="${REMOTE:-}"
+[[ -n "$REMOTE" ]] || { echo "错误：请设置 REMOTE=用户@主机" >&2; exit 1; }
 PORT="${REMOTE_PORT:-}"
 BAUD="${ESP_BAUD:-460800}"
-BUILD="$PROJECT/build"
+BUILD="build"
+APP_NAME="cw-trainer"
 MONITOR=0
 [[ "${1:-}" == "--monitor" ]] && MONITOR=1
 
@@ -35,13 +35,13 @@ FILES=(
   "bootloader/bootloader.bin"
   "partition_table/partition-table.bin"
   "ota_data_initial.bin"
-  "$(basename "$PROJECT").bin"
+  "$APP_NAME.bin"
 )
 for f in "${FILES[@]}"; do
   [[ -f "$BUILD/$f" ]] || { echo "错误：缺少 $BUILD/$f，先跑一次 tools/idf.sh build" >&2; exit 1; }
 done
 
-APP="$(basename "$PROJECT").bin"
+APP="$APP_NAME.bin"
 echo "== 本机构建 =="
 echo "   $APP  $(wc -c < "$BUILD/$APP") 字节"
 

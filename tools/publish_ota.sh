@@ -1,33 +1,35 @@
 #!/usr/bin/env bash
 # 把当前构建产物发布为 OTA 包：上传带版本号的固件，并更新版本清单。
 #
-# 用法： tools/publish_ota.sh [工程目录]
-#   例： tools/publish_ota.sh firmware/cw-trainer
+# 用法： tools/publish_ota.sh
+#
+# 这一步**不在 CI 里**：让 GitHub Actions 发 OTA 需要把服务器 SSH 私钥放进
+# 公开仓库的 secrets，为省一条命令不值得。tag 推上去后 CI 负责 GitHub Release，
+# OTA 由维护者在本机手动发。
 #
 # 环境变量：
 #   OTA_HOST   服务器 ssh 别名，默认 ali99
 #   OTA_DIR    服务器上的静态目录，默认 /opt/morsekob/www
 #   OTA_BASE   设备访问的基地址，默认 http://8.138.130.141:7891
 #
-# 版本号取工程 CMakeLists.txt 里的 PROJECT_VER——那才是真正嵌进 bin、
-# 设备设置页和启动日志显示的那个值，仓库 tag 不是。
+# 版本号取 CMakeLists.txt 里的 PROJECT_VER——那才是真正嵌进 bin、设备设置页和
+# 启动日志显示的那个值。
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-PROJECT="${1:-firmware/cw-trainer}"
-NAME="$(basename "$PROJECT")"
+NAME="cw-trainer"
 HOST="${OTA_HOST:-ali99}"
 DIR="${OTA_DIR:-/opt/morsekob/www}"
 BASE="${OTA_BASE:-http://8.138.130.141:7891}"
 
-VER="$(sed -n 's/^set(PROJECT_VER "\(.*\)")$/\1/p' "$PROJECT/CMakeLists.txt")"
+VER="$(sed -n 's/^set(PROJECT_VER "\(.*\)")$/\1/p' CMakeLists.txt)"
 if [[ -z "$VER" ]]; then
-  echo "错误：在 $PROJECT/CMakeLists.txt 里找不到 PROJECT_VER" >&2
+  echo "错误：在 CMakeLists.txt 里找不到 PROJECT_VER" >&2
   exit 1
 fi
 
-BIN="$PROJECT/build/$NAME.bin"
+BIN="build/$NAME.bin"
 if [[ ! -f "$BIN" ]]; then
   echo "错误：$BIN 不存在，先 build" >&2
   exit 1

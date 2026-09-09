@@ -33,7 +33,7 @@ typedef struct {
 } item_t;
 
 static const char *const KEYER_MODES[] = { "直键", "Iambic A", "Iambic B" };
-/* 写"上下翻转"而不是"180°"：`°`(U+00B0) 不在 font20 的 cmap 里（`fonts/font20.c`
+/* 写"上下翻转"而不是"180°"：`°`(U+00B0) 不在 font20 的 cmap 里（`tools/font-src/font20.c`
  * 的字形表里没有 `unicode = 0x00b0` 这一项），会静默渲染成空白——正是 README
  * 「界面里的中文字体」一节描述的那类只有对着真屏幕才看得出来的坑。 */
 static const char *const SCREEN_ROTS[] = { "正常", "上下翻转" };

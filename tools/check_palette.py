@@ -16,7 +16,7 @@
 import re
 import sys
 
-THEME = "firmware/cw-trainer/main/ui/ui_theme.h"
+THEME = "main/ui/ui_theme.h"
 
 # 刻意同值、只是角色不同的组合。**这些不是撞车**——把「今天恰好相同」和
 # 「本来就该相同」分开，正是这套 token 按角色命名的初衷（见 ui_theme.h）。

@@ -79,32 +79,25 @@ ERROR: Activation script failed
 
 ## 项目结构
 
-固件源码直接放在 `firmware/fmo-companion`，**不是 submodule**——克隆仓库即可得到全部内容，无需额外拉取，也不依赖任何外部仓库。
+仓库根就是 ESP-IDF 工程本体（`CMakeLists.txt` / `main/` / `partitions.csv`），
+`components/` 下是 vendored 的 LVGL、屏/触摸驱动、移植层与字体——**都不是
+submodule**，克隆即得全部内容，不依赖任何外部仓库。结构一览见根 `README.md`。
 
-源码及其完整历史（上游 8 个提交 + 我们的改动）是用 `git subtree` 并入的，
-所以 `git log` / `git blame` 能一路追溯到上游的 `03323b7 Initial commit`。
+版本号写在 `CMakeLists.txt` 的 `PROJECT_VER`，不取 `git describe`。它被嵌进
+bin，设备的设置页和启动日志显示的都是它；CI 在打 tag 时校验 tag 名与它一致
+（`.github/workflows/release.yml`），所以两者不会走散。
 
-版本号由主仓库的 `git describe` 生成（如 `V1.31-16-gfd26c79`），
-一个仓库一条版本线。
+### 与同一块板子上另一个固件共存
 
-### 多固件开发
+这块板子只有一个 app 分区，**一次只能刷一个固件**。同一块板上常见的另一个
+固件是 FMO 伴侣（见 `docs/upstream-source.md`），来回刷是可以的：
 
-`tools/idf.sh` 通过 `PROJECT` 环境变量选择工程，默认 `firmware/fmo-companion`：
-
-```bash
-PROJECT=firmware/<其它固件> tools/idf.sh build
-```
-
-`esp.sh` / `backup_flash.sh` / `restore_flash.sh` / `analyze_dump.py` 与固件无关，各工程共享。
-
-三个需要注意的约束：
-
-- **设备一次只能刷一个固件**（只有一个 app 分区），切换需重刷约 40 秒（460800 波特率下的实测值，见下方"实测收益"）
-- **NVS 是共享的**，不同固件若使用相同命名空间会互相污染，切换时可能需要
-  `tools/esp.sh erase_region 0x9000 0x6000`
-- 新固件如果不打算单独开源，直接放普通目录即可，不必再引入 submodule
-
-现有工程：`firmware/fmo-companion`（默认）、`firmware/cw-trainer`、`firmware/sdfont-bench`。
+- 切换需重刷约 40 秒（460800 波特率下的实测值，见下方"实测收益"）
+- **NVS 是共享的**，但两个固件用不同命名空间（本固件是 `cwtrn`），互不污染，
+  不必在切换时擦 NVS。正是因为共享，配网页才能一键导入对方存好的 WiFi
+  （见 `main/net_store.c`）
+- 整机烧录（合并镜像写 `0x0`）会把 NVS 那一段填成 `0xFF`，**两个固件的设置
+  一起清空**；想保留就走升级烧录，只写 app，见分发包里的 `README.md`
 
 ## 使用
 
@@ -117,8 +110,11 @@ tools/idf.sh fullclean    # 清理
 ```
 
 `tools/idf.sh` 会自动 source `export.sh` 并带上串口参数，不用每次手动进 IDF 环境。
+它只做这一件事，之后原样转发给 `idf.py`。
 
-环境变量可覆盖：`IDF_DIR`、`ESP_PORT`、`ESP_BAUD`、`PROJECT`。
+环境变量可覆盖：`IDF_DIR`、`ESP_PORT`、`ESP_BAUD`。
+
+已经在 IDF 环境里（比如 CI 容器）不需要这个脚本，直接 `idf.py build`。
 
 ## 波特率：写 460800，读 115200
 
@@ -127,7 +123,7 @@ tools/idf.sh fullclean    # 清理
 | 操作 | 波特率 | 依据 |
 |---|---|---|
 | **写入**（`tools/idf.sh flash`） | **460800** | 每段结束做 MD5 校验（日志里的 `Hash of data verified`），传输出错会当场失败并可重试，不会静默写坏 |
-| **读取**（`tools/esp.sh read_flash`） | **115200** | 460800 下实测出现 `Corrupt data`，且**没有任何校验**能发现，会静默读出错误内容。备份必须坚持 115200 |
+| **读取**（`esptool read_flash`） | **115200** | 460800 下实测出现 `Corrupt data`，且**没有任何校验**能发现，会静默读出错误内容。备份必须坚持 115200 |
 
 实测收益：
 

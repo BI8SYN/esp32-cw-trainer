@@ -42,7 +42,7 @@
  *
  * LVGL 默认的键盘映射用 LV_SYMBOL_BACKSPACE / NEW_LINE / KEYBOARD / LEFT /
  * RIGHT / OK 这六个图标键，它们的码点落在 0xF000+ 的私有区，而本项目的
- * fonts/font20.c 里**一个都没有**（实测 grep "unicode = 0xF" 返回 0 条），
+ * tools/font-src/font20.c 里**一个都没有**（实测 grep "unicode = 0xF" 返回 0 条），
  * 于是全部渲染成豆腐块。
  *
  * 给字体补上那段字形要重新生成字体文件、还会增大固件体积，而这几个键用

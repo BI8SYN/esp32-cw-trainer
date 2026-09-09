@@ -12,7 +12,7 @@ if(CW_STYLE_PROBE)
     if(NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/ui/probe_assets.c")
         message(STATUS "生成样机位图：tools/gen_probe_assets.py")
         execute_process(
-            COMMAND python3 "${CMAKE_CURRENT_LIST_DIR}/../../../tools/gen_probe_assets.py"
+            COMMAND python3 "${CMAKE_CURRENT_LIST_DIR}/../tools/gen_probe_assets.py"
             RESULT_VARIABLE gen_rc
             OUTPUT_VARIABLE gen_out)
         if(NOT gen_rc EQUAL 0)

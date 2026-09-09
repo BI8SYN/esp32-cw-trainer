@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """检查 cw-trainer 的界面文案有没有用到裁剪字体之外的字符。
 
-font20_cwtrn.c 只含界面实际用到的那几百个字形（见 fonts/CMakeLists.txt）。
+font20_cwtrn.c 只含界面实际用到的那几百个字形（见 components/fonts/CMakeLists.txt）。
 新增中文文案时若用到表外的字，**不会有编译错误，只会在屏幕上渲染成空白**
 ——这是那种只有对着真屏幕才看得出来的问题，必须在构建前拦下。
 
@@ -15,8 +15,8 @@ import re
 import sys
 
 SRC_GLOBS = [
-    "firmware/cw-trainer/main/**/*.c",
-    "firmware/cw-trainer/main/**/*.h",
+    "main/**/*.c",
+    "main/**/*.h",
 ]
 
 # 开发专用、发布版根本不编进去的文件（见 main/CMakeLists.txt 里的 CW_STYLE_PROBE
@@ -24,7 +24,7 @@ SRC_GLOBS = [
 # 白白撑大裁剪字库——实测 screenshot.c 里一句中文调试 printf 就能让自检报错、
 # 逼着往字库里加字。字库大小不是小事：裁剪前固件 2.2MB，双 OTA 槽放不下。
 DEV_ONLY = ("screenshot.c", "ui/ui_probe.c", "ui/probe_assets.c")
-FONT_C = "fonts/font20_cwtrn.c"
+FONT_C = "components/fonts/font20_cwtrn.c"
 
 # 运行时还会显示这些，源码里不一定以字面量出现：莫尔斯字符表、呼号、
 # 数字、百分号等。
@@ -112,7 +112,7 @@ def main():
         print("  " + "".join(missing))
         print("\n重新生成字体：")
         print("  python3 tools/check_charset.py --dump /tmp/cs.txt")
-        print("  python3 tools/subset_font.py fonts/font20.c /tmp/cs.txt fonts/font20_cwtrn.c")
+        print("  python3 tools/subset_font.py tools/font-src/font20.c /tmp/cs.txt components/fonts/font20_cwtrn.c")
         return 1
     print("全部命中。")
     return 0

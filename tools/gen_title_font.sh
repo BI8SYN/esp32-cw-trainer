@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# 重新生成标题字体 fonts/font28cn.c。
+# 重新生成标题字体 components/fonts/font28cn.c。
 #
 # ── 为什么会有这个脚本 ──
 #
-# fonts/ 下原有的 font20.c / font28.c / EN_BIG.c 都是第三方「Lvgl Font Tool
+# 其余的 font20.c / font28.c / EN_BIG.c 都是第三方「Lvgl Font Tool
 # V0.4」生成的 XBF 格式，**仓库里没有它们的源字体**——这正是 tools/subset_font.py
 # 只能做 C→C 裁剪的原因（见那个文件的头注释）。这是个历史包袱：想换字号、
 # 换字重、补字形，都无从下手。
@@ -48,7 +48,7 @@ REPO="$PWD"
 
 FONT_URL="https://github.com/notofonts/noto-cjk/raw/main/Serif/SubsetOTF/SC/NotoSerifSC-Regular.otf"
 SIZE=28
-OUT="fonts/font28cn.c"
+OUT="components/fonts/font28cn.c"
 FALLBACK="font20"
 
 # 标题实际用到的字符。当前唯一的使用点是 ui_home.c 的「KOCH 第 %u 课」。
