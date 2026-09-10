@@ -1,5 +1,8 @@
 # CW Trainer
 
+[![CI](https://github.com/Johnson-LYS/esp32-cw-trainer/actions/workflows/ci.yml/badge.svg)](https://github.com/Johnson-LYS/esp32-cw-trainer/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A Morse code (CW) trainer firmware for the ESP32-2432S028R "cheap yellow display"
 board — Koch method training, callsign copying, simulated QSOs, a touch paddle
 keyer with live decoding, and networked practice over the MorseKOB/CWCom
