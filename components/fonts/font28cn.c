@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 28 px
  * Bpp: 4
- * Opts: --font /var/folders/m5/_gkv2j9d3wv0vh0y1fq72flc0000gn/T/tmp.iEjjQWTpsv/serif.otf --size 28 --bpp 4 --format lvgl --no-compress --lv-include lvgl.h --lv-font-name font28cn --lv-fallback font20 --symbols KOCH第课0123456789  -o /Users/liyongsheng/projects/esp32-companion/fonts/font28cn.c
+ * Opts: --font /var/folders/m5/_gkv2j9d3wv0vh0y1fq72flc0000gn/T/tmp.iEjjQWTpsv/serif.otf --size 28 --bpp 4 --format lvgl --no-compress --lv-include lvgl.h --lv-font-name font28cn --lv-fallback font20 --symbols KOCH第课0123456789  -o components/fonts/font28cn.c
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE

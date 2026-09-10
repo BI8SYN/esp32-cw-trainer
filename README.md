@@ -1,6 +1,6 @@
 # CW Trainer
 
-[![CI](https://github.com/Johnson-LYS/esp32-cw-trainer/actions/workflows/ci.yml/badge.svg)](https://github.com/Johnson-LYS/esp32-cw-trainer/actions/workflows/ci.yml)
+[![CI](https://github.com/BI8SYN/esp32-cw-trainer/actions/workflows/ci.yml/badge.svg)](https://github.com/BI8SYN/esp32-cw-trainer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 A Morse code (CW) trainer firmware for the ESP32-2432S028R "cheap yellow display"
@@ -48,7 +48,7 @@ python -m esptool --chip esp32 -b 460800 -p /dev/cu.usbserial-XXXX \
 需要 **ESP-IDF v5.5.4**（安装步骤见 `docs/build-setup.md`）：
 
 ```bash
-git clone https://github.com/Johnson-LYS/esp32-cw-trainer.git
+git clone https://github.com/BI8SYN/esp32-cw-trainer.git
 cd esp32-cw-trainer
 tools/idf.sh build
 tools/idf.sh flash monitor

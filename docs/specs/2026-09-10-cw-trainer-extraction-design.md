@@ -3,7 +3,7 @@
 2026-09-10 定稿。
 
 把 `firmware/cw-trainer` 从本仓库抽出，成为公开仓库
-`Johnson-LYS/esp32-cw-trainer`，并由 GitHub Actions 按 tag 构建产物、创建 release。
+`BI8SYN/esp32-cw-trainer`，并由 GitHub Actions 按 tag 构建产物、创建 release。
 
 ## 为什么不能直接把本仓库公开
 
