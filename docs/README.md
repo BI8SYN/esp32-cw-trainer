@@ -35,6 +35,14 @@
 这些文档**没有跟着改写**——它们记的是当时做了什么，改路径等于伪造记录。抽离
 本身的设计见 `specs/2026-09-10-cw-trainer-extraction-design.md`。
 
+同理，**v1.5.1 及之前的 tag 在本仓库里构建不出来**。抽离时字体组件去掉了本固件
+从不使用的 `clock_font.c` / `status_font.c`（那是同一块板上另一个固件的字体，
+只是当年两个固件共用一个字体组件），而那时的 `components/fonts/CMakeLists.txt`
+还在引用它们；工程根的 `EXTRA_COMPONENT_DIRS` 也还指向抽离前的多固件布局。这些
+tag 留着是为了 `git log` / `git blame` 能一路追溯，不是为了从它构建。各版本的
+产物见 [Releases](../../releases)——v1.4.2 / v1.5.0 / v1.5.1 附着当年发布的分发
+包，更早的版本当年没打包（「每版必打」是 v1.5.1 才定的规矩）。
+
 同理，它们提到的 `firmware/fmo-companion`（同一块板子上的另一个固件）和
 `tools/morsekob/`（wire 服务器的服务端代码）都不在本仓库，前者见
 `upstream-source.md`。
