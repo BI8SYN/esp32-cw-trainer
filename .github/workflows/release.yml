@@ -49,7 +49,7 @@ jobs:
       # 版本说明是发布的一部分，缺了就不让发。设备上看不到它（裁剪后的字库放不下
       # 那么多字），但仓库里必须留下这一版改了什么——出问题时要靠它定位是哪一版
       # 引入的。这条规矩原来在 publish_ota.sh 里，现在挪到 CI。
-      - name: 校验版本说明存在
+      - name: 校验版本说明存在，取出 Release 正文
         shell: bash
         run: |
           NOTES="docs/releases/cw-trainer-${{ steps.ver.outputs.version }}.md"
@@ -58,6 +58,22 @@ jobs:
             exit 1
           }
           echo "版本说明：$NOTES（$(wc -l < "$NOTES") 行）"
+          # Release 页面只放 <!-- release-body --> 里那段项目列表；版本说明文件里
+          # 的详细分析是给仓库留的记录，不往 Release 上堆。没有标记就整篇发，
+          # 这样忘了加标记也不会发出一个空的 Release。
+          if grep -q '<!-- release-body' "$NOTES"; then
+            awk '/<!-- release-body/{f=1;next} /<!-- \/release-body -->/{f=0} f' \
+                "$NOTES" > release-body.md
+            [[ -s release-body.md ]] || {
+              echo "::error::$NOTES 里的 release-body 段是空的"
+              exit 1
+            }
+            echo "Release 正文取自 release-body 段（$(wc -l < release-body.md) 行）"
+          else
+            cp "$NOTES" release-body.md
+            echo "::warning::$NOTES 里没有 release-body 标记，整篇作为 Release 正文"
+          fi
+          cat release-body.md
 
       - name: 主机测试
         run: make -C test
@@ -105,7 +121,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: cw-trainer ${{ steps.ver.outputs.version }}
-          body_path: docs/releases/cw-trainer-${{ steps.ver.outputs.version }}.md
+          body_path: release-body.md
           files: assets/*
           fail_on_unmatched_files: true
 
