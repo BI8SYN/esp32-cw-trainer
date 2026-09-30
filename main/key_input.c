@@ -56,16 +56,16 @@ static void read_inputs(bool *dit, bool *dah)
         if (!s_ext_stable[i]) s_ext_armed[i] = true;
     }
 
-    /* 直键不参与左右对调：它只有一个触点，"左右"无从谈起。真按对调处理的话，
-     * 屏幕上那一整块（走 touch[0]）会被换到 dah 上，而 keyer 的直键分支只看
-     * dit——结果是开了对调之后屏幕上的直键按了没有任何反应。外接的直键同理，
-     * 固定留在点线（IO18 / TRS 的 Tip），这也正是单声道插头的接法。 */
+    /* 直键只有闭合/断开两态，不参与左右对调；两根外接线都可触发。
+     * 单声道插头可能让 Ring 恒接地，下面的门闩仍会把这种线挡住。 */
     const bool swap = c->paddle_swap && c->keyer_mode != KEYER_MODE_STRAIGHT;
 
     const bool touch[2] = { s_touch[0], s_touch[1] };
     key_merge_out_t m;
     key_merge(touch, s_ext_stable, s_ext_armed, swap, &m);
-    s_in[0] = m.in[0];
+    /* 直键在屏幕上是一整块，任一有效输入按下都应高亮它。 */
+    s_in[0] = c->keyer_mode == KEYER_MODE_STRAIGHT
+            ? (m.in[0] || m.in[1]) : m.in[0];
     s_in[1] = m.in[1];
     *dit = m.dit;
     *dah = m.dah;

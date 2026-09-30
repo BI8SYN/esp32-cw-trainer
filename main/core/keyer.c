@@ -30,7 +30,9 @@ static void start_element(keyer_t *k, int el, uint32_t now)
 bool keyer_tick(keyer_t *k, uint32_t now)
 {
     if (k->mode == KEYER_MODE_STRAIGHT) {
-        k->key_out = k->dit_in;
+        /* 直键只有闭合/断开两态，任一输入线闭合都应触发。
+         * 外接线的去抖和卡低门闩已在 key_input 层处理。 */
+        k->key_out = k->dit_in || k->dah_in;
         return k->key_out;
     }
 

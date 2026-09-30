@@ -18,6 +18,19 @@ TEST(straight_key_follows_input)
     ASSERT_TRUE(!keyer_tick(&k, 1));
 }
 
+TEST(straight_key_accepts_either_input)
+{
+    keyer_t k; keyer_init(&k, KEYER_MODE_STRAIGHT, 60);
+    keyer_set_input(&k, false, true);   /* 只接在划线上的直键 */
+    ASSERT_TRUE(keyer_tick(&k, 0));
+    keyer_set_input(&k, true, true);    /* 两路同时闭合也只持续一次按键 */
+    ASSERT_TRUE(keyer_tick(&k, 1));
+    keyer_set_input(&k, true, false);   /* 松开其中一路，另一条仍有效 */
+    ASSERT_TRUE(keyer_tick(&k, 2));
+    keyer_set_input(&k, false, false);
+    ASSERT_TRUE(!keyer_tick(&k, 3));
+}
+
 TEST(iambic_single_dit_then_gap)
 {
     keyer_t k; keyer_init(&k, KEYER_MODE_IAMBIC_B, 60);
@@ -76,6 +89,7 @@ TEST(iambic_a_does_not_send_memorized)
 int main(void)
 {
     RUN(straight_key_follows_input);
+    RUN(straight_key_accepts_either_input);
     RUN(iambic_single_dit_then_gap);
     RUN(iambic_held_dah_repeats);
     RUN(iambic_squeeze_alternates);
