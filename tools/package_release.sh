@@ -6,12 +6,16 @@
 #
 # 环境变量：
 #   DIST_DIR   输出的父目录，默认仓库的 dist/（不进 git，见 .gitignore）
-#   IDF_DIR    本机 ESP-IDF 位置，默认 ~/esp/esp-idf；已在 PATH 上有 idf.py
-#              时（CI 容器）忽略此项，不再 source export.sh
+#   EMBEDDED_MACHINE / EMBEDDED_USER  OrbStack 机器和用户，默认 embedded / johnson
+#   ESP-IDF 与构建缓存均由 tools/idf.sh 在 Linux 中选择。
 #
 # 版本号取 CMakeLists.txt 里的 PROJECT_VER——那才是真正嵌进 bin、设备设置页和
 # 启动日志显示的那个值。CI 在打 tag 时另会校验 tag 名与它一致。
 set -euo pipefail
+if [[ $(uname -s) == Darwin ]]; then
+    ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+    exec "$ROOT/tools/device-ubuntu.sh" script "$ROOT/tools/package_release.sh" "$@"
+fi
 
 cd "$(dirname "$0")/.."
 REPO_ROOT="$PWD"
@@ -25,7 +29,7 @@ VER="$(sed -n 's/^set(PROJECT_VER "\(.*\)")$/\1/p' CMakeLists.txt)"
   exit 1
 }
 
-BUILD="$REPO_ROOT/build"
+BUILD="$("$REPO_ROOT/tools/idf.sh" where)"
 APP_BIN="$BUILD/$NAME.bin"
 [[ -f "$APP_BIN" ]] || {
   echo "错误：找不到 ${APP_BIN}，先构建：tools/idf.sh build" >&2
@@ -60,25 +64,7 @@ fi
 
 COMMIT="$(git rev-parse --short HEAD)"
 
-# ── 环境：CI 容器里 idf.py 已在 PATH 上，本机则需要 source 一次 export.sh
-if ! command -v idf.py > /dev/null; then
-  IDF_DIR="${IDF_DIR:-$HOME/esp/esp-idf}"
-  [[ -f "$IDF_DIR/export.sh" ]] || {
-    echo "错误：idf.py 不在 PATH 上，也找不到 $IDF_DIR/export.sh" >&2
-    exit 1
-  }
-  set +u
-  # shellcheck disable=SC1091
-  source "$IDF_DIR/export.sh" > /dev/null
-  set -u
-fi
-
-# IDF 版本写进包里的 README。容器里有 IDF_VERSION 环境变量，本机则从 IDF 的
-# git 仓库问；两条都没有就留空，而不是硬编一个可能已经过期的版本号。
-IDF_VER="${IDF_VERSION:-}"
-if [[ -z "$IDF_VER" ]]; then
-  IDF_VER="$(git -C "${IDF_PATH:-${IDF_DIR:-$HOME/esp/esp-idf}}" describe --tags 2>/dev/null || echo "未知")"
-fi
+IDF_VER="$("$REPO_ROOT/tools/idf.sh" --version)"
 
 # sha256：macOS 只有 shasum，多数 Linux 只有 sha256sum
 if command -v sha256sum > /dev/null; then
@@ -92,7 +78,7 @@ rm -rf "$OUT"
 mkdir -p "$OUT"
 
 echo "==> 合并镜像"
-idf.py merge-bin -o "$OUT/$NAME-$VER-合并版.bin" > /dev/null
+"$REPO_ROOT/tools/idf.sh" merge-bin -o "$OUT/$NAME-$VER-合并版.bin" > /dev/null
 
 echo "==> 收集分段镜像"
 cp "$BUILD/bootloader/bootloader.bin"           "$OUT/bootloader.bin"

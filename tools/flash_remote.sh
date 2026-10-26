@@ -25,7 +25,7 @@ REMOTE="${REMOTE:-}"
 [[ -n "$REMOTE" ]] || { echo "错误：请设置 REMOTE=用户@主机" >&2; exit 1; }
 PORT="${REMOTE_PORT:-}"
 BAUD="${ESP_BAUD:-460800}"
-BUILD="build"
+BUILD=".ubuntu-build/default"
 APP_NAME="cw-trainer"
 MONITOR=0
 [[ "${1:-}" == "--monitor" ]] && MONITOR=1
